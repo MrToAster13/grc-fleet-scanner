@@ -21,7 +21,24 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 52-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 58-test pytest suite with namespaced XCCDF fixtures.
+
+### Fixed
+- **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
+  oscap's *weighted* `<score>` against a flat pass-ratio with too tight a tolerance, so a
+  legitimate result warned "verify raw evidence" on every parse. It now flags only a gross
+  contradiction, preserving the alarm's signal value.
+- **Assessment confidence is now in the JSON export.** `to_dict()` surfaces the per-host
+  `assessment_confidence` / `total_outcomes` that `dataclasses.asdict()` omitted, so the
+  JSON matches the CSV and HTML.
+- **Honest low-confidence badge.** The per-host badge said "N not run" using only
+  `not_checked`; an error-driven low score then rendered "0 not run". It now reports the
+  count of all undetermined checks (error + notchecked + other) as "N unverified".
+- **`--low-confidence-threshold` is captured in `config_hash`.** A CLI override is now
+  mirrored into the hashed config, so two runs that differ only by threshold no longer
+  share provenance.
+- **Graceful error on a non-numeric `low_confidence_threshold`** in YAML — a `ConfigError`
+  instead of an unhandled `ValueError` traceback.
 
 ### Changed
 - Documentation consolidated into `docs/` with a single canonical home per topic.

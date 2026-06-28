@@ -137,6 +137,6 @@ Surfaced during development, intentionally not built yet:
 
 ## 10. Status & validation
 
-Offline behavior is covered by a 52-test pytest suite. The live SSH→`oscap` scan leg has
+Offline behavior is covered by a 58-test pytest suite. The live SSH→`oscap` scan leg has
 not yet been validated against a real Ubuntu host — run [validation.md](validation.md)
 once against a single VM (including its negative-path checks) before trusting a fleet run.

@@ -251,7 +251,7 @@
         {% if conf is not none %}
           {% set low = h.ip in low_conf_ips %}
           <span class="{{ 'bad' if low else 'muted' }}">{{ '%.0f'|format(conf) }}%</span>
-          {% if low %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.not_checked }} not run</span>{% endif %}
+          {% if low %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.undetermined }} unverified</span>{% endif %}
         {% else %}—{% endif %}
       {% else %}—{% endif %}
     </td>

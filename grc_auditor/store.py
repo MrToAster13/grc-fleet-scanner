@@ -8,7 +8,7 @@ Schema (the third shared contract):
   runs(run_id PK, started_at, finished_at, scope, config_hash)
   hosts(id PK, run_id FK, ip, hostname, os_guess, is_ubuntu, ubuntu_version,
         credential_group, status, detail, profile_id, benchmark_version,
-        passed, failed, error, not_applicable, score,
+        passed, failed, error, not_applicable, not_checked, other, score,
         arf_path, html_path)
   findings(id PK, host_id FK, rule_id, result, severity, title)
 """
@@ -193,6 +193,12 @@ class Store:
                     failed=hr["failed"] or 0,
                     error=hr["error"] or 0,
                     not_applicable=hr["not_applicable"] or 0,
+                    # NOTE: rows written before the not_checked/other migration
+                    # hold NULL here; `or 0` coerces them, which is lossy (the
+                    # true count is unrecoverable). Safe today because the only
+                    # loaded-run consumer (drift) reads score/pass-rate, not
+                    # confidence -- revisit before surfacing a stored run's
+                    # assessment_confidence.
                     not_checked=hr["not_checked"] or 0,
                     other=hr["other"] or 0,
                     score=hr["score"],

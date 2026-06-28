@@ -12,6 +12,17 @@ from grc_auditor.scan import parse_xccdf_results
 from conftest import fixture_path
 
 
+def test_canonical_fixture_does_not_trip_reconciliation_warning(caplog):
+    # The canonical result (3 pass / 2 fail -> flat ~60 vs weighted score 86.5)
+    # is a legitimate CIS weighted-scoring divergence. It must NOT emit the
+    # "verify raw evidence" warning, or the alarm trains operators to ignore it.
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        parse_xccdf_results(fixture_path("xccdf-results.xml"))
+    assert not any("verify raw evidence" in r.message for r in caplog.records)
+
+
 def test_counts_score_and_failures():
     scan = parse_xccdf_results(fixture_path("xccdf-results.xml"))
 
