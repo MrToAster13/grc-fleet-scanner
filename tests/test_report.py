@@ -6,7 +6,9 @@ import json
 import os
 
 from grc_auditor.models import HostRecord, HostStatus, RuleResult, RunRecord, ScanResult
-from grc_auditor.report import compute_drift, top_failing_controls, write_reports
+from grc_auditor.report import (
+    compute_drift, low_confidence_hosts, top_failing_controls, write_reports,
+)
 from grc_auditor.store import Store
 
 from conftest import fabricate_scanned_host
@@ -183,5 +185,49 @@ def test_write_reports_produces_all_artifacts(tmp_path):
         assert "10.0.10.21" in hosts_csv
         assert "10.0.10.40" in hosts_csv
         assert "no_credentials" in hosts_csv
+    finally:
+        store.close()
+
+
+# --- low-confidence (anti-false-pass) -------------------------------------- #
+
+def test_low_confidence_host_is_flagged(tmp_path):
+    store = Store(str(tmp_path))
+    try:
+        # 100% score, but 190 of 200 checks never ran -> must be flagged.
+        host = _scanned_host("10.0.10.21", 10, 0, 100.0)
+        host.scan.not_checked = 190
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+
+        low = low_confidence_hosts(run)
+        assert len(low) == 1
+        assert low[0]["ip"] == "10.0.10.21"
+        assert low[0]["confidence"] == 5.0
+
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        html = open(paths["html"], encoding="utf-8").read()
+        assert "LOW" in html            # per-host badge
+        assert "Low confidence" in html  # exec-summary callout
+
+        payload = json.loads(open(paths["json"], encoding="utf-8").read())
+        assert payload["executive_summary"]["low_confidence_count"] == 1
+
+        # the not_checked count is exported for the analyst
+        hosts_csv = open(paths["hosts_csv"], encoding="utf-8").read()
+        assert "confidence" in hosts_csv  # header present
+    finally:
+        store.close()
+
+
+def test_fully_assessed_host_not_flagged(tmp_path):
+    store = Store(str(tmp_path))
+    try:
+        # 180/200 with nothing notchecked -> confidence high, no flag.
+        host = _scanned_host("10.0.10.21", 180, 20, 90.0)
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        assert low_confidence_hosts(run) == []
     finally:
         store.close()

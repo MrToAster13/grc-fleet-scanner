@@ -79,6 +79,33 @@ class ScanResult:
     def total_evaluated(self) -> int:
         return self.passed + self.failed + self.error
 
+    @property
+    def total_outcomes(self) -> int:
+        """Every rule-result oscap emitted, regardless of verdict."""
+        return (self.passed + self.failed + self.error
+                + self.not_applicable + self.not_checked + self.other)
+
+    @property
+    def inconclusive(self) -> int:
+        """Rules with no clean determination (couldn't be evaluated)."""
+        return self.error + self.not_checked + self.other
+
+    @property
+    def assessment_confidence(self) -> Optional[float]:
+        """Percent of the benchmark that produced a definitive verdict
+        (pass / fail / notapplicable).
+
+        A high ``not_checked`` count -- typically insufficient privilege so the
+        check never ran -- drives this DOWN. It is the guard against the worst
+        outcome for a compliance tool: a high score that reflects only the few
+        checks that actually executed. ``None`` when nothing was evaluated.
+        """
+        total = self.total_outcomes
+        if total == 0:
+            return None
+        definitive = self.passed + self.failed + self.not_applicable
+        return round(100.0 * definitive / total, 1)
+
 
 @dataclass
 class HostRecord:

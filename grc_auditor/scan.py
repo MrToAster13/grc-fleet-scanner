@@ -242,6 +242,20 @@ def parse_xccdf_results(path: str) -> ScanResult:
     for fr in failed_rules:
         fr.title = titles.get(fr.rule_id)
     scan.failed_rules = failed_rules
+
+    # Soft reconciliation: oscap's own <score> should roughly track our parsed
+    # pass/fail (CIS default scoring is ~ 100 * pass / (pass + fail)). A large
+    # divergence means we likely mis-parsed -- warn loudly so a wrong number
+    # can't masquerade as truth. Non-fatal: weighted scoring models vary, so
+    # this only flags gross gaps; the raw evidence remains the authority.
+    if scan.score is not None and (scan.passed + scan.failed) > 0:
+        implied = 100.0 * scan.passed / (scan.passed + scan.failed)
+        if abs(implied - scan.score) > 15.0:
+            log.warning(
+                "parse: %s reported score %.1f is inconsistent with parsed "
+                "counts (%d pass / %d fail => ~%.1f); verify raw evidence",
+                path, scan.score, scan.passed, scan.failed, implied,
+            )
     return scan
 
 
