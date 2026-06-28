@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Faithful slice of real `oscap xccdf eval` results output.
+
+  Real OpenSCAP emits a Benchmark (XCCDF 1.2 namespace) that embeds the Rule
+  definitions (carrying titles) and a single TestResult. The TestResult holds
+  one rule-result (idref, severity) per evaluated rule, each with a result child
+  whose text is one of pass / fail / error / notapplicable / notchecked, and a
+  final score element.
+
+  grc_auditor.scan.parse_xccdf_results strips namespaces by local-name and
+  walks every element, so the namespace prefix below is exercised on purpose.
+
+  Known mix in this fixture:
+    pass           : 3
+    fail           : 2  (one high, one medium)
+    notapplicable  : 1
+    notchecked     : 1
+    score          : 86.5
+    version (bench): 0.1.70
+-->
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2"
+           id="xccdf_org.ssgproject.content_benchmark_UBUNTU-22-04">
+  <status date="2024-01-15">draft</status>
+  <title>Guide to the Secure Configuration of Ubuntu 22.04</title>
+  <version>0.1.70</version>
+
+  <Rule id="xccdf_org.ssgproject.content_rule_sshd_disable_root_login"
+        severity="high" selected="true">
+    <title>Disable SSH Root Login</title>
+  </Rule>
+  <Rule id="xccdf_org.ssgproject.content_rule_audit_rules_time_change"
+        severity="medium" selected="true">
+    <title>Record Events That Modify Date and Time Information</title>
+  </Rule>
+  <Rule id="xccdf_org.ssgproject.content_rule_package_aide_installed"
+        severity="medium" selected="true">
+    <title>Install AIDE</title>
+  </Rule>
+
+  <TestResult id="xccdf_org.ssgproject.content_testresult_cis_level1_server"
+              start-time="2026-06-27T00:00:00+00:00"
+              end-time="2026-06-27T00:01:30+00:00">
+    <benchmark href="/usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml"
+               id="xccdf_org.ssgproject.content_benchmark_UBUNTU-22-04"/>
+    <title>OSCAP Scan Result</title>
+    <profile idref="xccdf_org.ssgproject.content_profile_cis_level1_server"/>
+    <target>web01.lab</target>
+    <version>0.1.70</version>
+
+    <rule-result idref="xccdf_org.ssgproject.content_rule_package_aide_installed"
+                 severity="medium" time="2026-06-27T00:00:10+00:00">
+      <result>pass</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_sshd_set_idle_timeout"
+                 severity="medium" time="2026-06-27T00:00:11+00:00">
+      <result>pass</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_no_empty_passwords"
+                 severity="high" time="2026-06-27T00:00:12+00:00">
+      <result>pass</result>
+    </rule-result>
+
+    <rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login"
+                 severity="high" time="2026-06-27T00:00:20+00:00">
+      <result>fail</result>
+      <ident system="https://benchmarks.cisecurity.org/tools2/linux/CIS_Ubuntu">5.2.8</ident>
+    </rule-result>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_audit_rules_time_change"
+                 severity="medium" time="2026-06-27T00:00:21+00:00">
+      <result>fail</result>
+    </rule-result>
+
+    <rule-result idref="xccdf_org.ssgproject.content_rule_grub2_uefi_password"
+                 severity="medium" time="2026-06-27T00:00:30+00:00">
+      <result>notapplicable</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_smartcard_auth"
+                 severity="low" time="2026-06-27T00:00:31+00:00">
+      <result>notchecked</result>
+    </rule-result>
+
+    <score system="urn:xccdf:scoring:default" maximum="100.000000">86.500000</score>
+  </TestResult>
+</Benchmark>

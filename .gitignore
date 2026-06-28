@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+config.yaml
+grc-output/
+*.db

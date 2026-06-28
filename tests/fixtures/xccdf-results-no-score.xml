@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Same XCCDF results shape as xccdf-results.xml but with the score element
+  deliberately OMITTED. OpenSCAP normally always emits a score, but a truncated
+  or aborted results document can lack one; parse_xccdf_results must leave
+  ScanResult.score as None without raising.
+
+  Mix here: 1 pass, 1 fail (high). No score, no benchmark version element.
+-->
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2"
+           id="xccdf_org.ssgproject.content_benchmark_UBUNTU-22-04">
+  <status date="2024-01-15">draft</status>
+  <title>Guide to the Secure Configuration of Ubuntu 22.04</title>
+
+  <Rule id="xccdf_org.ssgproject.content_rule_sshd_disable_root_login"
+        severity="high" selected="true">
+    <title>Disable SSH Root Login</title>
+  </Rule>
+
+  <TestResult id="xccdf_org.ssgproject.content_testresult_cis_level1_server"
+              start-time="2026-06-27T00:00:00+00:00"
+              end-time="2026-06-27T00:01:30+00:00">
+    <title>OSCAP Scan Result</title>
+    <profile idref="xccdf_org.ssgproject.content_profile_cis_level1_server"/>
+    <target>web01.lab</target>
+
+    <rule-result idref="xccdf_org.ssgproject.content_rule_no_empty_passwords"
+                 severity="high" time="2026-06-27T00:00:12+00:00">
+      <result>pass</result>
+    </rule-result>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login"
+                 severity="high" time="2026-06-27T00:00:20+00:00">
+      <result>fail</result>
+    </rule-result>
+  </TestResult>
+</Benchmark>
