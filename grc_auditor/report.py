@@ -291,7 +291,8 @@ def _sparkline(values: list) -> str:
     return "".join(out)
 
 
-def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict) -> dict:
+def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
+                      low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> dict:
     """A plain-language posture block for non-technical readers.
 
     Synthesizes overall posture, scanned-vs-gap coverage, the trend direction,
@@ -363,7 +364,7 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict) -> dic
         } for c in top[:3]]
 
     # Low-confidence warning: scores that reflect only part of the benchmark.
-    low_conf = low_confidence_hosts(run)
+    low_conf = low_confidence_hosts(run, low_confidence_threshold)
     if low_conf:
         confidence_note = (
             "%d scanned host%s returned LOW assessment confidence -- much of "
@@ -407,7 +408,9 @@ def _summary(run: RunRecord, drift: Drift) -> dict:
     }
 
 
-def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
+def write_reports(run: RunRecord, store: Store, run_dir: str,
+                  low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD
+                  ) -> dict[str, str]:
     """Render all report artifacts into run_dir. Returns {kind: path}."""
     os.makedirs(run_dir, exist_ok=True)
     drift = compute_drift(run, store)
@@ -415,7 +418,8 @@ def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
     top = top_failing_controls(run)
     severity = controls_by_severity(run)
     trend = fleet_trend(run, store)
-    exec_summary = executive_summary(run, drift, top, severity)
+    exec_summary = executive_summary(run, drift, top, severity,
+                                     low_confidence_threshold)
 
     # --- HTML dashboard ---
     env = Environment(
@@ -427,7 +431,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
-        low_confidence_threshold=LOW_CONFIDENCE_THRESHOLD,
+        low_confidence_threshold=low_confidence_threshold,
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:

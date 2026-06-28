@@ -81,6 +81,7 @@ def cmd_run(args) -> int:
         cfg = apply_overrides(
             cfg, cidrs=args.cidr, exclude=args.exclude, output_dir=args.output,
             cis_level=args.cis_level, ssh_concurrency=args.concurrency,
+            low_confidence_threshold=args.low_confidence_threshold,
         )
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
@@ -132,7 +133,8 @@ def cmd_run(args) -> int:
     try:
         store.save_run(run)
         # Stage 8: report (drift needs the store, after this run is saved)
-        paths = write_reports(run, store, run_dir)
+        paths = write_reports(run, store, run_dir,
+                              low_confidence_threshold=cfg.low_confidence_threshold)
     finally:
         store.close()
 
@@ -187,6 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--cis-level", type=int, choices=(1, 2),
                    help="override global CIS level (default from config)")
     r.add_argument("--concurrency", type=int, help="override SSH concurrency")
+    r.add_argument("--low-confidence-threshold", type=float, metavar="PCT",
+                   help="flag a host's score LOW CONFIDENCE below this %% of the "
+                        "benchmark producing a verdict (default 90)")
     r.add_argument("--os-detect", action="store_true",
                    help="enable nmap OS detection (-O, needs root on run host)")
     r.add_argument("--dry-run", action="store_true",

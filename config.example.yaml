@@ -21,6 +21,9 @@ scope:
 output_dir: "./grc-output"  # history.db + per-run reports/evidence live here
 cis_level: 1                # 1 = baseline (default), 2 = stricter
 ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on targets
+low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer than
+                               # this % of the benchmark actually produced a verdict
+                               # (catches low-privilege scans where most checks didn't run)
 # known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
 
 # ---------------------------------------------------------------------------

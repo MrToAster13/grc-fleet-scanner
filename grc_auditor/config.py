@@ -80,6 +80,10 @@ class Config:
     known_hosts: Optional[str] = None        # path; None -> system + ~/.ssh/known_hosts
     cis_level: int = 1                        # global default (per spec)
     ssg_dir: str = "/usr/share/xml/scap/ssg/content"
+    # Below this % of the benchmark producing a verdict, a host's score is
+    # flagged LOW CONFIDENCE in the report (guards against a high score that
+    # only reflects the few checks that actually ran).
+    low_confidence_threshold: float = 90.0
     raw: dict = field(default_factory=dict)   # original parsed document
 
     def cis_level_for(self, group: Optional[CredentialGroup]) -> int:
@@ -182,6 +186,10 @@ def load_config(path: str) -> Config:
     if level not in (1, 2):
         raise ConfigError("cis_level must be 1 or 2")
 
+    threshold = float(doc.get("low_confidence_threshold", 90.0))
+    if not 0.0 <= threshold <= 100.0:
+        raise ConfigError("low_confidence_threshold must be between 0 and 100")
+
     return Config(
         scope=scope,
         credential_groups=credential_groups,
@@ -189,12 +197,14 @@ def load_config(path: str) -> Config:
         known_hosts=doc.get("known_hosts"),
         cis_level=level,
         ssg_dir=doc.get("ssg_dir", "/usr/share/xml/scap/ssg/content"),
+        low_confidence_threshold=threshold,
         raw=doc,
     )
 
 
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
-                    cis_level=None, ssh_concurrency=None) -> Config:
+                    cis_level=None, ssh_concurrency=None,
+                    low_confidence_threshold=None) -> Config:
     """Apply CLI overrides onto a loaded Config (CLI wins over file)."""
     if cidrs:
         cfg.scope.cidrs = list(cidrs)
@@ -209,4 +219,8 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.cis_level = cis_level
     if ssh_concurrency is not None:
         cfg.scope.ssh_concurrency = ssh_concurrency
+    if low_confidence_threshold is not None:
+        if not 0.0 <= low_confidence_threshold <= 100.0:
+            raise ConfigError("--low-confidence-threshold must be between 0 and 100")
+        cfg.low_confidence_threshold = low_confidence_threshold
     return cfg
