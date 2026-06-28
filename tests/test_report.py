@@ -231,3 +231,15 @@ def test_fully_assessed_host_not_flagged(tmp_path):
         assert low_confidence_hosts(run) == []
     finally:
         store.close()
+
+
+def test_low_confidence_threshold_is_configurable():
+    # 80 of 100 checks ran -> 80% confidence.
+    host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+    host.scan.not_checked = 20
+    run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+
+    # default 90% threshold flags it...
+    assert len(low_confidence_hosts(run)) == 1
+    # ...a lenient 75% threshold does not.
+    assert low_confidence_hosts(run, threshold=75.0) == []
