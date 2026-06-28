@@ -1,0 +1,437 @@
+"""Stage 8: reporting - HTML dashboard, machine exports, drift.
+
+Produces, for one run:
+  * report.html  - consolidated fleet dashboard (coverage map, pass/fail,
+                   top fleet-wide failing controls, per-host drill-down, drift)
+  * report.json  - the full RunRecord for GRC-platform ingestion
+  * hosts.csv    - per-host summary
+  * findings.csv - per-failed-control rows
+
+Drift compares this run to the immediately prior run in the history store.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+import os
+from collections import Counter
+from dataclasses import dataclass
+from typing import Optional
+
+try:
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+except ImportError as exc:  # pragma: no cover - dependency guard
+    raise SystemExit(
+        "Jinja2 is required. Install dependencies: pip install -r requirements.txt"
+    ) from exc
+
+from . import crosswalk
+from .logging_setup import get_logger
+from .models import RunRecord
+from .store import Store
+
+log = get_logger()
+
+_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+# Severity ranking for sorting/weighting. Higher = worse.
+_SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
+
+
+def _sev_rank(severity: Optional[str]) -> int:
+    return _SEVERITY_RANK.get((severity or "unknown").lower(), 0)
+
+
+@dataclass
+class HostDrift:
+    ip: str
+    prev_score: Optional[float]
+    curr_score: Optional[float]
+
+    @property
+    def delta(self) -> Optional[float]:
+        if self.prev_score is None or self.curr_score is None:
+            return None
+        return round(self.curr_score - self.prev_score, 1)
+
+
+@dataclass
+class Drift:
+    prev_run_id: Optional[str]
+    prev_pass_rate: Optional[float]
+    curr_pass_rate: Optional[float]
+    per_host: list[HostDrift]
+
+    @property
+    def fleet_delta(self) -> Optional[float]:
+        if self.prev_pass_rate is None or self.curr_pass_rate is None:
+            return None
+        return round(self.curr_pass_rate - self.prev_pass_rate, 1)
+
+
+def compute_drift(run: RunRecord, store: Store) -> Drift:
+    prev_id = store.previous_run_id(run.run_id)
+    if prev_id is None:
+        return Drift(None, None, run.fleet_pass_rate(), [])
+
+    prev = store.load_run(prev_id)
+    prev_scores = {
+        h.ip: h.scan.score for h in prev.scanned_hosts()
+    } if prev else {}
+
+    per_host: list[HostDrift] = []
+    for h in run.scanned_hosts():
+        per_host.append(HostDrift(
+            ip=h.ip,
+            prev_score=prev_scores.get(h.ip),
+            curr_score=h.scan.score,
+        ))
+
+    return Drift(
+        prev_run_id=prev_id,
+        prev_pass_rate=prev.fleet_pass_rate() if prev else None,
+        curr_pass_rate=run.fleet_pass_rate(),
+        per_host=per_host,
+    )
+
+
+def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
+    """Fleet-wide failing controls, severity-weighted and host-linked.
+
+    Aggregates each failing rule across scanned hosts, then sorts by
+    **severity first, then host-count** so the most dangerous, most widespread
+    gaps surface at the top. Each row also carries the list of failing host IPs
+    and an indicative framework cross-walk (NIST 800-53 / ISO 27001) from
+    :mod:`grc_auditor.crosswalk`.
+
+    Each item::
+
+        {"rule_id", "count", "title", "severity", "severity_rank",
+         "hosts": [ip, ...], "stem", "nist": [...], "iso": [...],
+         "mapped": bool}
+    """
+    counter: Counter = Counter()
+    titles: dict[str, str] = {}
+    severities: dict[str, str] = {}
+    hosts_by_rule: dict[str, list] = {}
+    for h in run.scanned_hosts():
+        for fr in h.scan.failed_rules:
+            counter[fr.rule_id] += 1
+            if fr.title:
+                titles[fr.rule_id] = fr.title
+            # Keep the most severe label ever seen for this rule.
+            if fr.severity and _sev_rank(fr.severity) >= _sev_rank(severities.get(fr.rule_id)):
+                severities[fr.rule_id] = fr.severity
+            bucket = hosts_by_rule.setdefault(fr.rule_id, [])
+            if h.ip not in bucket:
+                bucket.append(h.ip)
+
+    rows: list[dict] = []
+    for rid, n in counter.items():
+        sev = severities.get(rid, "unknown")
+        cw = crosswalk.map_rule_verbose(rid)
+        rows.append({
+            "rule_id": rid,
+            "stem": crosswalk.rule_stem(rid),
+            "count": n,
+            "title": titles.get(rid, ""),
+            "severity": sev,
+            "severity_rank": _sev_rank(sev),
+            "hosts": sorted(hosts_by_rule.get(rid, [])),
+            "nist": cw["nist"],
+            "iso": cw["iso"],
+            "mapped": cw["mapped"],
+        })
+
+    # Sort: severity desc, then host-count desc, then rule id for stability.
+    rows.sort(key=lambda r: (-r["severity_rank"], -r["count"], r["rule_id"]))
+    return rows[:limit]
+
+
+def controls_by_severity(run: RunRecord) -> dict:
+    """Breakdown of failing-control findings grouped by severity.
+
+    Counts both *distinct failing rules* and *total host-findings* (one rule
+    failing on three hosts counts as three findings) per severity bucket, so
+    the report can show both "how many kinds of gaps" and "how much exposure".
+
+    Returns::
+
+        {"order": ["high","medium","low","unknown"],
+         "by_severity": {sev: {"rules": int, "findings": int}},
+         "total_rules": int, "total_findings": int}
+    """
+    order = ["high", "medium", "low", "unknown"]
+    rule_sev: dict[str, str] = {}
+    findings: Counter = Counter()
+    for h in run.scanned_hosts():
+        for fr in h.scan.failed_rules:
+            sev = (fr.severity or "unknown").lower()
+            if sev not in _SEVERITY_RANK:
+                sev = "unknown"
+            findings[sev] += 1
+            # Track the most severe label seen per rule for the distinct count.
+            if _sev_rank(sev) >= _sev_rank(rule_sev.get(fr.rule_id)):
+                rule_sev[fr.rule_id] = sev
+
+    rules: Counter = Counter(rule_sev.values())
+    by_sev = {
+        sev: {"rules": rules.get(sev, 0), "findings": findings.get(sev, 0)}
+        for sev in order
+    }
+    return {
+        "order": order,
+        "by_severity": by_sev,
+        "total_rules": sum(rules.values()),
+        "total_findings": sum(findings.values()),
+    }
+
+
+def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
+    """Fleet pass-rate trend across the last ``n`` runs (incl. this one).
+
+    Pulls history from :meth:`Store.fleet_pass_rate_history`. Gracefully reports
+    a single-point "first run" when there is no prior history. The current run
+    is reconciled in from the live ``run`` object so the latest point reflects
+    this in-progress run even before/independent of persistence.
+
+    Returns::
+
+        {"points": [{"run_id","label","pass_rate","scanned","is_current"}],
+         "first_run": bool, "min": float|None, "max": float|None,
+         "spark": "▁▂▅█..."}
+    """
+    history = store.fleet_pass_rate_history(n) if store else []
+
+    # Ensure the current run is represented and authoritative for its own point.
+    curr_rate = run.fleet_pass_rate()
+    curr_scanned = len(run.scanned_hosts())
+    found_current = False
+    for h in history:
+        if h["run_id"] == run.run_id:
+            h["pass_rate"] = curr_rate
+            h["scanned"] = curr_scanned
+            found_current = True
+    if not found_current:
+        history.append({
+            "run_id": run.run_id,
+            "started_at": run.started_at,
+            "scanned": curr_scanned,
+            "pass_rate": curr_rate,
+        })
+        history.sort(key=lambda r: r["run_id"])
+        history = history[-n:]
+
+    points = []
+    for h in history:
+        points.append({
+            "run_id": h["run_id"],
+            "label": (h.get("started_at") or h["run_id"])[:16],
+            "pass_rate": h.get("pass_rate"),
+            "scanned": h.get("scanned", 0),
+            "is_current": h["run_id"] == run.run_id,
+        })
+
+    rated = [p["pass_rate"] for p in points if p["pass_rate"] is not None]
+    return {
+        "points": points,
+        "first_run": len([p for p in points if p["pass_rate"] is not None]) <= 1,
+        "min": min(rated) if rated else None,
+        "max": max(rated) if rated else None,
+        "spark": _sparkline([p["pass_rate"] for p in points]),
+    }
+
+
+_SPARK_CHARS = "▁▂▃▄▅▆▇█"
+
+
+def _sparkline(values: list) -> str:
+    """A tiny inline unicode sparkline scaled to 0..100. None -> gap (' ')."""
+    present = [v for v in values if v is not None]
+    if not present:
+        return ""
+    lo, hi = min(present), max(present)
+    span = (hi - lo) or 1.0
+    out = []
+    last = len(_SPARK_CHARS) - 1
+    for v in values:
+        if v is None:
+            out.append(" ")
+            continue
+        idx = int(round((v - lo) / span * last))
+        out.append(_SPARK_CHARS[max(0, min(last, idx))])
+    return "".join(out)
+
+
+def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict) -> dict:
+    """A plain-language posture block for non-technical readers.
+
+    Synthesizes overall posture, scanned-vs-gap coverage, the trend direction,
+    and the biggest risks (top high-severity, widespread controls). Robust when
+    nothing was scanned or there is no prior run.
+    """
+    scanned = run.scanned_hosts()
+    gaps = run.coverage_gaps()
+    total = len(run.hosts)
+    rate = run.fleet_pass_rate()
+
+    if not scanned:
+        posture = "no-data"
+        headline = (
+            "No hosts were successfully scanned this run; compliance posture "
+            "cannot be assessed. Resolve the coverage gaps below."
+        )
+    elif rate is None:
+        posture = "no-data"
+        headline = "Hosts were scanned but produced no evaluable results."
+    elif rate >= 90:
+        posture = "strong"
+        headline = "Fleet compliance is strong, with only isolated gaps to close."
+    elif rate >= 75:
+        posture = "moderate"
+        headline = "Fleet compliance is moderate; several controls need attention."
+    else:
+        posture = "weak"
+        headline = "Fleet compliance is weak; broad remediation is required."
+
+    # Trend sentence.
+    delta = drift.fleet_delta
+    if delta is None:
+        trend = "No prior run to compare against (first recorded run)."
+    elif delta > 0:
+        trend = "Posture improved %.1f points versus the prior run." % delta
+    elif delta < 0:
+        trend = "Posture regressed %.1f points versus the prior run." % abs(delta)
+    else:
+        trend = "Posture is unchanged versus the prior run."
+
+    # Coverage sentence.
+    if total:
+        cov_pct = round(100.0 * len(scanned) / total, 1)
+    else:
+        cov_pct = 0.0
+    coverage = (
+        "%d of %d discovered hosts assessed (%.1f%%); %d coverage gap%s remain%s."
+        % (len(scanned), total, cov_pct, len(gaps),
+           "" if len(gaps) == 1 else "s", "s" if len(gaps) == 1 else "")
+    )
+
+    # Biggest risks: prefer high severity, then widest blast radius.
+    biggest = []
+    for c in top:
+        if c["severity"] == "high" or c["count"] > 1:
+            biggest.append({
+                "stem": c["stem"],
+                "severity": c["severity"],
+                "count": c["count"],
+                "title": c["title"],
+            })
+        if len(biggest) >= 5:
+            break
+    if not biggest:
+        biggest = [{
+            "stem": c["stem"], "severity": c["severity"],
+            "count": c["count"], "title": c["title"],
+        } for c in top[:3]]
+
+    high_rules = sev["by_severity"].get("high", {}).get("rules", 0)
+    return {
+        "posture": posture,
+        "headline": headline,
+        "trend": trend,
+        "coverage": coverage,
+        "fleet_pass_rate": rate,
+        "high_severity_rules": high_rules,
+        "biggest_risks": biggest,
+    }
+
+
+def _summary(run: RunRecord, drift: Drift) -> dict:
+    scanned = run.scanned_hosts()
+    return {
+        "run_id": run.run_id,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "scope": run.scope,
+        "total_hosts": len(run.hosts),
+        "scanned": len(scanned),
+        "coverage_gaps": len(run.coverage_gaps()),
+        "counts_by_status": run.counts_by_status(),
+        "fleet_pass_rate": run.fleet_pass_rate(),
+        "fleet_delta": drift.fleet_delta,
+        "prev_run_id": drift.prev_run_id,
+    }
+
+
+def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
+    """Render all report artifacts into run_dir. Returns {kind: path}."""
+    os.makedirs(run_dir, exist_ok=True)
+    drift = compute_drift(run, store)
+    summary = _summary(run, drift)
+    top = top_failing_controls(run)
+    severity = controls_by_severity(run)
+    trend = fleet_trend(run, store)
+    exec_summary = executive_summary(run, drift, top, severity)
+
+    # --- HTML dashboard ---
+    env = Environment(
+        loader=FileSystemLoader(_TEMPLATE_DIR),
+        autoescape=select_autoescape(["html", "xml"]),
+    )
+    template = env.get_template("report.html.j2")
+    html = template.render(
+        run=run, summary=summary, drift=drift, top=top,
+        severity=severity, trend=trend, exec_summary=exec_summary,
+        crosswalk_label=crosswalk.CROSSWALK_LABEL,
+    )
+    html_path = os.path.join(run_dir, "report.html")
+    with open(html_path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+    # --- JSON export ---
+    json_path = os.path.join(run_dir, "report.json")
+    payload = run.to_dict()
+    payload["summary"] = summary
+    payload["executive_summary"] = exec_summary
+    payload["top_failing_controls"] = top
+    payload["controls_by_severity"] = severity
+    payload["fleet_trend"] = trend
+    with open(json_path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+
+    # --- per-host CSV ---
+    hosts_csv = os.path.join(run_dir, "hosts.csv")
+    with open(hosts_csv, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["ip", "hostname", "status", "ubuntu_version",
+                    "credential_group", "passed", "failed", "score", "detail"])
+        for h in run.hosts:
+            s = h.scan
+            w.writerow([
+                h.ip, h.hostname or "", h.status.value, h.ubuntu_version or "",
+                h.credential_group or "",
+                s.passed if s else "", s.failed if s else "",
+                f"{s.score:.1f}" if s and s.score is not None else "",
+                h.detail or "",
+            ])
+
+    # --- per-finding CSV ---
+    findings_csv = os.path.join(run_dir, "findings.csv")
+    with open(findings_csv, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["ip", "rule_id", "result", "severity", "title",
+                    "nist_800_53", "iso_27001"])
+        for h in run.scanned_hosts():
+            for fr in h.scan.failed_rules:
+                cw = crosswalk.map_rule(fr.rule_id)
+                w.writerow([h.ip, fr.rule_id, fr.result,
+                            fr.severity or "", fr.title or "",
+                            ";".join(cw["nist"]), ";".join(cw["iso"])])
+
+    paths = {
+        "html": html_path, "json": json_path,
+        "hosts_csv": hosts_csv, "findings_csv": findings_csv,
+    }
+    log.info("report: wrote %s", html_path)
+    return paths

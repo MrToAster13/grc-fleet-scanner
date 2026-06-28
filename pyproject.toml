@@ -1,0 +1,16 @@
+# Pytest configuration for the GRC Fleet Auditor test harness.
+#
+# This file lives at the repo root so pytest's rootdir is the repo root, and
+# `pythonpath = ["."]` puts that root on sys.path -- making `import grc_auditor`
+# resolve without any external PYTHONPATH wiring. (Equivalent to running with
+# PYTHONPATH=<repo root>.)
+#
+# The tool itself targets Linux/Python 3.10+, but this suite stays on the
+# documented public surface + pure functions so it runs on the Python 3.8
+# Windows dev box with no nmap/oscap/SSH present.
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra -q"

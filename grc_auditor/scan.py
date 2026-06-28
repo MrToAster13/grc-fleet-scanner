@@ -1,0 +1,260 @@
+"""Stage 6: run OpenSCAP on a host and retrieve raw evidence.
+
+Runs ``oscap xccdf eval`` remotely with the resolved CIS profile/datastream,
+writes results to a per-run temp dir on the target, pulls the artifacts (XCCDF
+results, ARF, HTML) plus the scanner's stdout/stderr back via SFTP, then removes
+the temp dir on every code path. The scanner's own files are inherent to
+scanning; the binary/content are never installed by this tool (see detect.py).
+
+OpenSCAP ``xccdf eval`` exit codes:
+  * 0 = evaluation completed, every rule passed              -> SCANNED
+  * 2 = evaluation completed, at least one rule did not pass -> SCANNED
+  * 1 = tooling error (bad profile, unreadable content, ...) -> SCAN_ERROR
+Any other non-zero code is treated as a tooling error.
+"""
+
+from __future__ import annotations
+
+import os
+import posixpath
+import xml.etree.ElementTree as ET
+from typing import Optional
+
+from .detect import ScanPlan
+from .logging_setup import get_logger
+from .models import HostRecord, HostStatus, RuleResult, ScanResult
+from .remote import RemoteHost
+
+log = get_logger()
+
+_PASS = "pass"
+_FAIL = "fail"
+_ERROR = "error"
+
+# Exit codes that mean "the evaluation ran and produced results" (0 = all pass,
+# 2 = some rules failed). Both are successful scans for our purposes.
+_OSCAP_SUCCESS_CODES = (0, 2)
+
+# Guard parse_xccdf_results against a pathological/oversized results file. A real
+# Ubuntu CIS results.xml is a few MB; anything past this is almost certainly not
+# a results document we should be loading into memory.
+_MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
+
+
+def _localname(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
+              run_id: str, artifacts_root: str,
+              timeout: int = 600) -> ScanResult:
+    """Evaluate one host and return a parsed ScanResult; updates host.status."""
+    mk = conn.run("mktemp -d /tmp/grc_audit.XXXXXX", timeout=30)
+    if not mk.ok or not mk.stdout.strip():
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = "could not create remote temp dir"
+        raise RuntimeError(host.detail)
+    remote_dir = mk.stdout.strip()
+
+    r_results = posixpath.join(remote_dir, "results.xml")
+    r_arf = posixpath.join(remote_dir, "arf.xml")
+    r_report = posixpath.join(remote_dir, "report.html")
+
+    cmd = (
+        f"oscap xccdf eval "
+        f"--profile {plan.profile_id} "
+        f"--results {r_results} "
+        f"--results-arf {r_arf} "
+        f"--report {r_report} "
+        f"{plan.datastream_path}"
+    )
+
+    local_dir = os.path.join(artifacts_root, run_id, host.ip)
+    local_results = os.path.join(local_dir, "results.xml")
+    local_arf = os.path.join(local_dir, "arf.xml")
+    local_report = os.path.join(local_dir, "report.html")
+
+    try:
+        log.info("scan[%s]: evaluating CIS L%d (%s)",
+                 host.ip, plan.cis_level, plan.ubuntu_version)
+        res = conn.run(cmd, sudo=True, timeout=timeout)
+
+        # Persist the scanner's own output as evidence regardless of outcome --
+        # this is what an auditor reads to understand an error or partial run.
+        _write_local(local_dir, "oscap.stdout.txt", res.stdout)
+        _write_local(local_dir, "oscap.stderr.txt", res.stderr)
+
+        if res.exit_code not in _OSCAP_SUCCESS_CODES:
+            host.status = HostStatus.SCAN_ERROR
+            detail = (res.stderr.strip() or res.stdout.strip())[:300]
+            host.detail = f"oscap error (exit {res.exit_code}): {detail}"
+            raise RuntimeError(host.detail)
+
+        # A success exit code with no results.xml means the scan did not produce
+        # what we need to parse; treat as an error rather than reporting zeros.
+        if not conn.run(f"test -f {r_results}", timeout=30).ok:
+            host.status = HostStatus.SCAN_ERROR
+            host.detail = (
+                f"oscap exited {res.exit_code} but produced no results.xml at "
+                f"{r_results} (see oscap.stderr.txt)"
+            )
+            raise RuntimeError(host.detail)
+
+        # Pull artifacts back into the immutable per-run evidence store. The
+        # results file is mandatory; ARF/HTML are best-effort evidence.
+        conn.get_file(r_results, local_results)
+        _get_file_best_effort(conn, r_arf, local_arf, host.ip, "ARF")
+        _get_file_best_effort(conn, r_report, local_report, host.ip, "HTML report")
+
+        scan = parse_xccdf_results(local_results)
+        scan.profile_id = plan.profile_id
+        scan.datastream = plan.datastream_path
+        scan.results_xml_path = local_results
+        scan.arf_path = local_arf if os.path.exists(local_arf) else None
+        scan.html_path = local_report if os.path.exists(local_report) else None
+
+        host.scan = scan
+        host.status = HostStatus.SCANNED
+        log.info("scan[%s]: %d pass / %d fail (score %s)",
+                 host.ip, scan.passed, scan.failed,
+                 f"{scan.score:.1f}" if scan.score is not None else "n/a")
+        return scan
+    finally:
+        # Guarantee remote temp cleanup on every path (success, oscap error,
+        # parse failure, transfer failure). Best-effort: never mask the original
+        # error and never fail the run on a leftover temp dir.
+        cleanup = conn.run(f"rm -rf {remote_dir}", sudo=True, timeout=30)
+        if not cleanup.ok:
+            log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
+                        host.ip, remote_dir, cleanup.exit_code)
+
+
+def _write_local(local_dir: str, name: str, text: str) -> None:
+    """Write a small text artifact into the per-host evidence dir (best effort)."""
+    try:
+        os.makedirs(local_dir, exist_ok=True)
+        with open(os.path.join(local_dir, name), "w",
+                  encoding="utf-8", errors="replace") as fh:
+            fh.write(text or "")
+    except OSError as exc:  # pragma: no cover - disk/permission edge
+        log.warning("scan: could not write %s: %s", name, exc)
+
+
+def _get_file_best_effort(conn: RemoteHost, remote: str, local: str,
+                          ip: str, label: str) -> None:
+    try:
+        conn.get_file(remote, local)
+    except Exception as exc:  # noqa: BLE001 - evidence is best-effort
+        log.warning("scan[%s]: could not retrieve %s (%s): %s",
+                    ip, label, remote, exc)
+
+
+def parse_xccdf_results(path: str) -> ScanResult:
+    """Parse an XCCDF results file into a ScanResult (counts, score, failures).
+
+    Expected input shape (namespaces are stripped before matching, so any XCCDF
+    namespace/version works; matching is by element *local-name*):
+
+      * A ``<TestResult>`` element somewhere in the document containing the
+        per-rule outcomes. (We scan the whole tree, so a results-only file or a
+        full benchmark+results file both parse.)
+      * Each rule outcome is a ``<rule-result idref="..." severity="...">``
+        element whose direct child ``<result>`` carries the verdict text, one
+        of: ``pass`` | ``fail`` | ``error`` | ``notapplicable`` | ``notchecked``
+        (anything else is bucketed into ``other``). The ``idref`` and
+        ``severity`` attributes are optional (default to ``"unknown"``).
+      * An optional ``<score>`` element whose text is the XCCDF percentage
+        (0..100). The first one found wins; a missing/non-numeric score yields
+        ``score=None``.
+      * An optional ``<version>`` element supplies ``benchmark_version`` (first
+        non-empty one wins).
+      * Optional ``<Rule id="...">`` definitions, each with a child ``<title>``,
+        supply human-readable titles for failed rules. Absent titles are fine
+        (``RuleResult.title`` stays None).
+
+    Resilience: tolerates a missing ``<score>``, namespace variations, absent
+    titles, and an empty file (returns an all-zero ScanResult). An unreadable,
+    malformed, or oversized (> ~256 MiB) file raises ValueError so the caller
+    records a SCAN_ERROR rather than silently reporting zeros.
+    """
+    try:
+        size = os.path.getsize(path)
+    except OSError as exc:
+        raise ValueError(f"results file not accessible: {path} ({exc})") from exc
+
+    if size == 0:
+        # An empty results file is degenerate but not corrupt; report zeros so
+        # the caller can still distinguish it from a parse crash if it chooses.
+        log.warning("parse: empty results file %s", path)
+        return ScanResult(profile_id="", datastream="")
+    if size > _MAX_RESULTS_BYTES:
+        raise ValueError(
+            f"results file too large to parse safely: {path} ({size} bytes)"
+        )
+
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+    except ET.ParseError as exc:
+        raise ValueError(f"malformed XCCDF results: {path} ({exc})") from exc
+
+    scan = ScanResult(profile_id="", datastream="")
+    failed_rules: list[RuleResult] = []
+
+    for el in root.iter():
+        name = _localname(el.tag)
+        if name == "rule-result":
+            result_el = None
+            for child in el:
+                if _localname(child.tag) == "result":
+                    result_el = child
+                    break
+            if result_el is None or result_el.text is None:
+                continue
+            outcome = result_el.text.strip()
+            if outcome == _PASS:
+                scan.passed += 1
+            elif outcome == _FAIL:
+                scan.failed += 1
+                failed_rules.append(RuleResult(
+                    rule_id=el.get("idref") or "unknown",
+                    result=outcome,
+                    severity=el.get("severity") or "unknown",
+                ))
+            elif outcome == _ERROR:
+                scan.error += 1
+            elif outcome == "notapplicable":
+                scan.not_applicable += 1
+            elif outcome == "notchecked":
+                scan.not_checked += 1
+            else:
+                scan.other += 1
+        elif name == "score" and scan.score is None:
+            try:
+                scan.score = float((el.text or "").strip())
+            except (TypeError, ValueError):
+                pass
+        elif name == "version" and scan.benchmark_version is None:
+            scan.benchmark_version = (el.text or "").strip() or None
+
+    # Attach human-readable titles to failed rules where the benchmark defines them.
+    titles = _rule_titles(root)
+    for fr in failed_rules:
+        fr.title = titles.get(fr.rule_id)
+    scan.failed_rules = failed_rules
+    return scan
+
+
+def _rule_titles(root: ET.Element) -> dict[str, str]:
+    titles: dict[str, str] = {}
+    for el in root.iter():
+        if _localname(el.tag) != "Rule":
+            continue
+        rid = el.get("id")
+        if not rid:
+            continue
+        for child in el:
+            if _localname(child.tag) == "title":
+                titles[rid] = (child.text or "").strip()
+                break
+    return titles

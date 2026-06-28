@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRC Fleet Audit — {{ summary.run_id }}</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a2029; --ink:#e6e9ef; --muted:#8b97a7;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --line:#2a313c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--ink); padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:28px 0 10px; color:var(--muted);
+       text-transform:uppercase; letter-spacing:.06em; }
+  .sub { color:var(--muted); font-size:13px; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; }
+  .big { font-size:26px; font-weight:600; }
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .muted{color:var(--muted)}
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; }
+  .s-scanned{background:#10331c;color:var(--ok)}
+  .s-gap{background:#3a2a08;color:var(--warn)}
+  .s-other{background:#2a313c;color:var(--muted)}
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; }
+  .bar > span { display:block; height:100%; background:var(--ok); }
+  code { color:#9ecbff; font-size:12px; }
+  .delta-up{color:var(--ok)} .delta-down{color:var(--bad)}
+  footer { margin-top:32px; color:var(--muted); font-size:12px; }
+  /* executive summary */
+  .exec { border-left:4px solid var(--line); }
+  .exec.strong{border-left-color:var(--ok)}
+  .exec.moderate{border-left-color:var(--warn)}
+  .exec.weak,.exec.no-data{border-left-color:var(--bad)}
+  .exec .headline { font-size:16px; font-weight:600; margin-bottom:6px; }
+  .exec ul { margin:8px 0 0; padding-left:18px; }
+  .exec li { margin:2px 0; }
+  /* severity tags + bars */
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px;
+         margin:1px 3px 1px 0; background:#2a313c; color:var(--muted); }
+  .tag-nist{ background:#102a3a; color:#7fc7ff; }
+  .tag-iso{ background:#16331f; color:#7fd69a; }
+  .sev-high{color:var(--bad);font-weight:600} .sev-medium{color:var(--warn)} .sev-low{color:var(--muted)}
+  .sevbar { display:flex; height:18px; border-radius:4px; overflow:hidden; background:var(--line); margin:8px 0; }
+  .sevbar > span { display:block; height:100%; }
+  .sev-fill-high{background:var(--bad)} .sev-fill-medium{background:var(--warn)}
+  .sev-fill-low{background:#3a6ea5} .sev-fill-unknown{background:#56606e}
+  /* sparkline */
+  .spark { font-size:20px; letter-spacing:2px; line-height:1; color:var(--ok); }
+  .hostlist { color:var(--muted); font-size:12px; }
+  .nowrap { white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<h1>GRC Fleet Audit — CIS Ubuntu Benchmark</h1>
+<div class="sub">
+  Run <code>{{ summary.run_id }}</code> ·
+  started {{ summary.started_at }}{% if summary.finished_at %} · finished {{ summary.finished_at }}{% endif %}<br>
+  Scope: {% for c in summary.scope %}<code>{{ c }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+</div>
+
+<h2>Executive summary</h2>
+<div class="card exec {{ exec_summary.posture }}">
+  <div class="headline">{{ exec_summary.headline }}</div>
+  <div>
+    Overall posture:
+    <strong class="{{ 'ok' if exec_summary.posture=='strong' else ('warn' if exec_summary.posture=='moderate' else 'bad') }}">{{ exec_summary.posture|upper }}</strong>
+    {% if exec_summary.fleet_pass_rate is not none %}
+      &middot; fleet pass rate <strong>{{ exec_summary.fleet_pass_rate }}%</strong>
+    {% endif %}
+    &middot; <span class="bad">{{ exec_summary.high_severity_rules }}</span> high-severity control(s) failing.
+  </div>
+  <div class="sub" style="margin-top:6px">{{ exec_summary.coverage }}</div>
+  <div class="sub">{{ exec_summary.trend }}</div>
+  {% if exec_summary.biggest_risks %}
+  <div style="margin-top:8px">Biggest risks:</div>
+  <ul>
+    {% for r in exec_summary.biggest_risks %}
+    <li>
+      <span class="sev-{{ r.severity }}">[{{ r.severity }}]</span>
+      <code>{{ r.stem }}</code>
+      {% if r.title %}&mdash; {{ r.title }}{% endif %}
+      <span class="muted">({{ r.count }} host{{ '' if r.count==1 else 's' }})</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+
+<h2>Summary</h2>
+<div class="grid">
+  <div class="card"><div class="muted">Hosts discovered</div><div class="big">{{ summary.total_hosts }}</div></div>
+  <div class="card"><div class="muted">Scanned</div><div class="big ok">{{ summary.scanned }}</div></div>
+  <div class="card"><div class="muted">Coverage gaps</div><div class="big warn">{{ summary.coverage_gaps }}</div></div>
+  <div class="card">
+    <div class="muted">Fleet pass rate</div>
+    <div class="big">{% if summary.fleet_pass_rate is not none %}{{ summary.fleet_pass_rate }}%{% else %}<span class="muted">n/a</span>{% endif %}</div>
+    {% if summary.fleet_delta is not none %}
+      <div class="{{ 'delta-up' if summary.fleet_delta >= 0 else 'delta-down' }}">
+        {{ '+' if summary.fleet_delta >= 0 else '' }}{{ summary.fleet_delta }} pts vs prior
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Coverage map</h2>
+<table>
+  <tr><th>Status</th><th>Hosts</th><th>Meaning</th></tr>
+  {% set meanings = {
+     'scanned':'Audited against CIS',
+     'non_ubuntu':'Alive, not Ubuntu — inventory only',
+     'no_credentials':'Ubuntu, no credential group matched',
+     'unreachable':'Expected reachable but SSH failed',
+     'scanner_absent':'OpenSCAP / SSG content not present (not installed)',
+     'unsupported_version':'No SSG CIS profile for this Ubuntu release',
+     'host_key_mismatch':'SSH host key mismatch — possible MITM or unverified re-provisioning (SECURITY)',
+     'scan_error':'Scan attempted but errored',
+     'discovered':'Discovered, unprocessed' } %}
+  {% for status, n in summary.counts_by_status.items() %}
+  <tr>
+    <td><span class="pill {{ 's-scanned' if status=='scanned' else ('s-gap' if status in ['no_credentials','unreachable','scanner_absent','unsupported_version','host_key_mismatch','scan_error'] else 's-other') }}">{{ status }}</span></td>
+    <td>{{ n }}</td>
+    <td class="muted">{{ meanings.get(status, '') }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="sub">Coverage gaps are reported explicitly so partial coverage is never mistaken for a clean result.</p>
+
+<h2>Fleet trend (last {{ trend.points|length }} run{{ '' if trend.points|length==1 else 's' }})</h2>
+{% if trend.first_run %}
+  <div class="card">
+    <span class="muted">First recorded run with results &mdash; no history to trend yet.</span>
+    {% if summary.fleet_pass_rate is not none %}
+      Baseline fleet pass rate: <strong>{{ summary.fleet_pass_rate }}%</strong>.
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card">
+    {% if trend.spark %}<div class="spark">{{ trend.spark }}</div>{% endif %}
+    <div class="sub" style="margin-top:6px">
+      Pass rate range across window:
+      {% if trend.min is not none %}{{ trend.min }}%–{{ trend.max }}%{% else %}n/a{% endif %}
+    </div>
+    <table>
+      <tr><th>Run</th><th>When</th><th>Scanned</th><th>Pass rate</th></tr>
+      {% for p in trend.points %}
+      <tr>
+        <td><code>{{ p.run_id }}</code>{% if p.is_current %} <span class="pill s-scanned">current</span>{% endif %}</td>
+        <td class="muted">{{ p.label }}</td>
+        <td>{{ p.scanned }}</td>
+        <td>{% if p.pass_rate is not none %}{{ p.pass_rate }}%{% else %}<span class="muted">n/a</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endif %}
+
+<h2>Failing controls by severity</h2>
+{% if severity.total_findings %}
+  <div class="card">
+    <div class="sevbar">
+      {% for sev in severity.order %}
+        {% set f = severity.by_severity[sev].findings %}
+        {% if f %}<span class="sev-fill-{{ sev }}" style="width:{{ (100.0 * f / severity.total_findings)|round(1) }}%" title="{{ sev }}: {{ f }} finding(s)"></span>{% endif %}
+      {% endfor %}
+    </div>
+    <table>
+      <tr><th>Severity</th><th>Distinct controls</th><th>Total host-findings</th></tr>
+      {% for sev in severity.order %}
+      <tr>
+        <td class="sev-{{ sev }}">{{ sev }}</td>
+        <td>{{ severity.by_severity[sev].rules }}</td>
+        <td>{{ severity.by_severity[sev].findings }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td><strong>total</strong></td>
+        <td><strong>{{ severity.total_rules }}</strong></td>
+        <td><strong>{{ severity.total_findings }}</strong></td>
+      </tr>
+    </table>
+  </div>
+{% else %}
+  <p class="muted">No failing controls recorded (or no hosts scanned).</p>
+{% endif %}
+
+<h2>Top failing controls (fleet-wide)</h2>
+<p class="sub">Sorted by severity, then by number of hosts affected. Cross-walk column is {{ crosswalk_label }}.</p>
+{% if top %}
+<table>
+  <tr><th>Control</th><th>Severity</th><th>Hosts failing</th><th>Title</th><th>Framework cross-walk</th></tr>
+  {% for c in top %}
+  <tr>
+    <td><code>{{ c.stem }}</code></td>
+    <td class="nowrap {{ 'bad' if c.severity=='high' else ('warn' if c.severity=='medium' else 'muted') }}">{{ c.severity }}</td>
+    <td>
+      {{ c.count }}
+      {% if c.hosts %}<div class="hostlist">{% for ip in c.hosts %}<code>{{ ip }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+    </td>
+    <td>{{ c.title }}</td>
+    <td>
+      {% if c.mapped %}
+        {% for fam in c.nist %}<span class="tag tag-nist" title="NIST 800-53 Rev5: {{ fam.name }}">{{ fam.code }}</span>{% endfor %}
+        {% for ctl in c.iso %}<span class="tag tag-iso" title="ISO 27001:2022: {{ ctl.name }}">{{ ctl.code }}</span>{% endfor %}
+      {% else %}<span class="muted">unmapped</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="sub">
+  Tags: <span class="tag tag-nist">NIST 800-53 Rev5 family</span>
+  <span class="tag tag-iso">ISO 27001:2022 control</span>.
+  Indicative orientation only &mdash; authoritative per-rule references live in the OpenSCAP ARF evidence.
+</p>
+{% else %}
+<p class="muted">No failing controls recorded (or no hosts scanned).</p>
+{% endif %}
+
+<h2>Per-host detail</h2>
+<table>
+  <tr><th>Host</th><th>Status</th><th>Ubuntu</th><th>Pass/Fail</th><th>Score</th><th>Δ vs prior</th><th>Evidence</th></tr>
+  {% set host_drift = {} %}
+  {% for d in drift.per_host %}{% set _ = host_drift.update({d.ip: d}) %}{% endfor %}
+  {% for h in run.hosts %}
+  <tr>
+    <td>{{ h.ip }}{% if h.hostname %}<br><span class="sub">{{ h.hostname }}</span>{% endif %}</td>
+    <td><span class="pill {{ 's-scanned' if h.status.value=='scanned' else ('s-gap' if h.status.is_coverage_gap else 's-other') }}">{{ h.status.value }}</span>
+        {% if h.detail %}<br><span class="sub">{{ h.detail }}</span>{% endif %}</td>
+    <td>{{ h.ubuntu_version or '—' }}</td>
+    <td>{% if h.scan %}<span class="ok">{{ h.scan.passed }}</span> / <span class="bad">{{ h.scan.failed }}</span>{% else %}—{% endif %}</td>
+    <td>
+      {% if h.scan and h.scan.score is not none %}
+        {{ '%.1f'|format(h.scan.score) }}%
+        <div class="bar"><span style="width:{{ h.scan.score }}%"></span></div>
+      {% else %}—{% endif %}
+    </td>
+    <td>
+      {% set d = host_drift.get(h.ip) %}
+      {% if d and d.delta is not none %}
+        <span class="{{ 'delta-up' if d.delta >= 0 else 'delta-down' }}">{{ '+' if d.delta >= 0 else '' }}{{ d.delta }}</span>
+      {% else %}—{% endif %}
+    </td>
+    <td>{% if h.scan and h.scan.html_path %}<code>{{ h.scan.html_path }}</code>{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<footer>
+  Generated by GRC Fleet Auditor. Compliance verdicts produced by OpenSCAP against the
+  SCAP Security Guide CIS profile. Raw ARF/HTML evidence retained per host under the run
+  directory. {% if summary.prev_run_id %}Drift computed vs run <code>{{ summary.prev_run_id }}</code>.{% endif %}
+</footer>
+
+</body>
+</html>

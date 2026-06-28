@@ -1,0 +1,48 @@
+# GRC Fleet Auditor — example configuration
+# Copy to config.yaml and edit. Active scanning requires an explicit, AUTHORIZED scope.
+
+# ---------------------------------------------------------------------------
+# Scan scope (REQUIRED). The tool refuses to run with an empty cidrs list.
+# ---------------------------------------------------------------------------
+scope:
+  cidrs:
+    - 10.0.10.0/24          # the network(s) you are authorized to scan
+    - 10.0.20.0/24
+  exclude:
+    - 10.0.10.1             # e.g. the gateway, sensitive appliances
+  nmap_timing: "-T3"        # cautious by default; -T4 is faster/noisier
+  nmap_extra_args: []       # appended verbatim to the nmap command
+  ssh_concurrency: 10       # bounded parallel SSH/scan workers
+  host_timeout_seconds: 600 # per-host scan timeout
+
+# ---------------------------------------------------------------------------
+# Global defaults
+# ---------------------------------------------------------------------------
+output_dir: "./grc-output"  # history.db + per-run reports/evidence live here
+cis_level: 1                # 1 = baseline (default), 2 = stricter
+ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on targets
+# known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
+
+# ---------------------------------------------------------------------------
+# Credential groups: map host ranges to an SSH identity + privilege.
+# First matching group (top-down) wins. Use targets: ["default"] as a catch-all.
+# ---------------------------------------------------------------------------
+credential_groups:
+  - name: prod-servers
+    targets:
+      - 10.0.10.0/24
+    ssh_user: grc-scan
+    key_path: "~/.ssh/grc_scan_ed25519"   # omit to rely purely on ssh-agent
+    use_agent: true
+    sudo: true                             # uses passwordless `sudo -n` for root checks
+    cis_level: 2                           # per-group override of the global level
+    bastion:
+      host: bastion.example.com
+      user: jump
+      key_path: "~/.ssh/bastion_ed25519"
+
+  - name: lab
+    targets: ["default"]                   # everything not matched above
+    ssh_user: ubuntu
+    use_agent: true
+    sudo: true
