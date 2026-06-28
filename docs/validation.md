@@ -108,6 +108,8 @@ python -m grc_auditor run -c vm-validate.yaml -v
 **Cross-check the numbers** (the integrity test — our parse vs. OpenSCAP's own report):
 - [ ] Open the per-host `<VM_IP>/report.html` (OpenSCAP's own) and confirm its
       pass/fail totals match the fleet `report.html` and `results.xml`.
+- [ ] The host shows a **Confidence** value (should be high, ~100%, with full sudo) and is
+      **not** flagged `LOW` — confirming the scan actually ran the whole benchmark.
 
 ---
 
@@ -129,7 +131,9 @@ Run a fresh audit after each change and check the host's status in `report.html`
       Host should be **`host_key_mismatch`** (security finding), not `unreachable`.
       Then re-bootstrap (step 2) to restore.
 - [ ] **sudo-not-passwordless** — remove the sudoers drop-in, re-run. Should report a
-      scanner/sudo failure with an actionable detail, not a silent zero-score scan.
+      scanner/sudo failure with an actionable detail, not a silent zero-score scan. If a
+      partial scan does run, the host must be flagged **LOW confidence** (many checks
+      `notchecked`) — never a clean high score.
 
 ---
 

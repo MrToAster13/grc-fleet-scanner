@@ -1,7 +1,8 @@
 # Operating Guide — GRC Fleet Auditor
 
 A hands-on runbook for the analyst who runs this tool. For the design rationale see
-[SPEC.md](SPEC.md); for first-time live validation see [VALIDATION.md](VALIDATION.md).
+[design.md](design.md); for first-time live validation see [validation.md](validation.md).
+For installation, see the [README](../README.md#install-run-host).
 
 ---
 
@@ -107,6 +108,7 @@ python -m grc_auditor history -o ./grc-output
 | `-o, --output DIR` | override output directory |
 | `--cis-level {1,2}` | override global CIS level |
 | `--concurrency N` | override parallel SSH/scan workers |
+| `--low-confidence-threshold PCT` | flag a score LOW CONFIDENCE below this % of the benchmark producing a verdict (default 90) |
 | `--os-detect` | enable nmap OS detection (`-O`; needs root on the run host) |
 | `-v, --verbose` | debug-level console logging |
 
@@ -126,6 +128,7 @@ scope:
 output_dir: "./grc-output"   # history.db + per-run reports/evidence
 cis_level: 1                 # global default: 1 = baseline, 2 = stricter
 ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on targets
+low_confidence_threshold: 90 # flag a host LOW CONFIDENCE below this % of checks running
 # known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
 
 credential_groups:           # first matching group (top-down) wins
@@ -165,6 +168,15 @@ is where it is. Act on the gaps:
 (pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
 an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only — authoritative
 references live in the raw ARF evidence).
+
+**Assessment confidence (read this before trusting a score).** Each scanned host shows a
+confidence % = how much of the benchmark actually produced a verdict. A low-privilege scan
+leaves many checks `notchecked`, so a high *score* can cover only a few checks that ran.
+Any host below `low_confidence_threshold` (default 90%) is flagged **LOW · N not run** next
+to its score, with a callout in the executive summary. Treat low-confidence scores as
+untrustworthy until the scan account's `sudo` access is fixed. Tune the threshold via
+`low_confidence_threshold` in config or `--low-confidence-threshold` on the CLI.
+**Always read the coverage-gaps count alongside the pass rate** — never the pass rate alone.
 
 **Where everything lands** under `output_dir/runs/<run_id>/`:
 - `report.html` — the fleet dashboard
@@ -227,5 +239,5 @@ Run with `-v` for debug logging; the per-run `audit.log` has the full trace.
 ## 10. First time? 
 
 Don't point it at the fleet on day one. Run one Ubuntu VM through
-[VALIDATION.md](VALIDATION.md) end-to-end — including the six negative-path checks — then
+[validation.md](validation.md) end-to-end — including the six negative-path checks — then
 widen `scope.cidrs` to the authorized range.
