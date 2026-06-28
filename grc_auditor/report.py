@@ -28,7 +28,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 
 from . import crosswalk
 from .logging_setup import get_logger
-from .models import RunRecord
+from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, RunRecord
 from .store import Store
 
 log = get_logger()
@@ -43,10 +43,9 @@ def _sev_rank(severity: Optional[str]) -> int:
     return _SEVERITY_RANK.get((severity or "unknown").lower(), 0)
 
 
-# Below this % of the benchmark actually producing a verdict, a host's score is
-# treated as low-confidence (typically insufficient privilege -> many checks
-# came back notchecked, so a high score reflects only the few that ran).
-LOW_CONFIDENCE_THRESHOLD = 90.0
+# Threshold below which a host's score is treated as low-confidence. The value
+# of record lives on Config; this is the shared default for direct callers/tests.
+LOW_CONFIDENCE_THRESHOLD = DEFAULT_LOW_CONFIDENCE_THRESHOLD
 
 
 def low_confidence_hosts(run: RunRecord,
@@ -55,14 +54,16 @@ def low_confidence_hosts(run: RunRecord,
 
     These are the dangerous ones for a compliance read: a clean-looking score
     that covers only the fraction of the benchmark that actually executed.
+    Uses ScanResult.is_low_confidence so the rule is defined in exactly one place.
+    The extra fields (not_checked/score) enrich the JSON export for downstream
+    GRC platforms.
     """
     out: list[dict] = []
     for h in run.scanned_hosts():
-        conf = h.scan.assessment_confidence
-        if conf is not None and conf < threshold:
+        if h.scan.is_low_confidence(threshold):
             out.append({
                 "ip": h.ip,
-                "confidence": conf,
+                "confidence": h.scan.assessment_confidence,
                 "not_checked": h.scan.not_checked,
                 "score": h.scan.score,
             })
@@ -420,6 +421,10 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     trend = fleet_trend(run, store)
     exec_summary = executive_summary(run, drift, top, severity,
                                      low_confidence_threshold)
+    # The template renders the low-confidence decision by IP membership, so the
+    # rule (ScanResult.is_low_confidence) stays the single source — the template
+    # does no threshold arithmetic of its own.
+    low_conf_ips = {d["ip"] for d in exec_summary["low_confidence_hosts"]}
 
     # --- HTML dashboard ---
     env = Environment(
@@ -431,7 +436,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
-        low_confidence_threshold=low_confidence_threshold,
+        low_conf_ips=low_conf_ips,
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:

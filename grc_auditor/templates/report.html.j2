@@ -249,8 +249,9 @@
       {% if h.scan %}
         {% set conf = h.scan.assessment_confidence %}
         {% if conf is not none %}
-          <span class="{{ 'bad' if conf < low_confidence_threshold else 'muted' }}">{{ '%.0f'|format(conf) }}%</span>
-          {% if conf < low_confidence_threshold %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.not_checked }} not run</span>{% endif %}
+          {% set low = h.ip in low_conf_ips %}
+          <span class="{{ 'bad' if low else 'muted' }}">{{ '%.0f'|format(conf) }}%</span>
+          {% if low %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.not_checked }} not run</span>{% endif %}
         {% else %}—{% endif %}
       {% else %}—{% endif %}
     </td>

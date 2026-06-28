@@ -13,6 +13,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover - dependency guard
@@ -83,7 +85,7 @@ class Config:
     # Below this % of the benchmark producing a verdict, a host's score is
     # flagged LOW CONFIDENCE in the report (guards against a high score that
     # only reflects the few checks that actually ran).
-    low_confidence_threshold: float = 90.0
+    low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD
     raw: dict = field(default_factory=dict)   # original parsed document
 
     def cis_level_for(self, group: Optional[CredentialGroup]) -> int:
@@ -109,6 +111,15 @@ def _require(doc: dict, key: str, where: str):
     if key not in doc:
         raise ConfigError(f"Missing required key '{key}' in {where}")
     return doc[key]
+
+
+def _validate_threshold(value) -> float:
+    """Coerce + bounds-check a low-confidence threshold (single rule for both
+    the config file and CLI overrides)."""
+    v = float(value)
+    if not 0.0 <= v <= 100.0:
+        raise ConfigError("low_confidence_threshold must be between 0 and 100")
+    return v
 
 
 def _parse_bastion(doc: Optional[dict]) -> Optional[BastionConfig]:
@@ -186,9 +197,8 @@ def load_config(path: str) -> Config:
     if level not in (1, 2):
         raise ConfigError("cis_level must be 1 or 2")
 
-    threshold = float(doc.get("low_confidence_threshold", 90.0))
-    if not 0.0 <= threshold <= 100.0:
-        raise ConfigError("low_confidence_threshold must be between 0 and 100")
+    threshold = _validate_threshold(
+        doc.get("low_confidence_threshold", DEFAULT_LOW_CONFIDENCE_THRESHOLD))
 
     return Config(
         scope=scope,
@@ -220,7 +230,5 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
     if ssh_concurrency is not None:
         cfg.scope.ssh_concurrency = ssh_concurrency
     if low_confidence_threshold is not None:
-        if not 0.0 <= low_confidence_threshold <= 100.0:
-            raise ConfigError("--low-confidence-threshold must be between 0 and 100")
-        cfg.low_confidence_threshold = low_confidence_threshold
+        cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
     return cfg
