@@ -26,6 +26,9 @@
   .s-scanned{background:#10331c;color:var(--ok)}
   .s-gap{background:#3a2a08;color:var(--warn)}
   .s-other{background:#2a313c;color:var(--muted)}
+  .s-lowconf{background:#3a1a1a;color:var(--bad)}
+  .exec .lowconf{margin-top:8px;padding:8px 10px;border-radius:6px;
+                 background:#3a1a1a;color:#ffb4ab}
   .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; }
   .bar > span { display:block; height:100%; background:var(--ok); }
   code { color:#9ecbff; font-size:12px; }
@@ -77,6 +80,9 @@
   </div>
   <div class="sub" style="margin-top:6px">{{ exec_summary.coverage }}</div>
   <div class="sub">{{ exec_summary.trend }}</div>
+  {% if exec_summary.low_confidence_note %}
+  <div class="lowconf"><strong>⚠ Low confidence:</strong> {{ exec_summary.low_confidence_note }}</div>
+  {% endif %}
   {% if exec_summary.biggest_risks %}
   <div style="margin-top:8px">Biggest risks:</div>
   <ul>
@@ -223,7 +229,7 @@
 
 <h2>Per-host detail</h2>
 <table>
-  <tr><th>Host</th><th>Status</th><th>Ubuntu</th><th>Pass/Fail</th><th>Score</th><th>Δ vs prior</th><th>Evidence</th></tr>
+  <tr><th>Host</th><th>Status</th><th>Ubuntu</th><th>Pass/Fail</th><th>Score</th><th>Confidence</th><th>Δ vs prior</th><th>Evidence</th></tr>
   {% set host_drift = {} %}
   {% for d in drift.per_host %}{% set _ = host_drift.update({d.ip: d}) %}{% endfor %}
   {% for h in run.hosts %}
@@ -237,6 +243,15 @@
       {% if h.scan and h.scan.score is not none %}
         {{ '%.1f'|format(h.scan.score) }}%
         <div class="bar"><span style="width:{{ h.scan.score }}%"></span></div>
+      {% else %}—{% endif %}
+    </td>
+    <td>
+      {% if h.scan %}
+        {% set conf = h.scan.assessment_confidence %}
+        {% if conf is not none %}
+          <span class="{{ 'bad' if conf < low_confidence_threshold else 'muted' }}">{{ '%.0f'|format(conf) }}%</span>
+          {% if conf < low_confidence_threshold %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.not_checked }} not run</span>{% endif %}
+        {% else %}—{% endif %}
       {% else %}—{% endif %}
     </td>
     <td>

@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS hosts (
     failed            INTEGER,
     error             INTEGER,
     not_applicable    INTEGER,
+    not_checked       INTEGER,
+    other             INTEGER,
     score             REAL,
     arf_path          TEXT,
     html_path         TEXT
@@ -77,7 +79,19 @@ class Store:
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._ensure_columns()
         self._conn.commit()
+
+    # Columns added after the original schema. Forward-safe migration so an
+    # existing history.db gains them without being recreated.
+    _HOST_COLUMNS_ADDED = {"not_checked": "INTEGER", "other": "INTEGER"}
+
+    def _ensure_columns(self):
+        existing = {row["name"] for row in
+                    self._conn.execute("PRAGMA table_info(hosts)").fetchall()}
+        for col, decl in self._HOST_COLUMNS_ADDED.items():
+            if col not in existing:
+                self._conn.execute(f"ALTER TABLE hosts ADD COLUMN {col} {decl}")
 
     def close(self):
         self._conn.close()
@@ -96,8 +110,10 @@ class Store:
             cur.execute(
                 "INSERT INTO hosts(run_id, ip, hostname, os_guess, is_ubuntu, "
                 "ubuntu_version, credential_group, status, detail, profile_id, "
-                "benchmark_version, passed, failed, error, not_applicable, score, "
-                "arf_path, html_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "benchmark_version, passed, failed, error, not_applicable, "
+                "not_checked, other, score, "
+                "arf_path, html_path) VALUES "
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run.run_id, h.ip, h.hostname, h.os_guess, int(h.is_ubuntu),
                     h.ubuntu_version, h.credential_group, h.status.value, h.detail,
@@ -107,6 +123,8 @@ class Store:
                     s.failed if s else None,
                     s.error if s else None,
                     s.not_applicable if s else None,
+                    s.not_checked if s else None,
+                    s.other if s else None,
                     s.score if s else None,
                     s.arf_path if s else None,
                     s.html_path if s else None,
@@ -175,6 +193,8 @@ class Store:
                     failed=hr["failed"] or 0,
                     error=hr["error"] or 0,
                     not_applicable=hr["not_applicable"] or 0,
+                    not_checked=hr["not_checked"] or 0,
+                    other=hr["other"] or 0,
                     score=hr["score"],
                     failed_rules=[RuleResult(f["rule_id"], f["result"],
                                              f["severity"], f["title"])

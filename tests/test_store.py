@@ -118,3 +118,23 @@ def test_store_creates_output_layout(tmp_path):
         assert (out / "runs").is_dir()
     finally:
         store.close()
+
+
+def test_not_checked_and_other_round_trip(tmp_path):
+    # The coverage counts that feed assessment_confidence must survive persistence,
+    # otherwise a low-confidence scan would look clean after a reload.
+    store = Store(str(tmp_path))
+    try:
+        host = fabricate_scanned_host()
+        host.scan.not_checked = 190
+        host.scan.other = 3
+        store.save_run(_make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                                 [host]))
+        loaded = store.load_run("20260627T000000Z")
+        s = loaded.hosts[0].scan
+        assert s.not_checked == 190
+        assert s.other == 3
+        # confidence is recomputable from the persisted counts
+        assert s.assessment_confidence is not None
+    finally:
+        store.close()

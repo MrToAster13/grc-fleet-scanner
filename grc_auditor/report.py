@@ -43,6 +43,33 @@ def _sev_rank(severity: Optional[str]) -> int:
     return _SEVERITY_RANK.get((severity or "unknown").lower(), 0)
 
 
+# Below this % of the benchmark actually producing a verdict, a host's score is
+# treated as low-confidence (typically insufficient privilege -> many checks
+# came back notchecked, so a high score reflects only the few that ran).
+LOW_CONFIDENCE_THRESHOLD = 90.0
+
+
+def low_confidence_hosts(run: RunRecord,
+                         threshold: float = LOW_CONFIDENCE_THRESHOLD) -> list[dict]:
+    """Scanned hosts whose assessment confidence is below ``threshold``.
+
+    These are the dangerous ones for a compliance read: a clean-looking score
+    that covers only the fraction of the benchmark that actually executed.
+    """
+    out: list[dict] = []
+    for h in run.scanned_hosts():
+        conf = h.scan.assessment_confidence
+        if conf is not None and conf < threshold:
+            out.append({
+                "ip": h.ip,
+                "confidence": conf,
+                "not_checked": h.scan.not_checked,
+                "score": h.scan.score,
+            })
+    out.sort(key=lambda r: r["confidence"])
+    return out
+
+
 @dataclass
 class HostDrift:
     ip: str
@@ -335,6 +362,19 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict) -> dic
             "count": c["count"], "title": c["title"],
         } for c in top[:3]]
 
+    # Low-confidence warning: scores that reflect only part of the benchmark.
+    low_conf = low_confidence_hosts(run)
+    if low_conf:
+        confidence_note = (
+            "%d scanned host%s returned LOW assessment confidence -- much of "
+            "the benchmark did not run (likely insufficient privilege), so "
+            "their high scores are NOT trustworthy. Investigate before relying "
+            "on them."
+            % (len(low_conf), "" if len(low_conf) == 1 else "s")
+        )
+    else:
+        confidence_note = None
+
     high_rules = sev["by_severity"].get("high", {}).get("rules", 0)
     return {
         "posture": posture,
@@ -344,6 +384,9 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict) -> dic
         "fleet_pass_rate": rate,
         "high_severity_rules": high_rules,
         "biggest_risks": biggest,
+        "low_confidence_count": len(low_conf),
+        "low_confidence_note": confidence_note,
+        "low_confidence_hosts": low_conf,
     }
 
 
@@ -384,6 +427,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
+        low_confidence_threshold=LOW_CONFIDENCE_THRESHOLD,
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:
@@ -405,14 +449,18 @@ def write_reports(run: RunRecord, store: Store, run_dir: str) -> dict[str, str]:
     with open(hosts_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["ip", "hostname", "status", "ubuntu_version",
-                    "credential_group", "passed", "failed", "score", "detail"])
+                    "credential_group", "passed", "failed", "not_checked",
+                    "score", "confidence", "detail"])
         for h in run.hosts:
             s = h.scan
+            conf = s.assessment_confidence if s else None
             w.writerow([
                 h.ip, h.hostname or "", h.status.value, h.ubuntu_version or "",
                 h.credential_group or "",
                 s.passed if s else "", s.failed if s else "",
+                s.not_checked if s else "",
                 f"{s.score:.1f}" if s and s.score is not None else "",
+                f"{conf:.1f}" if conf is not None else "",
                 h.detail or "",
             ])
 

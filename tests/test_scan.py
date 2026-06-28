@@ -73,3 +73,22 @@ def test_missing_score_yields_none_without_error():
     assert scan.failed == 1
     assert len(scan.failed_rules) == 1
     assert scan.failed_rules[0].severity == "high"
+
+
+def test_assessment_confidence_reflects_unrun_checks():
+    # Fixture has 3 pass + 2 fail + 1 notapplicable + 1 notchecked = 7 outcomes,
+    # 6 of which are definitive (pass/fail/notapplicable) -> 85.7% confidence.
+    scan = parse_xccdf_results(fixture_path("xccdf-results.xml"))
+    assert scan.total_outcomes == 7
+    assert scan.inconclusive == 1            # the lone notchecked
+    assert scan.assessment_confidence == 85.7
+
+
+def test_low_privilege_scan_collapses_confidence():
+    # The worst-case shape: a perfect score that only reflects the few checks
+    # that actually ran. Confidence must expose it.
+    from grc_auditor.models import ScanResult
+    s = ScanResult(profile_id="", datastream="",
+                   passed=10, failed=0, not_checked=190, score=100.0)
+    assert s.score == 100.0                   # looks clean...
+    assert s.assessment_confidence == 5.0     # ...but only 10 of 200 ran
