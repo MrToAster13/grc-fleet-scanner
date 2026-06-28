@@ -116,7 +116,12 @@ def _require(doc: dict, key: str, where: str):
 def _validate_threshold(value) -> float:
     """Coerce + bounds-check a low-confidence threshold (single rule for both
     the config file and CLI overrides)."""
-    v = float(value)
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"low_confidence_threshold must be a number (got {value!r})"
+        ) from exc
     if not 0.0 <= v <= 100.0:
         raise ConfigError("low_confidence_threshold must be between 0 and 100")
     return v
@@ -231,4 +236,6 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.scope.ssh_concurrency = ssh_concurrency
     if low_confidence_threshold is not None:
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
+        # Mirror into raw so config_hash() reflects the override (like cidrs).
+        cfg.raw["low_confidence_threshold"] = cfg.low_confidence_threshold
     return cfg

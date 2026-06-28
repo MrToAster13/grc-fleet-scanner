@@ -243,3 +243,46 @@ def test_low_confidence_threshold_is_configurable():
     assert len(low_confidence_hosts(run)) == 1
     # ...a lenient 75% threshold does not.
     assert low_confidence_hosts(run, threshold=75.0) == []
+
+
+def test_write_reports_honors_threshold(tmp_path):
+    # End-to-end pass-through: the same 80%-confidence host is flagged at the
+    # default but NOT at a lenient threshold handed to write_reports (regression
+    # guard for the CLI --low-confidence-threshold wiring).
+    store = Store(str(tmp_path))
+    try:
+        host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+        host.scan.not_checked = 20
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+
+        paths = write_reports(run, store, run_dir, low_confidence_threshold=75.0)
+        payload = json.loads(open(paths["json"], encoding="utf-8").read())
+        assert payload["executive_summary"]["low_confidence_count"] == 0
+
+        paths = write_reports(run, store, run_dir)  # default 90.0
+        payload = json.loads(open(paths["json"], encoding="utf-8").read())
+        assert payload["executive_summary"]["low_confidence_count"] == 1
+    finally:
+        store.close()
+
+
+def test_json_export_carries_per_host_confidence(tmp_path):
+    # asdict() omits @property values; to_dict must surface assessment_confidence
+    # in the per-host scan object so JSON matches the CSV export.
+    store = Store(str(tmp_path))
+    try:
+        host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+        host.scan.not_checked = 20
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+
+        paths = write_reports(run, store, run_dir)
+        payload = json.loads(open(paths["json"], encoding="utf-8").read())
+        scan = payload["hosts"][0]["scan"]
+        assert scan["assessment_confidence"] == 80.0
+        assert scan["total_outcomes"] == 100
+    finally:
+        store.close()

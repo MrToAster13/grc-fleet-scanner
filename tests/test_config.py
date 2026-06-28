@@ -142,6 +142,36 @@ def test_apply_overrides_invalid_cis_level_raises(tmp_path):
         apply_overrides(cfg, cis_level=3)
 
 
+def test_apply_overrides_threshold_mirrored_into_hash(tmp_path):
+    # A --low-confidence-threshold override must reach cfg AND change the
+    # config_hash provenance (regression guard: it was previously invisible
+    # to hash() because it was not mirrored into raw).
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    before = cfg.hash()
+    apply_overrides(cfg, low_confidence_threshold=75)
+    assert cfg.low_confidence_threshold == 75.0
+    assert cfg.raw["low_confidence_threshold"] == 75.0
+    assert cfg.hash() != before
+
+
+def test_non_numeric_threshold_in_yaml_raises(tmp_path):
+    yaml_text = """
+        scope:
+          cidrs:
+            - 10.0.10.0/24
+        low_confidence_threshold: "not a number"
+        credential_groups: []
+    """
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, yaml_text))
+
+
+def test_out_of_range_threshold_raises(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    with pytest.raises(ConfigError):
+        apply_overrides(cfg, low_confidence_threshold=150)
+
+
 def test_hash_is_stable_for_equal_inputs(tmp_path):
     path = _write(tmp_path, VALID_YAML)
     a = load_config(path)

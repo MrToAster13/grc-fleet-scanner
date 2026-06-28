@@ -90,6 +90,12 @@ class ScanResult:
                 + self.not_applicable + self.not_checked + self.other)
 
     @property
+    def undetermined(self) -> int:
+        """Rule results that produced no definitive verdict (error / notchecked
+        / other) -- the checks that drag ``assessment_confidence`` down."""
+        return self.error + self.not_checked + self.other
+
+    @property
     def assessment_confidence(self) -> Optional[float]:
         """Percent of the benchmark that produced a definitive verdict
         (pass / fail / notapplicable).
@@ -134,6 +140,12 @@ class HostRecord:
     def to_dict(self) -> dict:
         d = asdict(self)
         d["status"] = self.status.value
+        if self.scan is not None:
+            # asdict() emits only dataclass fields, not @property values, so the
+            # nested scan dict would otherwise omit confidence -- mirror the CSV
+            # export and surface it here too.
+            d["scan"]["assessment_confidence"] = self.scan.assessment_confidence
+            d["scan"]["total_outcomes"] = self.scan.total_outcomes
         return d
 
 

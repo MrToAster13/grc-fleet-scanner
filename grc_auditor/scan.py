@@ -40,6 +40,12 @@ _OSCAP_SUCCESS_CODES = (0, 2)
 # a results document we should be loading into memory.
 _MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
 
+# Max gap (percentage points) between oscap's weighted <score> and a flat
+# pass-ratio before we warn of a likely mis-parse. Wide on purpose: CIS weighted
+# scoring routinely diverges from the flat ratio (a real ~3 pass / 2 fail slice
+# scores ~86 vs a flat ~60), so only an opposite-story gap this large is a signal.
+_SCORE_RECONCILE_TOLERANCE = 40.0
+
 
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -243,16 +249,17 @@ def parse_xccdf_results(path: str) -> ScanResult:
         fr.title = titles.get(fr.rule_id)
     scan.failed_rules = failed_rules
 
-    # Soft reconciliation: oscap's own <score> should roughly track our parsed
-    # pass/fail (CIS default scoring is ~ 100 * pass / (pass + fail)). A large
-    # divergence means we likely mis-parsed -- warn loudly so a wrong number
-    # can't masquerade as truth. Non-fatal: weighted scoring models vary, so
-    # this only flags gross gaps; the raw evidence remains the authority.
+    # Soft reconciliation: catch a gross mis-parse where oscap's own <score>
+    # and our parsed pass/fail tell opposite stories. CIS uses a *weighted*
+    # default scoring model, so the score legitimately diverges from a flat
+    # 100 * pass / (pass + fail) ratio by a wide margin -- only a contradiction
+    # this large signals a likely parse error, not normal weighting. Non-fatal;
+    # the raw evidence remains the authority.
     if scan.score is not None and (scan.passed + scan.failed) > 0:
         implied = 100.0 * scan.passed / (scan.passed + scan.failed)
-        if abs(implied - scan.score) > 15.0:
+        if abs(implied - scan.score) > _SCORE_RECONCILE_TOLERANCE:
             log.warning(
-                "parse: %s reported score %.1f is inconsistent with parsed "
+                "parse: %s reported score %.1f grossly disagrees with parsed "
                 "counts (%d pass / %d fail => ~%.1f); verify raw evidence",
                 path, scan.score, scan.passed, scan.failed, implied,
             )
