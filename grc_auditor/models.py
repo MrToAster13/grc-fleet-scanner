@@ -15,6 +15,10 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Optional
 
+# Single source of truth for the low-confidence threshold default (config and
+# report both reference this; do not restate the literal elsewhere).
+DEFAULT_LOW_CONFIDENCE_THRESHOLD = 90.0
+
 
 class HostStatus(str, Enum):
     """Coverage classification. The report is honest about every one of these."""
@@ -86,11 +90,6 @@ class ScanResult:
                 + self.not_applicable + self.not_checked + self.other)
 
     @property
-    def inconclusive(self) -> int:
-        """Rules with no clean determination (couldn't be evaluated)."""
-        return self.error + self.not_checked + self.other
-
-    @property
     def assessment_confidence(self) -> Optional[float]:
         """Percent of the benchmark that produced a definitive verdict
         (pass / fail / notapplicable).
@@ -105,6 +104,15 @@ class ScanResult:
             return None
         definitive = self.passed + self.failed + self.not_applicable
         return round(100.0 * definitive / total, 1)
+
+    def is_low_confidence(
+        self, threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD
+    ) -> bool:
+        """The single definition of the low-confidence rule, shared by the
+        report's host list, the per-host badge, and the styling -- so they can
+        never disagree about which scans are untrustworthy."""
+        c = self.assessment_confidence
+        return c is not None and c < threshold
 
 
 @dataclass

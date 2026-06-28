@@ -80,7 +80,6 @@ def test_assessment_confidence_reflects_unrun_checks():
     # 6 of which are definitive (pass/fail/notapplicable) -> 85.7% confidence.
     scan = parse_xccdf_results(fixture_path("xccdf-results.xml"))
     assert scan.total_outcomes == 7
-    assert scan.inconclusive == 1            # the lone notchecked
     assert scan.assessment_confidence == 85.7
 
 
@@ -92,3 +91,14 @@ def test_low_privilege_scan_collapses_confidence():
                    passed=10, failed=0, not_checked=190, score=100.0)
     assert s.score == 100.0                   # looks clean...
     assert s.assessment_confidence == 5.0     # ...but only 10 of 200 ran
+
+
+def test_is_low_confidence_predicate():
+    # The single low-confidence rule, threshold-driven.
+    from grc_auditor.models import ScanResult
+    s = ScanResult(profile_id="", datastream="",
+                   passed=10, failed=0, not_checked=190)  # 5% confidence
+    assert s.is_low_confidence(90.0) is True
+    assert s.is_low_confidence(2.0) is False
+    # nothing evaluated -> confidence None -> not flagged
+    assert ScanResult(profile_id="", datastream="").is_low_confidence(90.0) is False
