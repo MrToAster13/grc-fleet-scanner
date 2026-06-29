@@ -26,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 77-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 78-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -82,6 +82,12 @@ release, everything lives under **Unreleased**.
   laughs") DoS, DTD retrieval, and external-entity references regardless of the interpreter's
   expat version. Target-supplied rule ids/titles/severities are also control-char-stripped
   and length-bounded before entering the report model.
+- **Evidence sealed at rest + owner-only outputs.** Each run writes a `manifest.json` of
+  SHA-256 digests (and sizes) over the report and every retained per-host artifact, so a
+  post-hoc edit to evidence on disk is detectable. All run output is now created owner-only
+  (umask `0o077`) so the fleet's posture/scope isn't world-readable on a shared run host. The
+  residual-trust boundary (a host rooted by the tool can forge its own scorecard) is
+  documented in `docs/design.md`.
 
 ### Security / integrity posture
 - The tool never installs software on or modifies the hosts it audits.

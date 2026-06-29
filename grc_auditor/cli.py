@@ -89,6 +89,13 @@ def cmd_run(args) -> int:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
 
+    # Restrict permissions on everything this run creates (dirs 0700, files 0600).
+    # The evidence/logs/report encode the fleet's full internal posture + scope; on
+    # a shared jump host (the design's stated run host) default 0644/0755 would let
+    # any other local user read it. umask is process-global and this is a one-shot
+    # CLI, so setting it here covers makedirs + open + SFTP-written evidence.
+    os.umask(0o077)
+
     run_id = _run_id()
     run_dir = os.path.join(cfg.output_dir, "runs", run_id)
     log = setup_logging(run_dir, verbose=args.verbose)

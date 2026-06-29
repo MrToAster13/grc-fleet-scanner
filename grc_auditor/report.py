@@ -13,6 +13,7 @@ Drift compares this run to the immediately prior run in the history store.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 from collections import Counter
@@ -41,6 +42,51 @@ _SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
 
 def _sev_rank(severity: Optional[str]) -> int:
     return _SEVERITY_RANK.get((severity or "unknown").lower(), 0)
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _write_manifest(run: RunRecord, run_dir: str, report_paths: dict) -> str:
+    """Seal the run's artifacts with a SHA-256 manifest (chain of custody).
+
+    Hashes the fleet report files and every retained per-host evidence file so an
+    auditor can later prove the bytes on disk are the ones this run produced --
+    any post-hoc edit to results.xml/ARF/report changes the recorded digest.
+    (This protects evidence *at rest*; it cannot detect a host that forged its own
+    results before the tool pulled them -- see design.md on residual trust.)
+    """
+    entries = []
+    for kind, p in report_paths.items():
+        if p and os.path.isfile(p):
+            entries.append({"file": os.path.relpath(p, run_dir), "kind": kind,
+                            "sha256": _sha256_file(p), "bytes": os.path.getsize(p)})
+    for h in run.hosts:
+        host_dir = os.path.join(run_dir, h.ip)
+        if not os.path.isdir(host_dir):
+            continue
+        for name in sorted(os.listdir(host_dir)):
+            fp = os.path.join(host_dir, name)
+            if os.path.isfile(fp):
+                entries.append({
+                    "file": os.path.relpath(fp, run_dir), "kind": "evidence",
+                    "host": h.ip, "sha256": _sha256_file(fp),
+                    "bytes": os.path.getsize(fp),
+                })
+    manifest = {
+        "run_id": run.run_id,
+        "config_hash": run.config_hash,
+        "artifacts": entries,
+    }
+    mpath = os.path.join(run_dir, "manifest.json")
+    with open(mpath, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
+    return mpath
 
 
 def _csv_safe(value) -> str:
@@ -511,5 +557,8 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         "html": html_path, "json": json_path,
         "hosts_csv": hosts_csv, "findings_csv": findings_csv,
     }
+    # Seal all artifacts last, so the manifest covers the finished report files
+    # plus every retained per-host evidence file.
+    paths["manifest"] = _write_manifest(run, run_dir, paths)
     log.info("report: wrote %s", html_path)
     return paths
