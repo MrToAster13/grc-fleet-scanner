@@ -140,6 +140,29 @@ def test_not_checked_and_other_round_trip(tmp_path):
         store.close()
 
 
+def test_incremental_persistence_leaves_a_visible_unfinished_run(tmp_path):
+    # begin_run + save_host persist a run before it finishes, so a crash mid-scan
+    # leaves a visibly-incomplete run (finished_at NULL) with the hosts done so far
+    # -- not orphaned evidence with no DB row.
+    store = Store(str(tmp_path))
+    try:
+        run = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [])
+        run.finished_at = None
+        store.begin_run(run)
+        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
+
+        loaded = store.load_run("20260627T000000Z")
+        assert loaded is not None
+        assert loaded.finished_at is None           # visibly incomplete
+        assert [h.ip for h in loaded.hosts] == ["10.0.10.21"]
+
+        store.finish_run("20260627T000000Z", "2026-06-27T00:05:00+00:00")
+        assert store.load_run("20260627T000000Z").finished_at == \
+            "2026-06-27T00:05:00+00:00"
+    finally:
+        store.close()
+
+
 def test_pre_migration_null_counts_reload_as_unknown_not_clean(tmp_path):
     # A row written before the not_checked/other columns existed holds NULL. It
     # must reload as "unknown" confidence (None), never a fabricated 0 that would

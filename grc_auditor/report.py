@@ -52,32 +52,30 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _write_manifest(run: RunRecord, run_dir: str, report_paths: dict) -> str:
+def _write_manifest(run: RunRecord, run_dir: str) -> str:
     """Seal the run's artifacts with a SHA-256 manifest (chain of custody).
 
-    Hashes the fleet report files and every retained per-host evidence file so an
+    Hashes every top-level run artifact (report files, ``audit.log``,
+    ``effective-config.json``) and every retained per-host evidence file, so an
     auditor can later prove the bytes on disk are the ones this run produced --
-    any post-hoc edit to results.xml/ARF/report changes the recorded digest.
-    (This protects evidence *at rest*; it cannot detect a host that forged its own
-    results before the tool pulled them -- see design.md on residual trust.)
+    any post-hoc edit changes the recorded digest. (This protects evidence *at
+    rest*; it cannot detect a host that forged its own results before the tool
+    pulled them -- see design.md on residual trust.)
     """
     entries = []
-    for kind, p in report_paths.items():
-        if p and os.path.isfile(p):
-            entries.append({"file": os.path.relpath(p, run_dir), "kind": kind,
-                            "sha256": _sha256_file(p), "bytes": os.path.getsize(p)})
-    for h in run.hosts:
-        host_dir = os.path.join(run_dir, h.ip)
-        if not os.path.isdir(host_dir):
-            continue
-        for name in sorted(os.listdir(host_dir)):
-            fp = os.path.join(host_dir, name)
-            if os.path.isfile(fp):
-                entries.append({
-                    "file": os.path.relpath(fp, run_dir), "kind": "evidence",
-                    "host": h.ip, "sha256": _sha256_file(fp),
-                    "bytes": os.path.getsize(fp),
-                })
+    for name in sorted(os.listdir(run_dir)):
+        fp = os.path.join(run_dir, name)
+        if os.path.isfile(fp) and name != "manifest.json":
+            entries.append({"file": name, "kind": "run",
+                            "sha256": _sha256_file(fp), "bytes": os.path.getsize(fp)})
+        elif os.path.isdir(fp):  # per-host evidence directory (named by IP)
+            for sub in sorted(os.listdir(fp)):
+                ef = os.path.join(fp, sub)
+                if os.path.isfile(ef):
+                    entries.append({
+                        "file": f"{name}/{sub}", "kind": "evidence", "host": name,
+                        "sha256": _sha256_file(ef), "bytes": os.path.getsize(ef),
+                    })
     manifest = {
         "run_id": run.run_id,
         "config_hash": run.config_hash,
@@ -559,6 +557,6 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     }
     # Seal all artifacts last, so the manifest covers the finished report files
     # plus every retained per-host evidence file.
-    paths["manifest"] = _write_manifest(run, run_dir, paths)
+    paths["manifest"] = _write_manifest(run, run_dir)
     log.info("report: wrote %s", html_path)
     return paths

@@ -133,8 +133,6 @@ def test_apply_overrides_cli_wins(tmp_path):
     assert cfg.output_dir == "./override-out"
     assert cfg.cis_level == 1
     assert cfg.scope.ssh_concurrency == 20
-    # cidrs override is also reflected into raw (so hash() sees it)
-    assert cfg.raw["scope"]["cidrs"] == ["192.168.0.0/24"]
 
 
 def test_apply_overrides_invalid_cis_level_raises(tmp_path):
@@ -143,16 +141,30 @@ def test_apply_overrides_invalid_cis_level_raises(tmp_path):
         apply_overrides(cfg, cis_level=3)
 
 
-def test_apply_overrides_threshold_mirrored_into_hash(tmp_path):
-    # A --low-confidence-threshold override must reach cfg AND change the
-    # config_hash provenance (regression guard: it was previously invisible
-    # to hash() because it was not mirrored into raw).
-    cfg = load_config(_write(tmp_path, VALID_YAML))
-    before = cfg.hash()
-    apply_overrides(cfg, low_confidence_threshold=75)
-    assert cfg.low_confidence_threshold == 75.0
-    assert cfg.raw["low_confidence_threshold"] == 75.0
-    assert cfg.hash() != before
+def test_overrides_change_config_hash(tmp_path):
+    # config_hash is computed from the EFFECTIVE config, so every run-affecting
+    # override changes it -- including --cis-level, which previously hashed
+    # identically to a default run (a provenance lie) because only cidrs/threshold
+    # were mirrored into raw.
+    for kwargs in (
+        {"low_confidence_threshold": 75},
+        {"cis_level": 1},                 # VALID_YAML sets cis_level: 2
+        {"cidrs": ["192.168.5.0/24"]},
+        {"ssh_concurrency": 30},
+    ):
+        cfg = load_config(_write(tmp_path, VALID_YAML))
+        before = cfg.hash()
+        apply_overrides(cfg, **kwargs)
+        assert cfg.hash() != before, kwargs
+
+
+def test_config_hash_is_stable_and_order_independent(tmp_path):
+    # Same effective config -> same hash, regardless of CIDR ordering.
+    a = load_config(_write(tmp_path, VALID_YAML))
+    b = load_config(_write(tmp_path, VALID_YAML))
+    apply_overrides(a, cidrs=["10.0.1.0/24", "10.0.2.0/24"])
+    apply_overrides(b, cidrs=["10.0.2.0/24", "10.0.1.0/24"])
+    assert a.hash() == b.hash()
 
 
 def test_non_numeric_threshold_in_yaml_raises(tmp_path):

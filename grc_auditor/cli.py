@@ -10,6 +10,7 @@ capped by scope.ssh_concurrency. Discovery and reporting are single-shot.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -106,6 +107,13 @@ def cmd_run(args) -> int:
     run = RunRecord(run_id=run_id, started_at=_utcnow(),
                     scope=list(cfg.scope.cidrs), config_hash=cfg.hash())
 
+    # Seal the effective (override-applied) configuration as run provenance; the
+    # manifest hashes it too, and config_hash is derived from the same canonical
+    # form, so the run is reproducible and self-describing.
+    with open(os.path.join(run_dir, "effective-config.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(cfg.canonical(), fh, indent=2, sort_keys=True)
+
     # Stage 1-2: discover
     try:
         hosts = discovery.discover(cfg.scope, want_os=args.os_detect)
@@ -128,29 +136,43 @@ def cmd_run(args) -> int:
     run.hosts = hosts
 
     candidates = [h for h in hosts if h.status is HostStatus.DISCOVERED]
+    candidate_ips = {h.ip for h in candidates}
 
-    if args.dry_run:
-        log.info("dry-run: %d host(s) would be deep-scanned; skipping SSH/scan",
-                 len(candidates))
-    else:
-        # Stage 4-6: reach + detect + scan, bounded concurrency
-        store_artifacts = os.path.join(cfg.output_dir, "runs")
-        log.info("processing %d candidate host(s) with concurrency %d",
-                 len(candidates), cfg.scope.ssh_concurrency)
-        with ThreadPoolExecutor(max_workers=cfg.scope.ssh_concurrency) as pool:
-            futures = {
-                pool.submit(_process_host, h, cfg, run_id, store_artifacts): h
-                for h in candidates
-            }
-            for fut in as_completed(futures):
-                fut.result()  # _process_host never raises
-
-    run.finished_at = _utcnow()
-
-    # Stage 7: persist
+    # Stage 7 persistence is now INCREMENTAL: the run row is written before any
+    # SSH (so a crash leaves a visibly-incomplete run, not orphaned evidence), and
+    # each host is persisted as it is finalized.
     store = Store(cfg.output_dir)
     try:
-        store.save_run(run)
+        store.begin_run(run)
+        # Hosts already finalized by classify (non_ubuntu / no_credentials / ...)
+        # are done -- persist them up front.
+        for h in run.hosts:
+            if h.ip not in candidate_ips:
+                store.save_host(run.run_id, h)
+
+        if args.dry_run:
+            log.info("dry-run: %d host(s) would be deep-scanned; skipping SSH/scan",
+                     len(candidates))
+            for h in candidates:
+                store.save_host(run.run_id, h)
+        else:
+            # Stage 4-6: reach + detect + scan, bounded concurrency. Workers do the
+            # IO and return the host; the main thread persists each as it completes
+            # (keeps the single SQLite connection thread-confined).
+            store_artifacts = os.path.join(cfg.output_dir, "runs")
+            log.info("processing %d candidate host(s) with concurrency %d",
+                     len(candidates), cfg.scope.ssh_concurrency)
+            with ThreadPoolExecutor(max_workers=cfg.scope.ssh_concurrency) as pool:
+                futures = {
+                    pool.submit(_process_host, h, cfg, run_id, store_artifacts): h
+                    for h in candidates
+                }
+                for fut in as_completed(futures):
+                    store.save_host(run.run_id, fut.result())  # never raises
+
+        run.finished_at = _utcnow()
+        store.finish_run(run.run_id, run.finished_at)
+
         # Stage 8: report (drift needs the store, after this run is saved)
         paths = write_reports(run, store, run_dir,
                               low_confidence_threshold=cfg.low_confidence_threshold)

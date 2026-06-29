@@ -99,8 +99,47 @@ class Config:
                 return g
         return None
 
+    @staticmethod
+    def _group_canonical(g: "CredentialGroup") -> dict:
+        return {
+            "name": g.name, "ssh_user": g.ssh_user, "targets": sorted(g.targets),
+            "key_path": g.key_path, "use_agent": g.use_agent,
+            "ssh_port": g.ssh_port, "sudo": g.sudo, "cis_level": g.cis_level,
+            "bastion": None if g.bastion is None else {
+                "host": g.bastion.host, "user": g.bastion.user,
+                "port": g.bastion.port, "key_path": g.bastion.key_path,
+            },
+        }
+
+    def canonical(self) -> dict:
+        """The EFFECTIVE configuration that determines a run's behavior -- the
+        basis for ``config_hash`` and the sealed per-run provenance artifact.
+
+        Computed from the resolved dataclass fields AFTER overrides (not the raw
+        YAML), so a ``--cis-level`` / ``--cidr`` / ``--concurrency`` override is
+        reflected; two runs hash the same iff they would behave the same.
+        ``output_dir`` is excluded (a destination, not a behavior input)."""
+        return {
+            "scope": {
+                "cidrs": sorted(self.scope.cidrs),
+                "exclude": sorted(self.scope.exclude),
+                "nmap_timing": self.scope.nmap_timing,
+                "nmap_extra_args": list(self.scope.nmap_extra_args),
+                "ssh_concurrency": self.scope.ssh_concurrency,
+                "host_timeout_seconds": self.scope.host_timeout_seconds,
+            },
+            "cis_level": self.cis_level,
+            "ssg_dir": self.ssg_dir,
+            "known_hosts": self.known_hosts,
+            "low_confidence_threshold": self.low_confidence_threshold,
+            "credential_groups": sorted(
+                (self._group_canonical(g) for g in self.credential_groups),
+                key=lambda d: d["name"],
+            ),
+        }
+
     def hash(self) -> str:
-        blob = json.dumps(self.raw, sort_keys=True, default=str).encode()
+        blob = json.dumps(self.canonical(), sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 
 
@@ -312,7 +351,6 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
     """
     if cidrs:
         cfg.scope.cidrs = _validate_cidrs(list(cidrs), "--cidr")
-        cfg.raw.setdefault("scope", {})["cidrs"] = list(cfg.scope.cidrs)
     if exclude is not None:
         cfg.scope.exclude = _validate_exclude(list(exclude), "--exclude")
     if output_dir:
@@ -325,6 +363,4 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.scope.ssh_concurrency = _validate_concurrency(ssh_concurrency)
     if low_confidence_threshold is not None:
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
-        # Mirror into raw so config_hash() reflects the override (like cidrs).
-        cfg.raw["low_confidence_threshold"] = cfg.low_confidence_threshold
     return cfg
