@@ -127,6 +127,102 @@ def _validate_threshold(value) -> float:
     return v
 
 
+# Blast-radius guard: refuse a single scope CIDR larger than this. A typo'd /8 or
+# 0.0.0.0/0 would actively scan far outside any authorized range. The tool's stated
+# scale is tens-low hundreds of hosts; split a genuinely large scope into explicit
+# CIDRs rather than sweeping a /8.
+_MIN_IPV4_PREFIX = 16
+_MIN_IPV6_PREFIX = 112
+_MAX_SSH_CONCURRENCY = 100
+
+# nmap extra-args we refuse: they add targets, redirect output, or run scripts --
+# all of which can broaden the blast radius or defeat the configured scope/exclude.
+_FORBIDDEN_NMAP_ARGS = {
+    "-iL", "--excludefile", "--exclude", "-oA", "-oN", "-oG", "-oX", "-oS",
+    "--script", "--interactive", "--resume", "--datadir",
+}
+
+
+def _validate_cidrs(cidrs, where: str) -> list:
+    """Validate scope CIDRs: well-formed AND not over-broad (blast-radius guard).
+    Shared by the file path and the --cidr override so neither can bypass it."""
+    if not cidrs:
+        raise ConfigError(
+            "scope.cidrs is empty. Active scanning requires an explicit, "
+            "authorized target scope. Refusing to run."
+        )
+    out = []
+    for c in cidrs:
+        try:
+            net = ipaddress.ip_network(c, strict=False)
+        except ValueError as exc:
+            raise ConfigError(f"Invalid CIDR in {where}: {c!r} ({exc})") from exc
+        floor = _MIN_IPV4_PREFIX if net.version == 4 else _MIN_IPV6_PREFIX
+        if net.prefixlen < floor:
+            raise ConfigError(
+                f"{where}: {c} is too broad (/{net.prefixlen}, {net.num_addresses} "
+                f"addresses). As a blast-radius guard the tool refuses a scope wider "
+                f"than /{floor}; narrow the range or split it into explicit CIDRs."
+            )
+        out.append(str(c))
+    return out
+
+
+def _validate_exclude(exclude, where: str) -> list:
+    out = []
+    for c in exclude or []:
+        try:
+            ipaddress.ip_network(c, strict=False)
+        except ValueError as exc:
+            raise ConfigError(f"Invalid CIDR in {where}: {c!r} ({exc})") from exc
+        out.append(str(c))
+    return out
+
+
+def _validate_concurrency(value) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"ssh_concurrency must be an integer (got {value!r})") from exc
+    if not 1 <= n <= _MAX_SSH_CONCURRENCY:
+        raise ConfigError(
+            f"ssh_concurrency must be between 1 and {_MAX_SSH_CONCURRENCY} (got {n})"
+        )
+    return n
+
+
+def _validate_nmap_extra_args(args) -> list:
+    out = []
+    for a in args or []:
+        a = str(a)
+        if not a.startswith("-"):
+            raise ConfigError(
+                f"nmap_extra_args may only contain flags, not bare targets (got "
+                f"{a!r}); targets come from scope.cidrs."
+            )
+        if a.split("=", 1)[0] in _FORBIDDEN_NMAP_ARGS:
+            raise ConfigError(
+                f"nmap_extra_args: {a!r} is not allowed -- it could add targets, "
+                f"redirect output, or defeat the configured scope/exclusions."
+            )
+        out.append(a)
+    return out
+
+
+def ip_in_networks(ip: str, networks) -> bool:
+    """True if ``ip`` falls within any CIDR / exact-IP literal in ``networks``.
+    Used to re-enforce scope.exclude after discovery (defense in depth)."""
+    for n in networks or []:
+        n = str(n).strip()
+        try:
+            if ipaddress.ip_address(ip) in ipaddress.ip_network(n, strict=False):
+                return True
+        except ValueError:
+            if n == ip:
+                return True
+    return False
+
+
 def _parse_bastion(doc: Optional[dict]) -> Optional[BastionConfig]:
     if not doc:
         return None
@@ -174,24 +270,12 @@ def load_config(path: str) -> Config:
         raise ConfigError("Top-level config must be a mapping")
 
     scope_doc = _require(doc, "scope", "config")
-    cidrs = scope_doc.get("cidrs") or []
-    if not cidrs:
-        raise ConfigError(
-            "scope.cidrs is empty. Active scanning requires an explicit, "
-            "authorized target scope. Refusing to run."
-        )
-    for c in cidrs:
-        try:
-            ipaddress.ip_network(c, strict=False)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid CIDR in scope.cidrs: {c!r} ({exc})") from exc
-
     scope = ScanScope(
-        cidrs=list(cidrs),
-        exclude=list(scope_doc.get("exclude", [])),
+        cidrs=_validate_cidrs(scope_doc.get("cidrs") or [], "scope.cidrs"),
+        exclude=_validate_exclude(scope_doc.get("exclude", []), "scope.exclude"),
         nmap_timing=scope_doc.get("nmap_timing", "-T3"),
-        nmap_extra_args=list(scope_doc.get("nmap_extra_args", [])),
-        ssh_concurrency=int(scope_doc.get("ssh_concurrency", 10)),
+        nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args", [])),
+        ssh_concurrency=_validate_concurrency(scope_doc.get("ssh_concurrency", 10)),
         host_timeout_seconds=int(scope_doc.get("host_timeout_seconds", 600)),
     )
 
@@ -220,12 +304,17 @@ def load_config(path: str) -> Config:
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
                     cis_level=None, ssh_concurrency=None,
                     low_confidence_threshold=None) -> Config:
-    """Apply CLI overrides onto a loaded Config (CLI wins over file)."""
+    """Apply CLI overrides onto a loaded Config (CLI wins over file).
+
+    Every override runs through the SAME validators as the file path -- a --cidr
+    override is no longer a way to slip a malformed or over-broad (blast-radius)
+    range past the checks that load_config enforces.
+    """
     if cidrs:
-        cfg.scope.cidrs = list(cidrs)
-        cfg.raw.setdefault("scope", {})["cidrs"] = list(cidrs)
-    if exclude:
-        cfg.scope.exclude = list(exclude)
+        cfg.scope.cidrs = _validate_cidrs(list(cidrs), "--cidr")
+        cfg.raw.setdefault("scope", {})["cidrs"] = list(cfg.scope.cidrs)
+    if exclude is not None:
+        cfg.scope.exclude = _validate_exclude(list(exclude), "--exclude")
     if output_dir:
         cfg.output_dir = output_dir
     if cis_level is not None:
@@ -233,7 +322,7 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
             raise ConfigError("--cis-level must be 1 or 2")
         cfg.cis_level = cis_level
     if ssh_concurrency is not None:
-        cfg.scope.ssh_concurrency = ssh_concurrency
+        cfg.scope.ssh_concurrency = _validate_concurrency(ssh_concurrency)
     if low_confidence_threshold is not None:
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
         # Mirror into raw so config_hash() reflects the override (like cidrs).

@@ -16,7 +16,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from . import __version__, discovery, classify as classify_mod
-from .config import Config, ConfigError, apply_overrides, load_config
+from .config import (
+    Config, ConfigError, apply_overrides, ip_in_networks, load_config,
+)
 from .detect import detect
 from .logging_setup import get_logger, setup_logging
 from .models import HostRecord, HostStatus, RunRecord
@@ -103,6 +105,16 @@ def cmd_run(args) -> int:
     except discovery.DiscoveryError as exc:
         log.error("discovery failed: %s", exc)
         return 1
+
+    # Re-enforce exclusions before any SSH (defense in depth): nmap already gets
+    # --exclude, but the golden rule is too important to rely on a single layer --
+    # an excluded IP must never be connected to even if discovery returns it.
+    if cfg.scope.exclude:
+        kept = [h for h in hosts if not ip_in_networks(h.ip, cfg.scope.exclude)]
+        if len(kept) != len(hosts):
+            log.warning("dropped %d discovered host(s) matching scope.exclude "
+                        "before any SSH", len(hosts) - len(kept))
+        hosts = kept
 
     # Stage 3: classify
     classify_mod.classify(hosts, cfg)

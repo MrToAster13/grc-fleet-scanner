@@ -118,11 +118,12 @@ python -m grc_auditor history -o ./grc-output
 
 ```yaml
 scope:
-  cidrs: [10.0.10.0/24]      # REQUIRED — authorized ranges. Empty => tool refuses to run.
-  exclude: [10.0.10.1]       # IPs/ranges to skip (gateways, fragile appliances)
+  cidrs: [10.0.10.0/24]      # REQUIRED — authorized ranges. Empty => refuses to run.
+                             #   Refused if wider than /16 (blast-radius guard).
+  exclude: [10.0.10.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
   nmap_timing: "-T3"         # cautious default; only -T0..-T5 accepted
-  nmap_extra_args: []        # appended verbatim to nmap
-  ssh_concurrency: 10        # bounded parallel SSH/scan workers
+  nmap_extra_args: []        # flags only — no bare targets, no scope/output-altering flags
+  ssh_concurrency: 10        # bounded parallel SSH/scan workers (1..100)
   host_timeout_seconds: 600  # per-host scan timeout
 
 output_dir: "./grc-output"   # history.db + per-run reports/evidence

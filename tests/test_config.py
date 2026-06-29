@@ -12,6 +12,7 @@ from grc_auditor.config import (
     CredentialGroup,
     ScanScope,
     apply_overrides,
+    ip_in_networks,
     load_config,
 )
 
@@ -170,6 +171,59 @@ def test_out_of_range_threshold_raises(tmp_path):
     cfg = load_config(_write(tmp_path, VALID_YAML))
     with pytest.raises(ConfigError):
         apply_overrides(cfg, low_confidence_threshold=150)
+
+
+# --- scope / blast-radius validation -------------------------------------- #
+
+def test_cidr_override_is_validated(tmp_path):
+    # The --cidr path must reject a malformed range, same as the file path
+    # (previously it bypassed validation entirely).
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    with pytest.raises(ConfigError):
+        apply_overrides(cfg, cidrs=["not-a-cidr"])
+
+
+def test_overbroad_scope_is_refused_in_both_paths(tmp_path):
+    # A typo'd /8 or 0.0.0.0/0 is an enormous blast radius -> refused.
+    overbroad = """
+        scope:
+          cidrs: [10.0.0.0/8]
+        credential_groups: []
+    """
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, overbroad))
+
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    with pytest.raises(ConfigError):
+        apply_overrides(cfg, cidrs=["0.0.0.0/0"])
+
+
+def test_concurrency_bounds(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    with pytest.raises(ConfigError):
+        apply_overrides(cfg, ssh_concurrency=0)
+    with pytest.raises(ConfigError):
+        apply_overrides(cfg, ssh_concurrency=10_000)
+    assert apply_overrides(cfg, ssh_concurrency=25).scope.ssh_concurrency == 25
+
+
+def test_nmap_extra_args_rejects_targets_and_dangerous_flags(tmp_path):
+    for bad in ("203.0.113.0/24", "-iL", "--exclude=10.0.0.5", "-oN"):
+        yaml_text = f"""
+            scope:
+              cidrs: [10.0.10.0/24]
+              nmap_extra_args: [{bad!r}]
+            credential_groups: []
+        """
+        with pytest.raises(ConfigError):
+            load_config(_write(tmp_path, yaml_text))
+
+
+def test_ip_in_networks_helper():
+    nets = ["10.0.10.0/24", "192.168.1.5"]
+    assert ip_in_networks("10.0.10.7", nets) is True
+    assert ip_in_networks("192.168.1.5", nets) is True
+    assert ip_in_networks("10.0.20.7", nets) is False
 
 
 def test_hash_is_stable_for_equal_inputs(tmp_path):
