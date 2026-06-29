@@ -26,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 78-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 86-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -53,6 +53,12 @@ release, everything lives under **Unreleased**.
   generic bastion error and demoted to plain `unreachable`.
 
 ### Changed
+- **Testable remote-exec seam.** Introduced `RemoteHostProtocol` and a `FakeRemoteHost`
+  double so the detect/scan decision layer — the load-bearing middle of the never-false-pass
+  guarantee, previously with zero coverage — is now exercised by offline decision-table tests
+  (non-ubuntu, sudo-absent, scanner-absent, unsupported-version, happy path; oscap error /
+  no-results / clean scan). This locks the injection and status-mapping fixes against
+  regression.
 - Documentation consolidated into `docs/` with a single canonical home per topic.
 - Refactor: single source of truth for the low-confidence default and rule
   (`models.DEFAULT_LOW_CONFIDENCE_THRESHOLD`, `ScanResult.is_low_confidence`); shared

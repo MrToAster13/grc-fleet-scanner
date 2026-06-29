@@ -69,7 +69,7 @@ import os
 import shlex
 import socket
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 try:
     import paramiko
@@ -137,6 +137,26 @@ class CommandResult:
     @property
     def ok(self) -> bool:
         return self.exit_code == 0
+
+
+@runtime_checkable
+class RemoteHostProtocol(Protocol):
+    """The remote-exec surface that ``detect.py`` and ``scan.py`` depend on.
+
+    Declaring it as a Protocol turns "conn is a parameter" into a real, testable
+    seam: any object exposing these methods -- the production :class:`RemoteHost`
+    or a ``FakeRemoteHost`` in tests -- can drive the detect/scan decision logic
+    fully offline. The decision layer is the load-bearing middle of the
+    never-false-pass guarantee, so it must be exercisable without a live host.
+    """
+
+    def run(self, command: str, *, sudo: bool = ...,
+            timeout: Optional[int] = ...) -> CommandResult: ...
+
+    def run_argv(self, argv: list, *, sudo: bool = ...,
+                 timeout: Optional[int] = ...) -> CommandResult: ...
+
+    def get_file(self, remote_path: str, local_path: str) -> None: ...
 
 
 # A stderr signature emitted by ``sudo -n`` when the user would be prompted for

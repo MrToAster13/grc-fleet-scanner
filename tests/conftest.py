@@ -8,11 +8,54 @@ through pytest's ``tmp_path`` so nothing touches the developer's tree.
 from __future__ import annotations
 
 import os
+import posixpath
 
 import pytest
 
 from grc_auditor.config import Config, CredentialGroup, ScanScope
 from grc_auditor.models import HostRecord, HostStatus, RuleResult, ScanResult
+from grc_auditor.remote import CommandResult, RemoteError
+
+
+class FakeRemoteHost:
+    """Scripted stand-in for ``RemoteHost`` so detect/scan decision logic runs
+    fully offline (satisfies ``RemoteHostProtocol`` structurally).
+
+    ``responses`` is a list of ``(substring, CommandResult)`` tried in order
+    against each command (both ``run`` and ``run_argv``); the first whose
+    substring appears in the command wins, default is exit 0 / empty output.
+    ``files`` maps a remote-path *basename* to the text ``get_file`` writes
+    locally; a basename not present raises ``RemoteError`` (a missing remote
+    file), exercising the real best-effort/abort paths.
+    """
+
+    def __init__(self, responses=None, files=None):
+        self.responses = list(responses or [])
+        self.files = dict(files or {})
+        self.commands: list[str] = []
+
+    def _match(self, command: str) -> CommandResult:
+        self.commands.append(command)
+        for sub, res in self.responses:
+            if sub in command:
+                return res
+        return CommandResult(0, "", "")
+
+    def run(self, command, *, sudo=False, timeout=None):
+        return self._match(command)
+
+    def run_argv(self, argv, *, sudo=False, timeout=None):
+        return self._match(" ".join(str(a) for a in argv))
+
+    def get_file(self, remote_path, local_path):
+        key = posixpath.basename(remote_path)
+        if key not in self.files:
+            raise RemoteError(f"remote file not found: {remote_path}")
+        parent = os.path.dirname(local_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(local_path, "w", encoding="utf-8") as fh:
+            fh.write(self.files[key])
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")

