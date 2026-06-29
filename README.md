@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action — but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional and tested offline (65-test suite). The live SSH → OpenSCAP
+> ℹ️ **Status:** functional and tested offline (70-test suite). The live SSH → OpenSCAP
 > scan path has not yet been validated against a real Ubuntu host — see
 > [docs/validation.md](docs/validation.md) before relying on a production run.
 
@@ -68,7 +68,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. Verify (no network needed)
-python -m pytest        # expect: 65 passed
+python -m pytest        # expect: 70 passed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
@@ -116,5 +116,5 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (65 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` (70 tests) before submitting; keep the
 offline `python smoketest.py` working.

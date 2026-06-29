@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import re
 import xml.etree.ElementTree as ET
 from typing import Optional
 
@@ -48,6 +49,11 @@ _MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
 # scores ~86 vs a flat ~60), so only an opposite-story gap this large is a signal.
 _SCORE_RECONCILE_TOLERANCE = 40.0
 
+# The only shape we accept back from the target's `mktemp -d /tmp/grc_audit.XXXXXX`.
+# Anything else (a crafted path with shell metacharacters from a hostile host) is
+# refused before it can be interpolated into a sudo command. See scan_host.
+_SAFE_REMOTE_DIR = re.compile(r"^/tmp/grc_audit\.[A-Za-z0-9]{6,}$")
+
 
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -58,24 +64,36 @@ def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
               timeout: int = 600) -> ScanResult:
     """Evaluate one host and return a parsed ScanResult; updates host.status."""
     mk = conn.run("mktemp -d /tmp/grc_audit.XXXXXX", timeout=30)
-    if not mk.ok or not mk.stdout.strip():
+    remote_dir = mk.stdout.strip()
+    if not mk.ok or not remote_dir:
         host.status = HostStatus.SCAN_ERROR
         host.detail = "could not create remote temp dir"
         raise RuntimeError(host.detail)
-    remote_dir = mk.stdout.strip()
+    # SECURITY: `remote_dir` is the stdout of a command run on the TARGET, which
+    # may be hostile (it controls its own `mktemp` / PATH). It is interpolated
+    # into commands run as root via sudo, so a crafted value would be shell
+    # injection -> root RCE. Refuse anything that is not exactly our temp path
+    # shape; downstream commands additionally go through run_argv (quoted).
+    if not _SAFE_REMOTE_DIR.match(remote_dir):
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = "mktemp returned an unexpected path; refusing to proceed"
+        raise RuntimeError(host.detail)
 
     r_results = posixpath.join(remote_dir, "results.xml")
     r_arf = posixpath.join(remote_dir, "arf.xml")
     r_report = posixpath.join(remote_dir, "report.html")
 
-    cmd = (
-        f"oscap xccdf eval "
-        f"--profile {plan.profile_id} "
-        f"--results {r_results} "
-        f"--results-arf {r_arf} "
-        f"--report {r_report} "
-        f"{plan.datastream_path}"
-    )
+    # Built as an argv list so every token is shell-quoted (run_argv) -- no value
+    # interpolated into a remote shell command is ever unquoted (defense in depth
+    # alongside the _SAFE_REMOTE_DIR check above).
+    oscap_argv = [
+        "oscap", "xccdf", "eval",
+        "--profile", plan.profile_id,
+        "--results", r_results,
+        "--results-arf", r_arf,
+        "--report", r_report,
+        plan.datastream_path,
+    ]
 
     local_dir = os.path.join(artifacts_root, run_id, host.ip)
     local_results = os.path.join(local_dir, "results.xml")
@@ -85,7 +103,7 @@ def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
     try:
         log.info("scan[%s]: evaluating CIS L%d (%s)",
                  host.ip, plan.cis_level, plan.ubuntu_version)
-        res = conn.run(cmd, sudo=True, timeout=timeout)
+        res = conn.run_argv(oscap_argv, sudo=True, timeout=timeout)
 
         # Persist the scanner's own output as evidence regardless of outcome --
         # this is what an auditor reads to understand an error or partial run.
@@ -100,7 +118,7 @@ def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
 
         # A success exit code with no results.xml means the scan did not produce
         # what we need to parse; treat as an error rather than reporting zeros.
-        if not conn.run(f"test -f {r_results}", timeout=30).ok:
+        if not conn.run_argv(["test", "-f", r_results], timeout=30).ok:
             host.status = HostStatus.SCAN_ERROR
             host.detail = (
                 f"oscap exited {res.exit_code} but produced no results.xml at "
@@ -135,7 +153,7 @@ def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
         # Guarantee remote temp cleanup on every path (success, oscap error,
         # parse failure, transfer failure). Best-effort: never mask the original
         # error and never fail the run on a leftover temp dir.
-        cleanup = conn.run(f"rm -rf {remote_dir}", sudo=True, timeout=30)
+        cleanup = conn.run_argv(["rm", "-rf", remote_dir], sudo=True, timeout=30)
         if not cleanup.ok:
             log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
                         host.ip, remote_dir, cleanup.exit_code)

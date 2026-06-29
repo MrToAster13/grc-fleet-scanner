@@ -26,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 65-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 70-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -58,6 +58,19 @@ release, everything lives under **Unreleased**.
   (`models.DEFAULT_LOW_CONFIDENCE_THRESHOLD`, `ScanResult.is_low_confidence`); shared
   threshold validation; the report template renders low-confidence by IP membership rather
   than re-deriving the comparison.
+
+### Security (hardening from an adversarial review)
+- **Fixed a root-RCE on the audited host.** The remote temp dir came from the target's own
+  `mktemp` stdout and was interpolated unquoted into a `sudo` cleanup command, so a hostile
+  host could run arbitrary commands as root via the scan account. The path is now validated
+  against a strict allowlist, and all remote commands go through a new shell-quoting argv
+  seam (`RemoteHost.run_argv`).
+- **Fixed stored XSS in the HTML report.** Jinja2 autoescape was effectively off (the
+  `select_autoescape` filename check never matched `report.html.j2`), so a malicious host's
+  hostname/banner/os-release or oscap rule titles rendered as live markup in the analyst's
+  browser. Autoescaping is now forced on.
+- **Fixed CSV formula injection.** Target-derived cells in `hosts.csv`/`findings.csv` that
+  begin with `= + - @` are now quote-prefixed so a spreadsheet cannot execute them.
 
 ### Security / integrity posture
 - The tool never installs software on or modifies the hosts it audits.

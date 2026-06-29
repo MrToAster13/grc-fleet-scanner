@@ -66,6 +66,7 @@ removing the stale entry. A mismatch is a finding, not a nuisance.
 from __future__ import annotations
 
 import os
+import shlex
 import socket
 from dataclasses import dataclass
 from typing import Optional
@@ -401,6 +402,20 @@ class RemoteHost:
         out = out_bytes.decode("utf-8", errors="replace")
         err = err_bytes.decode("utf-8", errors="replace")
         return CommandResult(code, out, err)
+
+    def run_argv(self, argv: list, *, sudo: bool = False,
+                 timeout: Optional[int] = None) -> CommandResult:
+        """Run a command given as an ARGV LIST, shell-quoting every token.
+
+        paramiko's ``exec_command`` always runs through the remote login shell
+        (there is no argv exec), so any interpolated value that is not a trusted
+        constant -- a path, a value derived from a target host's command output --
+        MUST be quoted or a crafted token (``;``, ``$(...)``, ``|``, ``$IFS``)
+        injects into that shell, and with ``sudo=True`` it runs as root. This is
+        the safe seam: callers build a list and never hand-format a shell string.
+        """
+        command = " ".join(shlex.quote(str(a)) for a in argv)
+        return self.run(command, sudo=sudo, timeout=timeout)
 
     @staticmethod
     def _drain(stream) -> bytes:
