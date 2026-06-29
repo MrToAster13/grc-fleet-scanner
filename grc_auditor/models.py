@@ -19,6 +19,13 @@ from typing import Optional
 # report both reference this; do not restate the literal elsewhere).
 DEFAULT_LOW_CONFIDENCE_THRESHOLD = 90.0
 
+# A hard, NON-overridable floor. If less than this % of the benchmark produced a
+# definitive verdict, the scan is too incomplete to certify as SCANNED, no matter
+# how the operator tunes low_confidence_threshold (which only controls the badge).
+# This is the structural backstop against a near-empty scan reading as a clean
+# host; see finalize_scan_status.
+HARD_CONFIDENCE_FLOOR = 50.0
+
 
 class HostStatus(str, Enum):
     """Coverage classification. The report is honest about every one of these."""
@@ -71,8 +78,12 @@ class ScanResult:
     failed: int = 0
     error: int = 0
     not_applicable: int = 0
-    not_checked: int = 0
-    other: int = 0
+    # not_checked / other are Optional so a row persisted before these columns
+    # existed reloads as None ("unknown coverage") rather than a fabricated 0 --
+    # a 0 would silently inflate assessment_confidence on an old low-privilege scan
+    # (the never-false-pass failure mode). Fresh scans always set real integers.
+    not_checked: Optional[int] = 0
+    other: Optional[int] = 0
     score: Optional[float] = None             # XCCDF score, percentage 0..100
     failed_rules: list[RuleResult] = field(default_factory=list)
     arf_path: Optional[str] = None            # retained raw evidence (ARF)
@@ -84,15 +95,21 @@ class ScanResult:
         return self.passed + self.failed + self.error
 
     @property
-    def total_outcomes(self) -> int:
-        """Every rule-result oscap emitted, regardless of verdict."""
+    def total_outcomes(self) -> Optional[int]:
+        """Every rule-result oscap emitted, regardless of verdict. ``None`` when
+        coverage is unknown (a pre-migration row reloaded with NULL counts)."""
+        if self.not_checked is None or self.other is None:
+            return None
         return (self.passed + self.failed + self.error
                 + self.not_applicable + self.not_checked + self.other)
 
     @property
-    def undetermined(self) -> int:
+    def undetermined(self) -> Optional[int]:
         """Rule results that produced no definitive verdict (error / notchecked
-        / other) -- the checks that drag ``assessment_confidence`` down."""
+        / other) -- the checks that drag ``assessment_confidence`` down. ``None``
+        when coverage is unknown."""
+        if self.not_checked is None or self.other is None:
+            return None
         return self.error + self.not_checked + self.other
 
     @property
@@ -106,7 +123,7 @@ class ScanResult:
         checks that actually executed. ``None`` when nothing was evaluated.
         """
         total = self.total_outcomes
-        if total == 0:
+        if not total:                       # None (unknown) or 0 (nothing ran)
             return None
         definitive = self.passed + self.failed + self.not_applicable
         return round(100.0 * definitive / total, 1)
@@ -147,6 +164,38 @@ class HostRecord:
             d["scan"]["assessment_confidence"] = self.scan.assessment_confidence
             d["scan"]["total_outcomes"] = self.scan.total_outcomes
         return d
+
+
+def finalize_scan_status(host: HostRecord, scan: ScanResult,
+                         hard_floor: float = HARD_CONFIDENCE_FLOOR) -> None:
+    """The single chokepoint deciding whether a parsed scan is trustworthy enough
+    to record as SCANNED -- the structural enforcement of the never-false-pass
+    directive. The evidence is always attached; only the *status* is gated:
+
+      * a scan that evaluated NOTHING (``total_outcomes == 0``) -- e.g. an empty
+        or rule-result-less results.xml that ``parse_xccdf_results`` returns as
+        all-zeros without raising -- becomes SCAN_ERROR, never a clean SCANNED.
+      * a scan whose ``assessment_confidence`` falls below the NON-overridable
+        ``hard_floor`` (independent of the operator-tunable low-confidence badge)
+        becomes SCAN_ERROR: too little of the benchmark ran to certify a verdict.
+
+    Anything that clears both bars is recorded SCANNED.
+    """
+    host.scan = scan
+    if not scan.total_outcomes:
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = "oscap produced results.xml with no rule outcomes to assess"
+        return
+    conf = scan.assessment_confidence
+    if conf is not None and conf < hard_floor:
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = (
+            f"assessment incomplete: only {conf:.0f}% of the benchmark produced a "
+            f"verdict (below the {hard_floor:.0f}% hard floor) -- evidence retained "
+            f"but not certifiable; check the scan account's sudo/privilege"
+        )
+        return
+    host.status = HostStatus.SCANNED
 
 
 @dataclass

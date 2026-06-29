@@ -22,7 +22,9 @@ from typing import Optional
 
 from .detect import ScanPlan
 from .logging_setup import get_logger
-from .models import HostRecord, HostStatus, RuleResult, ScanResult
+from .models import (
+    HostRecord, HostStatus, RuleResult, ScanResult, finalize_scan_status,
+)
 from .remote import RemoteHost
 
 log = get_logger()
@@ -119,11 +121,15 @@ def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
         scan.arf_path = local_arf if os.path.exists(local_arf) else None
         scan.html_path = local_report if os.path.exists(local_report) else None
 
-        host.scan = scan
-        host.status = HostStatus.SCANNED
-        log.info("scan[%s]: %d pass / %d fail (score %s)",
+        # Chokepoint: a successful oscap exit + a parseable file is NOT enough to
+        # certify SCANNED -- a zero-outcome or sub-floor scan is recorded as a gap
+        # (SCAN_ERROR), never a clean pass. This is where never-false-pass is
+        # structurally enforced rather than left to convention.
+        finalize_scan_status(host, scan)
+        log.info("scan[%s]: %d pass / %d fail (score %s) -> %s",
                  host.ip, scan.passed, scan.failed,
-                 f"{scan.score:.1f}" if scan.score is not None else "n/a")
+                 f"{scan.score:.1f}" if scan.score is not None else "n/a",
+                 host.status.value)
         return scan
     finally:
         # Guarantee remote temp cleanup on every path (success, oscap error,

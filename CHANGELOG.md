@@ -6,6 +6,11 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Structural never-false-pass chokepoint** — a single `finalize_scan_status` gate now
+  decides `SCANNED`. A scan that evaluated nothing (empty/rule-result-less `results.xml`)
+  or whose coverage falls below a **hard, non-overridable confidence floor (50%)** is
+  recorded as `scan_error` ("evidence retained but not certifiable"), never a clean pass —
+  independent of the operator-tunable low-confidence badge.
 - **Assessment confidence** — `ScanResult.assessment_confidence` reports the % of the
   benchmark that produced a real verdict. A high score that reflects only the checks that
   actually ran (e.g. a low-privilege scan with many `notchecked`) is flagged **LOW
@@ -21,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 58-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 65-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -39,6 +44,13 @@ release, everything lives under **Unreleased**.
   share provenance.
 - **Graceful error on a non-numeric `low_confidence_threshold`** in YAML — a `ConfigError`
   instead of an unhandled `ValueError` traceback.
+- **Faithful reload of coverage counts.** A run persisted before the `not_checked`/`other`
+  columns existed reloads with those counts as `None` ("unknown"), so its confidence reads
+  honestly as unknown instead of a fabricated 0 that would inflate an old low-privilege
+  scan toward a false-clean reading.
+- **Bastion host-key mismatch keeps its security signal.** A key mismatch on the *jump
+  host* (possible MITM) is now reported as `host_key_mismatch`, not flattened into a
+  generic bastion error and demoted to plain `unreachable`.
 
 ### Changed
 - Documentation consolidated into `docs/` with a single canonical home per topic.

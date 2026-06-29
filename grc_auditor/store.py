@@ -193,14 +193,13 @@ class Store:
                     failed=hr["failed"] or 0,
                     error=hr["error"] or 0,
                     not_applicable=hr["not_applicable"] or 0,
-                    # NOTE: rows written before the not_checked/other migration
-                    # hold NULL here; `or 0` coerces them, which is lossy (the
-                    # true count is unrecoverable). Safe today because the only
-                    # loaded-run consumer (drift) reads score/pass-rate, not
-                    # confidence -- revisit before surfacing a stored run's
-                    # assessment_confidence.
-                    not_checked=hr["not_checked"] or 0,
-                    other=hr["other"] or 0,
+                    # Preserve NULL-vs-0 faithfully: rows written before the
+                    # not_checked/other migration hold NULL, and coercing that to 0
+                    # would fabricate full coverage and inflate assessment_confidence
+                    # on an old low-privilege scan. Loading NULL as None makes
+                    # confidence report honestly as "unknown" instead.
+                    not_checked=hr["not_checked"],
+                    other=hr["other"],
                     score=hr["score"],
                     failed_rules=[RuleResult(f["rule_id"], f["result"],
                                              f["severity"], f["title"])

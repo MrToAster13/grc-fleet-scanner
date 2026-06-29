@@ -138,3 +138,27 @@ def test_not_checked_and_other_round_trip(tmp_path):
         assert s.assessment_confidence is not None
     finally:
         store.close()
+
+
+def test_pre_migration_null_counts_reload_as_unknown_not_clean(tmp_path):
+    # A row written before the not_checked/other columns existed holds NULL. It
+    # must reload as "unknown" confidence (None), never a fabricated 0 that would
+    # make an old low-privilege scan look fully and cleanly assessed.
+    store = Store(str(tmp_path))
+    try:
+        host = fabricate_scanned_host()
+        host.scan.not_checked = 190           # genuinely low coverage at scan time
+        store.save_run(_make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                                 [host]))
+        # Simulate a pre-migration row: blank out the migrated columns.
+        store._conn.execute("UPDATE hosts SET not_checked=NULL, other=NULL")
+        store._conn.commit()
+
+        s = store.load_run("20260627T000000Z").hosts[0].scan
+        assert s.not_checked is None
+        assert s.other is None
+        assert s.total_outcomes is None             # coverage unknown
+        assert s.assessment_confidence is None      # NOT a falsely-high 100%
+        assert s.is_low_confidence() is False        # unknown != low (and != clean)
+    finally:
+        store.close()
