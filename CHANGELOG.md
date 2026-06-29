@@ -26,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 75-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 77-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -77,6 +77,11 @@ release, everything lives under **Unreleased**.
   refused, `ssh_concurrency` is bounded to 1–100, `nmap_extra_args` may not smuggle in
   targets or scope/output-altering flags, and `scope.exclude` is re-enforced after discovery
   before any SSH (defense in depth).
+- **Hardened untrusted-XML parsing.** `results.xml` (written by a possibly-hostile target)
+  and nmap output are now parsed with `defusedxml`, blocking entity-expansion ("billion
+  laughs") DoS, DTD retrieval, and external-entity references regardless of the interpreter's
+  expat version. Target-supplied rule ids/titles/severities are also control-char-stripped
+  and length-bounded before entering the report model.
 
 ### Security / integrity posture
 - The tool never installs software on or modifies the hosts it audits.

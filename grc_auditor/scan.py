@@ -21,6 +21,17 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Optional
 
+try:
+    # Parse target-supplied XML with entity/DTD/external-reference defenses on.
+    # results.xml is written by the (possibly hostile) target, so the stdlib
+    # parser's billion-laughs exposure is a real DoS vector on the run host.
+    from defusedxml.ElementTree import parse as _safe_xml_parse
+    from defusedxml.common import DefusedXmlException
+except ImportError as exc:  # pragma: no cover - dependency guard
+    raise SystemExit(
+        "defusedxml is required. Install dependencies: pip install -r requirements.txt"
+    ) from exc
+
 from .detect import ScanPlan
 from .logging_setup import get_logger
 from .models import (
@@ -57,6 +68,24 @@ _SAFE_REMOTE_DIR = re.compile(r"^/tmp/grc_audit\.[A-Za-z0-9]{6,}$")
 
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
+
+
+# Cap on any single target-supplied string (rule id / title / severity) before it
+# enters the report model. A real CIS rule id/title is well under this.
+_MAX_FIELD_LEN = 1024
+
+
+def _clean_field(text: Optional[str], maxlen: int = _MAX_FIELD_LEN) -> Optional[str]:
+    """Bound a target-supplied string: drop control characters and cap length.
+
+    A hostile results.xml fully controls rule ids/titles. HTML-escaping and
+    CSV-safety happen at render time; this is defense in depth so such a string
+    cannot smuggle layout-breaking control bytes or bloat the report. ``None``
+    stays ``None``.
+    """
+    if text is None:
+        return None
+    return "".join(ch for ch in str(text) if ch.isprintable())[:maxlen]
 
 
 def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
@@ -223,8 +252,12 @@ def parse_xccdf_results(path: str) -> ScanResult:
         )
 
     try:
-        tree = ET.parse(path)
+        tree = _safe_xml_parse(path)
         root = tree.getroot()
+    except DefusedXmlException as exc:
+        raise ValueError(
+            f"hostile XCCDF results (entity/DTD/external-ref blocked): {path} ({exc})"
+        ) from exc
     except ET.ParseError as exc:
         raise ValueError(f"malformed XCCDF results: {path} ({exc})") from exc
 
@@ -247,9 +280,9 @@ def parse_xccdf_results(path: str) -> ScanResult:
             elif outcome == _FAIL:
                 scan.failed += 1
                 failed_rules.append(RuleResult(
-                    rule_id=el.get("idref") or "unknown",
+                    rule_id=_clean_field(el.get("idref")) or "unknown",
                     result=outcome,
-                    severity=el.get("severity") or "unknown",
+                    severity=_clean_field(el.get("severity")) or "unknown",
                 ))
             elif outcome == _ERROR:
                 scan.error += 1
@@ -295,11 +328,11 @@ def _rule_titles(root: ET.Element) -> dict[str, str]:
     for el in root.iter():
         if _localname(el.tag) != "Rule":
             continue
-        rid = el.get("id")
+        rid = _clean_field(el.get("id"))
         if not rid:
             continue
         for child in el:
             if _localname(child.tag) == "title":
-                titles[rid] = (child.text or "").strip()
+                titles[rid] = _clean_field((child.text or "").strip()) or ""
                 break
     return titles

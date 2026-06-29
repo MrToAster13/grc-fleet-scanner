@@ -1,6 +1,7 @@
 PyYAML>=6.0
 paramiko>=3.0
 Jinja2>=3.1
+defusedxml>=0.7
 
 # --- test/dev ---
 # Test harness only; not required to run the auditor itself.

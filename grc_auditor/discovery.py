@@ -13,6 +13,14 @@ import subprocess
 import xml.etree.ElementTree as ET
 from typing import Optional
 
+try:
+    from defusedxml.ElementTree import fromstring as _safe_xml_fromstring
+    from defusedxml.common import DefusedXmlException
+except ImportError as exc:  # pragma: no cover - dependency guard
+    raise SystemExit(
+        "defusedxml is required. Install dependencies: pip install -r requirements.txt"
+    ) from exc
+
 from .config import ScanScope
 from .logging_setup import get_logger
 from .models import HostRecord
@@ -253,8 +261,8 @@ def parse_nmap_xml(xml_text: str) -> list[HostRecord]:
     excluded.
     """
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+        root = _safe_xml_fromstring(xml_text)
+    except (ET.ParseError, DefusedXmlException) as exc:
         raise DiscoveryError(f"could not parse nmap XML output: {exc}") from exc
 
     hosts: list[HostRecord] = []
