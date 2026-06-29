@@ -62,7 +62,7 @@ coverage is never mistaken for a clean result:
 | `scanner_absent` | `oscap`/SSG content not present (never installed) |
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release |
 | `host_key_mismatch` | SSH host key ≠ pinned key — a **security finding** |
-| `scan_error` | Scan attempted but errored |
+| `scan_error` | Scan attempted but errored, or completed with too little coverage to certify (below the hard confidence floor) |
 
 ## 5. Design principles
 
@@ -70,9 +70,12 @@ coverage is never mistaken for a clean result:
   coverage is acceptable; silent or fabricated coverage is not.
 - **Fail toward under-reporting, never toward a false pass.** A check that did not run is
   never counted as a pass; an unassessable host gets an explicit gap status, not an
-  invented score. **Assessment confidence** (the % of the benchmark that produced a
-  verdict) flags a high score that only reflects the few checks that actually ran —
-  typically a low-privilege scan.
+  invented score. This is enforced *structurally*, not by convention: a single chokepoint
+  (`finalize_scan_status`) gates the `scanned` verdict, and a scan that evaluated nothing —
+  or whose coverage falls below a **hard, non-overridable floor (50%)** — is recorded as
+  `scan_error`, never a clean pass. Above that floor, **assessment confidence** (the % of
+  the benchmark that produced a verdict) still flags a high score that only reflects the few
+  checks that actually ran (typically a low-privilege scan) via the operator-tunable badge.
 - **Authoritative check logic.** Compliance verdicts come from OpenSCAP, not hand-rolled
   checks, to keep evidence defensible.
 - **Profile-version match is mandatory.** A host is scanned only with the SSG profile
@@ -137,6 +140,6 @@ Surfaced during development, intentionally not built yet:
 
 ## 10. Status & validation
 
-Offline behavior is covered by a 58-test pytest suite. The live SSH→`oscap` scan leg has
+Offline behavior is covered by a 65-test pytest suite. The live SSH→`oscap` scan leg has
 not yet been validated against a real Ubuntu host — run [validation.md](validation.md)
 once against a single VM (including its negative-path checks) before trusting a fleet run.

@@ -162,7 +162,7 @@ is where it is. Act on the gaps:
 | `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG (config mgmt) |
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release — upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
-| `scan_error` | Scan attempted but errored | Read the host's `oscap.stderr.txt` + `audit.log` |
+| `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
 
 **Other report sections:** executive summary (posture + biggest risks), fleet trend
 (pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
@@ -172,10 +172,15 @@ references live in the raw ARF evidence).
 **Assessment confidence (read this before trusting a score).** Each scanned host shows a
 confidence % = how much of the benchmark actually produced a verdict. A low-privilege scan
 leaves many checks `notchecked`, so a high *score* can cover only a few checks that ran.
-Any host below `low_confidence_threshold` (default 90%) is flagged **LOW · N not run** next
-to its score, with a callout in the executive summary. Treat low-confidence scores as
+Any host below `low_confidence_threshold` (default 90%) is flagged **LOW · N unverified**
+next to its score, with a callout in the executive summary. Treat low-confidence scores as
 untrustworthy until the scan account's `sudo` access is fixed. Tune the threshold via
 `low_confidence_threshold` in config or `--low-confidence-threshold` on the CLI.
+
+> The configurable threshold only controls the **badge**. Below a separate **hard,
+> non-overridable floor (50%)** a scan is too incomplete to certify at all: the host is
+> recorded as `scan_error` ("assessment incomplete"), never `scanned`, regardless of the
+> threshold you set. A near-empty scan can never read as a clean host.
 **Always read the coverage-gaps count alongside the pass rate** — never the pass rate alone.
 
 **Where everything lands** under `output_dir/runs/<run_id>/`:

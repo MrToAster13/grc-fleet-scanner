@@ -7,9 +7,58 @@ local-name, so the namespace prefix is exercised on purpose.
 
 from __future__ import annotations
 
+from grc_auditor.models import (
+    HostRecord, HostStatus, ScanResult, finalize_scan_status,
+)
 from grc_auditor.scan import parse_xccdf_results
 
 from conftest import fixture_path
+
+
+# --- scan chokepoint (never-false-pass: zero-outcome / sub-floor != SCANNED) --
+
+def _scan(passed=0, failed=0, error=0, not_applicable=0, not_checked=0,
+          other=0, score=None):
+    return ScanResult(profile_id="p", datastream="d", passed=passed, failed=failed,
+                      error=error, not_applicable=not_applicable,
+                      not_checked=not_checked, other=other, score=score)
+
+
+def test_zero_outcome_scan_is_not_certified_scanned():
+    # An oscap success that produced no rule outcomes must NOT read as a clean host.
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, _scan())          # all zeros -> evaluated nothing
+    assert host.status is HostStatus.SCAN_ERROR
+    assert host.scan is not None                  # evidence still attached
+    assert "no rule outcomes" in host.detail
+
+
+def test_sub_floor_confidence_scan_is_not_certified_scanned():
+    # 100% score but only 10 of 200 checks ran -> 5% confidence, below the hard
+    # floor. A near-empty scan can never be SCANNED regardless of the badge knob.
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, _scan(passed=10, not_checked=190, score=100.0))
+    assert host.status is HostStatus.SCAN_ERROR
+    assert "hard floor" in host.detail
+
+
+def test_adequately_covered_scan_is_scanned():
+    # 70% definitive -> above the floor; a real (if still badge-low) scan.
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, _scan(passed=70, failed=0, not_checked=30, score=100.0))
+    assert host.status is HostStatus.SCANNED
+
+
+def test_empty_results_file_does_not_become_a_clean_scanned_host(tmp_path):
+    # End-to-end: an empty results.xml parses to all-zeros (not a crash), and the
+    # chokepoint then refuses to certify it as SCANNED.
+    p = tmp_path / "results.xml"
+    p.write_text("", encoding="utf-8")
+    scan = parse_xccdf_results(str(p))
+    assert scan.total_outcomes == 0
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, scan)
+    assert host.status is HostStatus.SCAN_ERROR
 
 
 def test_canonical_fixture_does_not_trip_reconciliation_warning(caplog):

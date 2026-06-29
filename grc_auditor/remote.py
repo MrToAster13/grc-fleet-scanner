@@ -220,6 +220,22 @@ def _classify_connect_error(exc: Exception, target: str) -> RemoteError:
     return RemoteError(f"SSH connect to {target} failed: {exc}")
 
 
+def _bastion_error(exc: Exception, bastion_label: str) -> RemoteError:
+    """Translate a bastion-side connect failure into a RemoteError.
+
+    A host-key MISMATCH on the bastion is still a hard security signal (possible
+    MITM on the jump host), so its :class:`HostKeyMismatch` type is PRESERVED --
+    flattening it into a generic :class:`BastionError` would let the caller demote
+    a MITM indicator to plain unreachability. Every other bastion-side failure is
+    wrapped as :class:`BastionError` so callers can still tell bastion-side from
+    target-side problems. The classified message already names the bastion.
+    """
+    base = _classify_connect_error(exc, bastion_label)
+    if isinstance(base, HostKeyMismatch):
+        return base
+    return BastionError(str(base))
+
+
 def _is_unknown_host_key(exc: "paramiko.SSHException") -> bool:
     """Distinguish RejectPolicy's 'unknown server' SSHException from others."""
     msg = str(exc).lower()
@@ -302,8 +318,7 @@ class RemoteHost:
             )
         except Exception as exc:
             self.close()
-            base = _classify_connect_error(exc, bastion_label)
-            raise BastionError(str(base)) from exc
+            raise _bastion_error(exc, bastion_label) from exc
 
         try:
             transport = self._bastion.get_transport()
