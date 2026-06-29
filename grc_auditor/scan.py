@@ -37,7 +37,7 @@ from .logging_setup import get_logger
 from .models import (
     HostRecord, HostStatus, RuleResult, ScanResult, finalize_scan_status,
 )
-from .remote import RemoteHost
+from .remote import RemoteHostProtocol
 
 log = get_logger()
 
@@ -88,7 +88,7 @@ def _clean_field(text: Optional[str], maxlen: int = _MAX_FIELD_LEN) -> Optional[
     return "".join(ch for ch in str(text) if ch.isprintable())[:maxlen]
 
 
-def scan_host(host: HostRecord, conn: RemoteHost, plan: ScanPlan,
+def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
               run_id: str, artifacts_root: str,
               timeout: int = 600) -> ScanResult:
     """Evaluate one host and return a parsed ScanResult; updates host.status."""
@@ -199,7 +199,7 @@ def _write_local(local_dir: str, name: str, text: str) -> None:
         log.warning("scan: could not write %s: %s", name, exc)
 
 
-def _get_file_best_effort(conn: RemoteHost, remote: str, local: str,
+def _get_file_best_effort(conn: RemoteHostProtocol, remote: str, local: str,
                           ip: str, label: str) -> None:
     try:
         conn.get_file(remote, local)

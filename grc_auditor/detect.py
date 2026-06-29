@@ -24,7 +24,7 @@ from . import profiles
 from .config import Config
 from .logging_setup import get_logger
 from .models import HostRecord, HostStatus
-from .remote import RemoteHost
+from .remote import RemoteHostProtocol
 
 log = get_logger()
 
@@ -55,7 +55,7 @@ def _parse_os_release(text: str) -> dict[str, str]:
     return out
 
 
-def _oscap_version(conn: RemoteHost) -> Optional[str]:
+def _oscap_version(conn: RemoteHostProtocol) -> Optional[str]:
     """Best-effort capture of the remote oscap version string (first line)."""
     res = conn.run("oscap --version", timeout=30)
     if not res.ok or not res.stdout.strip():
@@ -64,7 +64,7 @@ def _oscap_version(conn: RemoteHost) -> Optional[str]:
     return first or None
 
 
-def _sudo_available(conn: RemoteHost, group_uses_sudo: bool) -> bool:
+def _sudo_available(conn: RemoteHostProtocol, group_uses_sudo: bool) -> bool:
     """True if passwordless ``sudo -n`` works (or sudo is not required).
 
     Scans run with ``sudo -n``; if the credential group disables sudo we assume
@@ -75,7 +75,7 @@ def _sudo_available(conn: RemoteHost, group_uses_sudo: bool) -> bool:
     return conn.run("true", sudo=True, timeout=30).ok
 
 
-def detect(host: HostRecord, conn: RemoteHost, cfg: Config) -> Optional[ScanPlan]:
+def detect(host: HostRecord, conn: RemoteHostProtocol, cfg: Config) -> Optional[ScanPlan]:
     """Inspect a connected host; update its status; return a ScanPlan if scannable."""
     res = conn.run("cat /etc/os-release", timeout=30)
     if not res.ok:
