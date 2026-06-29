@@ -78,6 +78,16 @@ coverage is never mistaken for a clean result:
   checks that actually ran (typically a low-privilege scan) via the operator-tunable badge.
 - **Authoritative check logic.** Compliance verdicts come from OpenSCAP, not hand-rolled
   checks, to keep evidence defensible.
+- **Evidence is sealed at rest; the scanner on the target is trusted.** Each run writes a
+  `manifest.json` of SHA-256 digests over the report and every retained per-host artifact, so
+  post-hoc tampering with evidence on disk is detectable. This does **not** defend against a
+  *host that forges its own results before they are pulled*: the tool reaches the target as
+  root and trusts the `oscap` binary and the `results.xml` it produces, so a host already
+  rooted can fabricate a clean scorecard. That is an inherent residual-trust property of any
+  local/agent scanner (a host compromised enough to forge evidence is, by definition, not in
+  a true-clean state) — treat a target the tool reaches as root as able to lie about itself.
+  Output is written owner-only (umask `0o077`) since it encodes the fleet's full internal
+  posture and scope.
 - **Profile-version match is mandatory.** A host is scanned only with the SSG profile
   matching its exact Ubuntu version; mismatches are flagged, never scanned.
 - **Everything the tool does is logged** — the run log is itself an audit artifact.
@@ -140,6 +150,6 @@ Surfaced during development, intentionally not built yet:
 
 ## 10. Status & validation
 
-Offline behavior is covered by a 77-test pytest suite. The live SSH→`oscap` scan leg has
+Offline behavior is covered by a 78-test pytest suite. The live SSH→`oscap` scan leg has
 not yet been validated against a real Ubuntu host — run [validation.md](validation.md)
 once against a single VM (including its negative-path checks) before trusting a fleet run.

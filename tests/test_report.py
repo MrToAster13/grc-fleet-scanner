@@ -314,6 +314,31 @@ def test_csv_formula_injection_is_neutralized(tmp_path):
         store.close()
 
 
+def test_manifest_seals_report_artifacts(tmp_path):
+    # Each run writes a SHA-256 manifest over its artifacts (chain of custody);
+    # the recorded digest must match the file on disk.
+    import hashlib
+
+    store = Store(str(tmp_path))
+    try:
+        host = fabricate_scanned_host(ip="10.0.10.21")
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        assert os.path.isfile(paths["manifest"])
+        manifest = json.loads(open(paths["manifest"], encoding="utf-8").read())
+        assert manifest["run_id"] == run.run_id
+        files = {e["file"]: e for e in manifest["artifacts"]}
+        assert "report.json" in files
+        actual = hashlib.sha256(open(paths["json"], "rb").read()).hexdigest()
+        assert files["report.json"]["sha256"] == actual
+        assert files["report.json"]["bytes"] > 0
+    finally:
+        store.close()
+
+
 def test_json_export_carries_per_host_confidence(tmp_path):
     # asdict() omits @property values; to_dict must surface assessment_confidence
     # in the per-host scan object so JSON matches the CSV export.
