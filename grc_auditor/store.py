@@ -97,48 +97,71 @@ class Store:
         self._conn.close()
 
     # -- write -------------------------------------------------------------
-    def save_run(self, run: RunRecord):
-        cur = self._conn.cursor()
-        cur.execute(
+    def begin_run(self, run: RunRecord):
+        """Insert the run row (``finished_at`` may be NULL) BEFORE hosts are
+        processed, so an interrupted run leaves a visibly-incomplete record in
+        history rather than orphaned on-disk evidence with no row at all."""
+        self._conn.execute(
             "INSERT OR REPLACE INTO runs(run_id, started_at, finished_at, scope, "
             "config_hash) VALUES (?,?,?,?,?)",
             (run.run_id, run.started_at, run.finished_at,
              json.dumps(run.scope), run.config_hash),
         )
-        for h in run.hosts:
-            s = h.scan
-            cur.execute(
-                "INSERT INTO hosts(run_id, ip, hostname, os_guess, is_ubuntu, "
-                "ubuntu_version, credential_group, status, detail, profile_id, "
-                "benchmark_version, passed, failed, error, not_applicable, "
-                "not_checked, other, score, "
-                "arf_path, html_path) VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    run.run_id, h.ip, h.hostname, h.os_guess, int(h.is_ubuntu),
-                    h.ubuntu_version, h.credential_group, h.status.value, h.detail,
-                    s.profile_id if s else None,
-                    s.benchmark_version if s else None,
-                    s.passed if s else None,
-                    s.failed if s else None,
-                    s.error if s else None,
-                    s.not_applicable if s else None,
-                    s.not_checked if s else None,
-                    s.other if s else None,
-                    s.score if s else None,
-                    s.arf_path if s else None,
-                    s.html_path if s else None,
-                ),
-            )
-            host_id = cur.lastrowid
-            if s:
-                cur.executemany(
-                    "INSERT INTO findings(host_id, rule_id, result, severity, title) "
-                    "VALUES (?,?,?,?,?)",
-                    [(host_id, fr.rule_id, fr.result, fr.severity, fr.title)
-                     for fr in s.failed_rules],
-                )
         self._conn.commit()
+
+    def save_host(self, run_id: str, h: HostRecord):
+        """Persist one host (and its findings) immediately, so partial results
+        survive a crash partway through a fleet run."""
+        cur = self._conn.cursor()
+        s = h.scan
+        cur.execute(
+            "INSERT INTO hosts(run_id, ip, hostname, os_guess, is_ubuntu, "
+            "ubuntu_version, credential_group, status, detail, profile_id, "
+            "benchmark_version, passed, failed, error, not_applicable, "
+            "not_checked, other, score, "
+            "arf_path, html_path) VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                run_id, h.ip, h.hostname, h.os_guess, int(h.is_ubuntu),
+                h.ubuntu_version, h.credential_group, h.status.value, h.detail,
+                s.profile_id if s else None,
+                s.benchmark_version if s else None,
+                s.passed if s else None,
+                s.failed if s else None,
+                s.error if s else None,
+                s.not_applicable if s else None,
+                s.not_checked if s else None,
+                s.other if s else None,
+                s.score if s else None,
+                s.arf_path if s else None,
+                s.html_path if s else None,
+            ),
+        )
+        host_id = cur.lastrowid
+        if s:
+            cur.executemany(
+                "INSERT INTO findings(host_id, rule_id, result, severity, title) "
+                "VALUES (?,?,?,?,?)",
+                [(host_id, fr.rule_id, fr.result, fr.severity, fr.title)
+                 for fr in s.failed_rules],
+            )
+        self._conn.commit()
+
+    def finish_run(self, run_id: str, finished_at: Optional[str]):
+        """Stamp the run complete once every host has been persisted."""
+        self._conn.execute(
+            "UPDATE runs SET finished_at = ? WHERE run_id = ?",
+            (finished_at, run_id),
+        )
+        self._conn.commit()
+
+    def save_run(self, run: RunRecord):
+        """Persist a whole run at once (begin -> per-host -> finish). Convenience
+        for callers/tests that build the full RunRecord before persisting."""
+        self.begin_run(run)
+        for h in run.hosts:
+            self.save_host(run.run_id, h)
+        self.finish_run(run.run_id, run.finished_at)
         log.info("store: persisted run %s (%d hosts)", run.run_id, len(run.hosts))
 
     # -- read --------------------------------------------------------------

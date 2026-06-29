@@ -453,12 +453,18 @@ class RemoteHost:
             chunks.append(chunk)
         return b"".join(chunks)
 
-    def get_file(self, remote_path: str, local_path: str):
+    def get_file(self, remote_path: str, local_path: str,
+                 timeout: Optional[int] = 300):
         """Pull a remote file to ``local_path`` via SFTP.
 
         Creates the local parent directory, always closes the SFTP channel (even
         on error), and raises a clear :class:`RemoteError` if the remote file is
         missing or otherwise unreadable.
+
+        A ``timeout`` is enforced on the SFTP channel: without it a stalled
+        transfer from a slow/hostile host would block the worker thread (and thus
+        the run) indefinitely, since a thread pool cannot interrupt a blocked
+        C-level read. A timeout surfaces as a :class:`RemoteError` instead.
         """
         if self._client is None:
             raise RemoteError("not connected")
@@ -467,6 +473,8 @@ class RemoteHost:
             os.makedirs(parent, exist_ok=True)
         try:
             sftp = self._client.open_sftp()
+            if timeout is not None:
+                sftp.get_channel().settimeout(timeout)
         except paramiko.SSHException as exc:
             raise RemoteError(
                 f"could not open SFTP channel to {self.ip}: {exc}"

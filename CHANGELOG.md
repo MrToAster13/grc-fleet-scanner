@@ -26,7 +26,7 @@ release, everything lives under **Unreleased**.
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 86-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 88-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -39,9 +39,17 @@ release, everything lives under **Unreleased**.
 - **Honest low-confidence badge.** The per-host badge said "N not run" using only
   `not_checked`; an error-driven low score then rendered "0 not run". It now reports the
   count of all undetermined checks (error + notchecked + other) as "N unverified".
-- **`--low-confidence-threshold` is captured in `config_hash`.** A CLI override is now
-  mirrored into the hashed config, so two runs that differ only by threshold no longer
-  share provenance.
+- **`config_hash` is computed from the effective configuration.** It now hashes the
+  resolved, override-applied config (canonicalized, order-independent) instead of the raw
+  YAML with selective mirroring, so **every** run-affecting override — `--cis-level` (which
+  changes the rule set), `--cidr`, `--concurrency`, threshold — changes the hash. Two runs
+  hash identically iff they would behave identically. The effective config is also written
+  per run as `effective-config.json`.
+- **Runs persist incrementally and can't hang forever.** The run row is written before any
+  SSH and each host is persisted as it completes, so a crash mid-fleet leaves a
+  visibly-incomplete run with partial results instead of orphaned evidence and no record.
+  SFTP transfers now carry a channel timeout, so a stalled/hostile host can no longer wedge
+  a worker (and thus the whole run) indefinitely.
 - **Graceful error on a non-numeric `low_confidence_threshold`** in YAML — a `ConfigError`
   instead of an unhandled `ValueError` traceback.
 - **Faithful reload of coverage counts.** A run persisted before the `not_checked`/`other`

@@ -192,6 +192,7 @@ untrustworthy until the scan account's `sudo` access is fixed. Tune the threshol
 - `<host_ip>/results.xml`, `arf.xml`, `report.html` — **raw OpenSCAP evidence** (immutable)
 - `<host_ip>/oscap.stdout.txt`, `oscap.stderr.txt` — captured scanner output
 - `manifest.json` — SHA-256 + size of every report/evidence file (chain-of-custody seal)
+- `effective-config.json` — the resolved config (after CLI overrides) this run used
 - `output_dir/history.db` — run history that powers drift
 
 Outputs are written **owner-only** (umask `0o077`): the evidence encodes the fleet's full
