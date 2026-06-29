@@ -112,6 +112,47 @@ def test_empty_results_file_does_not_become_a_clean_scanned_host(tmp_path):
     assert host.status is HostStatus.SCAN_ERROR
 
 
+_BILLION_LAUGHS = """<?xml version="1.0"?>
+<!DOCTYPE lolz [
+ <!ENTITY lol "lol">
+ <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;">
+ <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<TestResult>&lol3;</TestResult>
+"""
+
+
+def test_entity_expansion_in_results_is_blocked(tmp_path):
+    # results.xml comes from a possibly-hostile target; a nested-entity document
+    # must be refused (defusedxml), not expanded into a run-host DoS.
+    p = tmp_path / "results.xml"
+    p.write_text(_BILLION_LAUGHS, encoding="utf-8")
+    with pytest.raises(ValueError):
+        parse_xccdf_results(str(p))
+
+
+_DIRTY_RESULTS = """<?xml version="1.0"?>
+<Benchmark>
+  <Rule id="xccdf_org.ssgproject.content_rule_dirty"><title>Bad
+Title\tHere</title></Rule>
+  <TestResult>
+    <rule-result idref="xccdf_org.ssgproject.content_rule_dirty" severity="high">
+      <result>fail</result>
+    </rule-result>
+  </TestResult>
+</Benchmark>"""
+
+
+def test_target_supplied_fields_are_control_char_stripped(tmp_path):
+    # Defense in depth: a hostile rule title with embedded control bytes is
+    # bounded before it reaches the report model.
+    p = tmp_path / "results.xml"
+    p.write_text(_DIRTY_RESULTS, encoding="utf-8")
+    scan = parse_xccdf_results(str(p))
+    fr = scan.failed_rules[0]
+    assert fr.title == "BadTitleHere"          # newline + tab stripped
+
+
 def test_canonical_fixture_does_not_trip_reconciliation_warning(caplog):
     # The canonical result (3 pass / 2 fail -> flat ~60 vs weighted score 86.5)
     # is a legitimate CIS weighted-scoring divergence. It must NOT emit the
