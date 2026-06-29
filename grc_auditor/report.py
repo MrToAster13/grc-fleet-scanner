@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 try:
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from jinja2 import Environment, FileSystemLoader
 except ImportError as exc:  # pragma: no cover - dependency guard
     raise SystemExit(
         "Jinja2 is required. Install dependencies: pip install -r requirements.txt"
@@ -41,6 +41,21 @@ _SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
 
 def _sev_rank(severity: Optional[str]) -> int:
     return _SEVERITY_RANK.get((severity or "unknown").lower(), 0)
+
+
+def _csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in a CSV cell.
+
+    A cell that begins with ``= + - @`` (or a leading tab/CR) is evaluated as a
+    formula by Excel/LibreOffice/Sheets. Target-derived fields (rule titles/ids
+    from a host's oscap content, os-release strings) reach these exports, so a
+    malicious host could ship ``=HYPERLINK(...)`` / DDE payloads to the analyst's
+    workstation. Prefix a single quote so the cell is rendered literally.
+    """
+    s = "" if value is None else str(value)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
 
 
 # Threshold below which a host's score is treated as low-confidence. The value
@@ -427,9 +442,15 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     low_conf_ips = {d["ip"] for d in exec_summary["low_confidence_hosts"]}
 
     # --- HTML dashboard ---
+    # autoescape=True unconditionally. The report renders target-DERIVED strings
+    # (hostnames, banners, os-release, oscap rule titles/ids -- all controllable by
+    # a malicious host) into HTML an analyst opens, so escaping is mandatory.
+    # NOTE: select_autoescape keys off the filename, and "report.html.j2" ends in
+    # ".j2" (not ".html"), so it would resolve to False -- a silent stored-XSS
+    # hole. Forcing True removes that footgun.
     env = Environment(
         loader=FileSystemLoader(_TEMPLATE_DIR),
-        autoescape=select_autoescape(["html", "xml"]),
+        autoescape=True,
     )
     template = env.get_template("report.html.j2")
     html = template.render(
@@ -464,13 +485,13 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
             s = h.scan
             conf = s.assessment_confidence if s else None
             w.writerow([
-                h.ip, h.hostname or "", h.status.value, h.ubuntu_version or "",
-                h.credential_group or "",
+                _csv_safe(h.ip), _csv_safe(h.hostname or ""), h.status.value,
+                _csv_safe(h.ubuntu_version or ""), h.credential_group or "",
                 s.passed if s else "", s.failed if s else "",
                 s.not_checked if s else "",
                 f"{s.score:.1f}" if s and s.score is not None else "",
                 f"{conf:.1f}" if conf is not None else "",
-                h.detail or "",
+                _csv_safe(h.detail or ""),
             ])
 
     # --- per-finding CSV ---
@@ -482,8 +503,8 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         for h in run.scanned_hosts():
             for fr in h.scan.failed_rules:
                 cw = crosswalk.map_rule(fr.rule_id)
-                w.writerow([h.ip, fr.rule_id, fr.result,
-                            fr.severity or "", fr.title or "",
+                w.writerow([_csv_safe(h.ip), _csv_safe(fr.rule_id), fr.result,
+                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or ""),
                             ";".join(cw["nist"]), ";".join(cw["iso"])])
 
     paths = {

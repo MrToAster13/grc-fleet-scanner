@@ -133,7 +133,7 @@ def detect(host: HostRecord, conn: RemoteHost, cfg: Config) -> Optional[ScanPlan
     oscap_ver = _oscap_version(conn)
 
     # (c) oscap present but the SSG content package is absent on this host.
-    if not conn.run(f"test -f {ds_path}", timeout=30).ok:
+    if not conn.run_argv(["test", "-f", ds_path], timeout=30).ok:
         host.status = HostStatus.SCANNER_ABSENT
         host.detail = (
             f"oscap present but SSG content missing at {ds_path} "
@@ -144,7 +144,7 @@ def detect(host: HostRecord, conn: RemoteHost, cfg: Config) -> Optional[ScanPlan
     # Verify the resolved profile actually exists *inside* the datastream before
     # we declare the host scannable -- otherwise the scan fails mid-run. We ask
     # oscap itself (authoritative) and match the id as a whole token.
-    info = conn.run(f"oscap info {ds_path}", timeout=60)
+    info = conn.run_argv(["oscap", "info", ds_path], timeout=60)
     if not info.ok:
         host.status = HostStatus.SCAN_ERROR
         detail = info.stderr.strip() or info.stdout.strip()
