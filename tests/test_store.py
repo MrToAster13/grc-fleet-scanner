@@ -165,8 +165,10 @@ def test_incremental_persistence_leaves_a_visible_unfinished_run(tmp_path):
 
 def test_begin_run_is_idempotent_and_clears_prior_hosts(tmp_path):
     # Re-calling begin_run for the same run_id (a resumed / retried run reusing
-    # the id) must not double-insert: the prior hosts and their findings are
-    # cleared first, so the run reflects only the latest pass.
+    # the id) must clear the prior hosts AND their findings before the second
+    # pass, so the run can't accumulate duplicate rows. Both passes persist the
+    # SAME host IP so that, were the clear missing, the host would duplicate AND
+    # its findings would double -- both are asserted below.
     store = Store(str(tmp_path))
     try:
         run = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [])
@@ -174,16 +176,19 @@ def test_begin_run_is_idempotent_and_clears_prior_hosts(tmp_path):
         store.begin_run(run)
         store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
 
-        # resume: begin again for the same id, persist a different host set
+        # resume: begin again for the same id, re-persist the same host
         store.begin_run(run)
-        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.22"))
+        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
         store.finish_run(run.run_id, "2026-06-27T00:05:00+00:00")
 
         loaded = store.load_run("20260627T000000Z")
-        # only the second pass's host survives -- no leftover from the first
-        assert [h.ip for h in loaded.hosts] == ["10.0.10.22"]
-        # and its findings are not doubled (begin_run cleared the old ones)
-        assert len(loaded.hosts[0].scan.failed_rules) == 2
+        # exactly ONE host row survives -- the first pass was cleared, not appended
+        assert [h.ip for h in loaded.hosts] == ["10.0.10.21"]
+        # and exactly its 2 findings exist table-wide -- the first pass's findings
+        # were deleted, not left orphaned/doubled (would be 4 without the clear)
+        total_findings = store._conn.execute(
+            "SELECT COUNT(*) FROM findings").fetchone()[0]
+        assert total_findings == 2
     finally:
         store.close()
 
