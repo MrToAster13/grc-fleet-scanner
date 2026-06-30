@@ -170,9 +170,7 @@ def discover(scope: ScanScope, *, want_os: bool = False,
             if host.ip not in merged:
                 merged[host.ip] = host
 
-    # dict preserves first-insertion order, so values() is already the first-seen
-    # order (a host is only inserted on its first appearance across batches).
-    hosts = list(merged.values())
+    hosts = list(merged.values())  # insertion order == first-seen order
     if not hosts:
         log.info("discovery: nmap ran but found 0 live host(s) in scope")
     else:
@@ -220,8 +218,7 @@ def _pick_hostname(host_el) -> Optional[str]:
     for preferred in ("user", "ptr"):
         if preferred in by_type:
             return by_type[preferred]
-    # Neither user nor PTR: fall back to the first named entry. dicts preserve
-    # insertion order, so the first inserted value is the first name seen.
+    # Neither user nor PTR: fall back to the first name seen (insertion order).
     return next(iter(by_type.values()), None)
 
 
