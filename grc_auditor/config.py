@@ -53,9 +53,11 @@ class CredentialGroup:
         # Catch-all tokens match any address -- including IPv6, which the literal
         # "0.0.0.0/0" network would not. Everything else routes through the one
         # shared membership helper so network matching lives in a single place.
-        if any(t.strip() in ("default", "*", "0.0.0.0/0") for t in self.targets):
+        # Strip once here; ip_in_networks then reuses the cleaned tokens.
+        tokens = [t.strip() for t in self.targets]
+        if any(t in ("default", "*", "0.0.0.0/0") for t in tokens):
             return True
-        return ip_in_networks(ip, self.targets)
+        return ip_in_networks(ip, tokens)
 
 
 @dataclass

@@ -17,11 +17,9 @@ Ubuntu *candidates* so they proceed to the authoritative SSH detect stage.
 
 from __future__ import annotations
 
-from collections import Counter
-
 from .config import Config
 from .logging_setup import get_logger
-from .models import HostRecord, HostStatus
+from .models import HostRecord, HostStatus, status_counts
 
 log = get_logger()
 
@@ -130,6 +128,6 @@ def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
         host.status = HostStatus.DISCOVERED
         host.detail = candidate_reason
 
-    summary = Counter(h.status.value for h in hosts)
+    summary = status_counts(hosts)
     log.info("classify: %s", ", ".join(f"{k}={v}" for k, v in sorted(summary.items())))
     return hosts

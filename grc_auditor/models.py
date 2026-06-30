@@ -199,6 +199,12 @@ def finalize_scan_status(host: HostRecord, scan: ScanResult,
     host.status = HostStatus.SCANNED
 
 
+def status_counts(hosts: list[HostRecord]) -> dict[str, int]:
+    """Tally hosts by their status value -- the single home for this idiom,
+    shared by classify (a bare host list) and RunRecord (its own hosts)."""
+    return dict(Counter(h.status.value for h in hosts))
+
+
 @dataclass
 class RunRecord:
     """One immutable audit run. Persisted whole; never mutated after finish."""
@@ -212,7 +218,7 @@ class RunRecord:
 
     # --- convenience aggregates used by the report -----------------------
     def counts_by_status(self) -> dict[str, int]:
-        return dict(Counter(h.status.value for h in self.hosts))
+        return status_counts(self.hosts)
 
     def scanned_hosts(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status is HostStatus.SCANNED and h.scan]
