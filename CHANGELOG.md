@@ -82,6 +82,15 @@ release, everything lives under **Unreleased**.
   no-results / clean scan). This locks the injection and status-mapping fixes against
   regression.
 - Documentation consolidated into `docs/` with a single canonical home per topic.
+- **Live-validation guide battle-tested + corrected.** `docs/validation.md` was run
+  end-to-end against a real cloud Ubuntu 22.04 target and rewritten to match reality: the
+  mandatory venv (PEP 668), the correct `oscap` package (`libopenscap8` on 22.04 — the old
+  `openscap-scanner`/`ssg-debderived` names aren't in Ubuntu's archive), pulling SSG content
+  from the ComplianceAsCode release, an `echo`-based `authorized_keys` install (the
+  interactive-`tee` paste silently corrupts the key), a pre-flight `AUTH_OK` SSH check, and
+  the cloud-target classification fix (`nmap_extra_args: ["-Pn","-p22"]` +
+  `treat_unknown_linux_as_ubuntu`). The run also live-validated the honest-coverage chain
+  (`non_ubuntu` → `scanner_absent` → `scanned`).
 - Refactor: single source of truth for the low-confidence default and rule
   (`models.DEFAULT_LOW_CONFIDENCE_THRESHOLD`, `ScanResult.is_low_confidence`); shared
   threshold validation; the report template renders low-confidence by IP membership rather
