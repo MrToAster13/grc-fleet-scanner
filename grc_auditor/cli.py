@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -34,7 +35,13 @@ def _utcnow() -> str:
 
 
 def _run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # The timestamp prefix keeps run ids lexically sortable (history ordering and
+    # previous_run_id rely on `run_id < ?` string comparison). The short random
+    # suffix makes a collision between two runs started in the same wall-clock
+    # second effectively impossible, so one run can never overwrite or be confused
+    # with another's on-disk evidence.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{stamp}-{secrets.token_hex(3)}"
 
 
 def _process_host(host: HostRecord, cfg: Config, run_id: str,
@@ -208,7 +215,7 @@ def cmd_history(args) -> int:
         return 0
     print(f"{'RUN ID':<20}  {'STARTED':<22}  SCOPE")
     for r in runs:
-        scope = ", ".join(__import__("json").loads(r["scope"] or "[]"))
+        scope = ", ".join(json.loads(r["scope"] or "[]"))
         print(f"{r['run_id']:<20}  {r['started_at']:<22}  {scope}")
     return 0
 

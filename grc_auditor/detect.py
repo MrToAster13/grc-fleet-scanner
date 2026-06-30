@@ -87,10 +87,23 @@ def detect(host: HostRecord, conn: RemoteHostProtocol, cfg: Config) -> Optional[
     distro = osr.get("ID", "").lower()
     version = osr.get("VERSION_ID", "")
 
+    if not distro:
+        # The read succeeded but carried no ID= field (empty, garbled, or
+        # truncated os-release). That is an inconclusive read, NOT positive
+        # evidence of a non-Ubuntu host, so it is recorded as a retry-able
+        # SCAN_ERROR rather than a terminal NON_UBUNTU -- a transient truncation
+        # must never permanently bucket an Ubuntu host as out of scope.
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = (
+            "os-release readable but has no ID= field (inconclusive; not "
+            "classified -- re-run to confirm)"
+        )
+        return None
+
     if distro != "ubuntu":
         host.is_ubuntu = False
         host.status = HostStatus.NON_UBUNTU
-        host.detail = f"os-release ID={distro or 'unknown'} (not Ubuntu)"
+        host.detail = f"os-release ID={distro} (not Ubuntu)"
         return None
 
     host.is_ubuntu = True

@@ -86,6 +86,12 @@ class Config:
     # flagged LOW CONFIDENCE in the report (guards against a high score that
     # only reflects the few checks that actually ran).
     low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD
+    # When true, hosts whose fingerprint looks like some non-specific Linux (but
+    # not clearly non-Linux) are promoted to Ubuntu *candidates* so the SSH detect
+    # stage -- which stays authoritative -- gets to confirm or reject them. Default
+    # off: a host must show an Ubuntu marker to be probed. Affects which hosts are
+    # connected to, so it is part of the run's canonical (hashed) behavior.
+    treat_unknown_linux_as_ubuntu: bool = False
     raw: dict = field(default_factory=dict)   # original parsed document
 
     def cis_level_for(self, group: Optional[CredentialGroup]) -> int:
@@ -132,6 +138,7 @@ class Config:
             "ssg_dir": self.ssg_dir,
             "known_hosts": self.known_hosts,
             "low_confidence_threshold": self.low_confidence_threshold,
+            "treat_unknown_linux_as_ubuntu": self.treat_unknown_linux_as_ubuntu,
             "credential_groups": sorted(
                 (self._group_canonical(g) for g in self.credential_groups),
                 key=lambda d: d["name"],
@@ -336,6 +343,8 @@ def load_config(path: str) -> Config:
         cis_level=level,
         ssg_dir=doc.get("ssg_dir", "/usr/share/xml/scap/ssg/content"),
         low_confidence_threshold=threshold,
+        treat_unknown_linux_as_ubuntu=bool(
+            doc.get("treat_unknown_linux_as_ubuntu", False)),
         raw=doc,
     )
 
