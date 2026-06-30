@@ -273,16 +273,17 @@ class Store:
                 "FROM hosts WHERE run_id = ? AND status = ?",
                 (rr["run_id"], HostStatus.SCANNED.value),
             ).fetchone()
-            evaluated = (agg["passed"] or 0) + (agg["failed"] or 0) + (agg["error"] or 0)
+            # COUNT(*) and COALESCE(SUM(...),0) guarantee these are non-NULL ints.
+            evaluated = agg["passed"] + agg["failed"] + agg["error"]
             pass_rate = (
-                round(100.0 * (agg["passed"] or 0) / evaluated, 1)
+                round(100.0 * agg["passed"] / evaluated, 1)
                 if evaluated > 0 else None
             )
             out.append({
                 "run_id": rr["run_id"],
                 "started_at": rr["started_at"],
-                "scanned": agg["scanned"] or 0,
-                "passed": agg["passed"] or 0,
+                "scanned": agg["scanned"],
+                "passed": agg["passed"],
                 "evaluated": evaluated,
                 "pass_rate": pass_rate,
             })

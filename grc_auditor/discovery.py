@@ -165,14 +165,14 @@ def discover(scope: ScanScope, *, want_os: bool = False,
     # Merge across batches, de-duplicating by chosen IP. A host could in
     # principle surface in two batches if CIDRs overlap; keep the first record.
     merged: dict = {}
-    order: list = []
     for batch in batches:
         for host in _run_nmap(scope, want_os, batch):
             if host.ip not in merged:
                 merged[host.ip] = host
-                order.append(host.ip)
 
-    hosts = [merged[ip] for ip in order]
+    # dict preserves first-insertion order, so values() is already the first-seen
+    # order (a host is only inserted on its first appearance across batches).
+    hosts = list(merged.values())
     if not hosts:
         log.info("discovery: nmap ran but found 0 live host(s) in scope")
     else:
@@ -211,19 +211,18 @@ def _pick_hostname(host_el) -> Optional[str]:
     if not names:
         return None
     by_type: dict = {}
-    fallback = None
     for hn in names:
         name = hn.get("name")
         if not name:
             continue
         htype = (hn.get("type") or "").lower()
         by_type.setdefault(htype, name)
-        if fallback is None:
-            fallback = name
     for preferred in ("user", "ptr"):
         if preferred in by_type:
             return by_type[preferred]
-    return fallback
+    # Neither user nor PTR: fall back to the first named entry. dicts preserve
+    # insertion order, so the first inserted value is the first name seen.
+    return next(iter(by_type.values()), None)
 
 
 def _service_banner(svc_el) -> str:

@@ -323,7 +323,7 @@ def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
     rated = [p["pass_rate"] for p in points if p["pass_rate"] is not None]
     return {
         "points": points,
-        "first_run": len([p for p in points if p["pass_rate"] is not None]) <= 1,
+        "first_run": len(rated) <= 1,
         "min": min(rated) if rated else None,
         "max": max(rated) if rated else None,
         "spark": _sparkline([p["pass_rate"] for p in points]),
