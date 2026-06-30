@@ -91,11 +91,9 @@ def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
     asserted to be Ubuntu — the SSH detect stage remains authoritative and will
     reclassify any that are not actually Ubuntu as NON_UBUNTU.
     """
-    # Read the optional knob defensively: config.py does not (yet) define it,
-    # and we must not edit config.py. Default preserves current behavior.
-    promote_unknown_linux = bool(
-        getattr(cfg, "treat_unknown_linux_as_ubuntu", False)
-    )
+    # Config defines this knob (default False); a true value opts into probing
+    # unknown-Linux hosts as Ubuntu candidates. SSH detect stays authoritative.
+    promote_unknown_linux = cfg.treat_unknown_linux_as_ubuntu
 
     for host in hosts:
         is_ubuntu = _looks_ubuntu(host)

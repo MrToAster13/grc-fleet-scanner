@@ -252,3 +252,16 @@ def test_hash_changes_when_raw_changes(tmp_path):
     before = a.hash()
     apply_overrides(a, cidrs=["192.168.0.0/24"])
     assert a.hash() != before
+
+
+def test_treat_unknown_linux_loads_and_affects_hash(tmp_path):
+    # The knob loads from YAML (default False) and, because it changes which
+    # hosts get probed, is part of the canonical (hashed) behavior -- two runs
+    # that differ only by this flag must not share a config_hash.
+    base = load_config(_write(tmp_path, VALID_YAML))
+    assert base.treat_unknown_linux_as_ubuntu is False
+
+    promoted = load_config(_write(
+        tmp_path, VALID_YAML + "    treat_unknown_linux_as_ubuntu: true\n"))
+    assert promoted.treat_unknown_linux_as_ubuntu is True
+    assert promoted.hash() != base.hash()

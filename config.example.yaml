@@ -24,6 +24,10 @@ ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on target
 low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer than
                                # this % of the benchmark actually produced a verdict
                                # (catches low-privilege scans where most checks didn't run)
+# treat_unknown_linux_as_ubuntu: false  # default false. If true, hosts that look like
+                               # some non-specific Linux (no Ubuntu marker, but not clearly
+                               # non-Linux) are probed as Ubuntu *candidates*; the SSH detect
+                               # stage stays authoritative and reclassifies any that are not.
 # known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
 
 # ---------------------------------------------------------------------------

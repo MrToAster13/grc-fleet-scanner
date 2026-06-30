@@ -25,8 +25,13 @@ release, everything lives under **Unreleased**.
   finding (possible MITM / unverified re-provisioning), not plain "unreachable".
 - Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
   **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
+- **Opt-in unknown-Linux promotion** (`treat_unknown_linux_as_ubuntu`, default off):
+  hosts that look like some non-specific Linux (no Ubuntu marker, but not clearly
+  non-Linux) can be promoted to Ubuntu *candidates* so the authoritative SSH detect
+  stage gets to confirm or reject them. The flag is part of the canonical config, so
+  it changes `config_hash` — two runs that differ only by it don't share provenance.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 88-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 96-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
@@ -59,6 +64,15 @@ release, everything lives under **Unreleased**.
 - **Bastion host-key mismatch keeps its security signal.** A key mismatch on the *jump
   host* (possible MITM) is now reported as `host_key_mismatch`, not flattened into a
   generic bastion error and demoted to plain `unreachable`.
+- **Collision-resistant run ids.** A run id is now a sortable UTC timestamp plus a short
+  random suffix, so two runs started in the same second can no longer share an id and
+  overwrite or be confused with each other's on-disk evidence. `begin_run` is also
+  idempotent (it clears any rows already recorded for the id), so a resumed/retried run
+  can't double-insert hosts or findings.
+- **Inconclusive os-release is retry-able, not terminal.** A host whose `/etc/os-release`
+  is readable but carries no `ID=` field (empty / garbled / truncated) is now recorded as
+  `scan_error` ("inconclusive — re-run to confirm") instead of `non_ubuntu`. A transient
+  truncation can no longer permanently bucket a possibly-Ubuntu host out of scope.
 
 ### Changed
 - **Testable remote-exec seam.** Introduced `RemoteHostProtocol` and a `FakeRemoteHost`

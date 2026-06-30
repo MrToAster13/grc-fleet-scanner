@@ -85,7 +85,7 @@ python -m grc_auditor run -c config.yaml
 
 **Reading the console summary:**
 ```
-Run 20260627T161000Z complete.
+Run 20260627T161000Z-3f9a1c complete.   # sortable UTC stamp + short random suffix
   Hosts discovered : 42      # alive hosts found by nmap
   Scanned          : 31      # successfully audited against CIS
   Coverage gaps    : 7       # Ubuntu hosts we could NOT fully assess (investigate these)
@@ -130,6 +130,8 @@ output_dir: "./grc-output"   # history.db + per-run reports/evidence
 cis_level: 1                 # global default: 1 = baseline, 2 = stricter
 ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on targets
 low_confidence_threshold: 90 # flag a host LOW CONFIDENCE below this % of checks running
+treat_unknown_linux_as_ubuntu: false  # default false; if true, probe unknown-Linux hosts
+                             #   as Ubuntu candidates (SSH detect stays authoritative)
 # known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
 
 credential_groups:           # first matching group (top-down) wins

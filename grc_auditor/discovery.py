@@ -139,21 +139,17 @@ def _run_nmap(scope: ScanScope, want_os: bool, cidrs: list) -> list[HostRecord]:
 
 
 def discover(scope: ScanScope, *, want_os: bool = False,
-             _xml_override: Optional[str] = None,
              batch_size: int = _DEFAULT_BATCH_SIZE) -> list[HostRecord]:
     """Run nmap over the scope and parse results into HostRecords.
-
-    ``_xml_override`` lets tests/offline runs feed nmap XML directly without
-    invoking the binary.
 
     ``batch_size`` caps how many CIDR targets are handed to a single nmap
     invocation; large scopes are scanned in consecutive batches and the live
     hosts are merged into one combined, de-duplicated list. The default keeps
     typical scopes as a single batch (see ``_DEFAULT_BATCH_SIZE``).
-    """
-    if _xml_override is not None:
-        return parse_nmap_xml(_xml_override)
 
+    Tests and offline runs parse canned XML through the public ``parse_nmap_xml``
+    seam directly rather than driving this function.
+    """
     if not _nmap_available():
         raise DiscoveryError(
             "nmap not found on the run host. Install it (apt install nmap) or run "

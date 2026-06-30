@@ -81,3 +81,56 @@ def test_classify_returns_the_same_list_mutated_in_place(config_factory):
     hosts = [_ubuntu_ssh_host()]
     out = classify(hosts, cfg)
     assert out is hosts
+
+
+# --- treat_unknown_linux_as_ubuntu (optional candidate promotion) ---------- #
+
+def _linux_only_host(ip="10.0.10.40"):
+    # Generic Linux SSH banner with NO Ubuntu marker anywhere.
+    return HostRecord(
+        ip=ip, open_ports=[22],
+        banners={"22/tcp": "OpenSSH 9.0 (Linux)"},
+    )
+
+
+def _promoting_cfg():
+    from grc_auditor.config import Config, ScanScope
+    return Config(
+        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        credential_groups=[
+            CredentialGroup(name="lab", ssh_user="u", targets=["default"]),
+        ],
+        treat_unknown_linux_as_ubuntu=True,
+    )
+
+
+def test_unknown_linux_stays_non_ubuntu_by_default(config_factory):
+    # Knob defaults False -> an unknown-Linux host (no Ubuntu marker) is
+    # inventory-only, never probed.
+    cfg = config_factory()
+    host = _linux_only_host()
+    classify([host], cfg)
+    assert host.is_ubuntu is False
+    assert host.status is HostStatus.NON_UBUNTU
+
+
+def test_unknown_linux_promoted_to_candidate_when_enabled():
+    cfg = _promoting_cfg()
+    host = _linux_only_host()
+    classify([host], cfg)
+    # Promoted to an Ubuntu *candidate*: it proceeds to the authoritative SSH
+    # detect stage (which can still reclassify it), so status is DISCOVERED.
+    assert host.is_ubuntu is True
+    assert host.status is HostStatus.DISCOVERED
+    assert host.credential_group == "lab"
+
+
+def test_promotion_never_touches_clearly_non_linux():
+    # Even with promotion enabled, a clearly non-Linux fingerprint is never made
+    # an Ubuntu candidate.
+    cfg = _promoting_cfg()
+    host = HostRecord(ip="10.0.10.50", open_ports=[22],
+                      banners={"22/tcp": "Microsoft Windows Server 2019"})
+    classify([host], cfg)
+    assert host.is_ubuntu is False
+    assert host.status is HostStatus.NON_UBUNTU

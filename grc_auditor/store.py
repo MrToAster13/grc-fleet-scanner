@@ -100,7 +100,16 @@ class Store:
     def begin_run(self, run: RunRecord):
         """Insert the run row (``finished_at`` may be NULL) BEFORE hosts are
         processed, so an interrupted run leaves a visibly-incomplete record in
-        history rather than orphaned on-disk evidence with no row at all."""
+        history rather than orphaned on-disk evidence with no row at all.
+
+        Idempotent: any hosts/findings already recorded for this run_id are
+        cleared first, so re-running (a resumed or retried run reusing the id)
+        cannot double-insert. With a collision-resistant run id this is
+        belt-and-suspenders, but it keeps begin_run safe to call twice."""
+        self._conn.execute(
+            "DELETE FROM findings WHERE host_id IN "
+            "(SELECT id FROM hosts WHERE run_id = ?)", (run.run_id,))
+        self._conn.execute("DELETE FROM hosts WHERE run_id = ?", (run.run_id,))
         self._conn.execute(
             "INSERT OR REPLACE INTO runs(run_id, started_at, finished_at, scope, "
             "config_hash) VALUES (?,?,?,?,?)",

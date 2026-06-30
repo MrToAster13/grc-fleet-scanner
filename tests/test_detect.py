@@ -45,6 +45,19 @@ def test_detect_unsupported_version():
     assert host.status is HostStatus.UNSUPPORTED_VERSION
 
 
+def test_detect_os_release_without_id_is_scan_error_not_non_ubuntu():
+    # os-release readable but carrying no ID= field (empty / garbled / truncated)
+    # is an INCONCLUSIVE read, not positive evidence of a non-Ubuntu host. It must
+    # map to a retry-able SCAN_ERROR, never a terminal NON_UBUNTU -- otherwise a
+    # transient truncation could permanently bucket an Ubuntu host out of scope.
+    conn = FakeRemoteHost(responses=[
+        ("os-release", CommandResult(0, 'PRETTY_NAME="Linux"\n', "")),
+    ])
+    host = _host()
+    assert detect(host, conn, _cfg()) is None
+    assert host.status is HostStatus.SCAN_ERROR
+
+
 def test_detect_sudo_password_required_is_scanner_absent():
     conn = FakeRemoteHost(responses=[
         ("os-release", CommandResult(0, _UBUNTU_OSR, "")),
