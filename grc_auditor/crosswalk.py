@@ -35,8 +35,6 @@ weak in?"), not a substitute for the authoritative per-rule SCAP references.
 
 from __future__ import annotations
 
-from typing import Optional
-
 # Human-readable label for the data so the report can caption it honestly.
 CROSSWALK_LABEL = "Indicative CIS -> NIST 800-53 Rev5 / ISO 27001:2022 (non-exhaustive)"
 
@@ -118,6 +116,10 @@ _SPECIFIC: dict[str, dict[str, list]] = {
     "crypto_policy":                {"nist": ["SC"], "iso": ["A.8.24"]},
 }
 
+# Longest stem first (precedence). The set is fixed, so sort once at import
+# instead of re-sorting on every map_rule call (per-finding, per-host hot path).
+_SPECIFIC_KEYS = sorted(_SPECIFIC, key=len, reverse=True)
+
 # Broad topic prefixes used only when no specific stem matched. Keep coarse.
 _PREFIX: list = [
     ("sshd_",     {"nist": ["AC", "SC"], "iso": ["A.8.5", "A.8.20"]}),
@@ -172,7 +174,7 @@ def map_rule(rule_id: str) -> dict:
         return {"nist": [], "iso": []}
 
     # 1) Specific stems (exact or startswith), longest key first for precedence.
-    for key in sorted(_SPECIFIC, key=len, reverse=True):
+    for key in _SPECIFIC_KEYS:
         if stem == key or stem.startswith(key):
             m = _SPECIFIC[key]
             return {"nist": list(m["nist"]), "iso": list(m["iso"])}

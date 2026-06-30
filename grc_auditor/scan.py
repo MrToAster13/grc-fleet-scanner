@@ -300,8 +300,9 @@ def parse_xccdf_results(path: str) -> ScanResult:
         elif name == "version" and scan.benchmark_version is None:
             scan.benchmark_version = (el.text or "").strip() or None
 
-    # Attach human-readable titles to failed rules where the benchmark defines them.
-    titles = _rule_titles(root)
+    # Attach human-readable titles to failed rules where the benchmark defines
+    # them. Skip the second full-tree walk entirely when there are no fails.
+    titles = _rule_titles(root) if failed_rules else {}
     for fr in failed_rules:
         fr.title = titles.get(fr.rule_id)
     scan.failed_rules = failed_rules

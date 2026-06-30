@@ -166,12 +166,11 @@ def cmd_run(args) -> int:
             # Stage 4-6: reach + detect + scan, bounded concurrency. Workers do the
             # IO and return the host; the main thread persists each as it completes
             # (keeps the single SQLite connection thread-confined).
-            store_artifacts = os.path.join(cfg.output_dir, "runs")
             log.info("processing %d candidate host(s) with concurrency %d",
                      len(candidates), cfg.scope.ssh_concurrency)
             with ThreadPoolExecutor(max_workers=cfg.scope.ssh_concurrency) as pool:
                 futures = {
-                    pool.submit(_process_host, h, cfg, run_id, store_artifacts): h
+                    pool.submit(_process_host, h, cfg, run_id, store.artifacts_root): h
                     for h in candidates
                 }
                 for fut in as_completed(futures):
@@ -193,13 +192,13 @@ def cmd_run(args) -> int:
 def _print_summary(run: RunRecord, paths: dict) -> None:
     counts = run.counts_by_status()
     pr = run.fleet_pass_rate()
+    pr_str = f"{pr}%" if pr is not None else "n/a"
     print()
     print(f"Run {run.run_id} complete.")
     print(f"  Hosts discovered : {len(run.hosts)}")
     print(f"  Scanned          : {counts.get('scanned', 0)}")
     print(f"  Coverage gaps    : {len(run.coverage_gaps())}")
-    print(f"  Fleet pass rate  : {pr if pr is not None else 'n/a'}"
-          + ("%" if pr is not None else ""))
+    print(f"  Fleet pass rate  : {pr_str}")
     print(f"  Report           : {paths['html']}")
     print(f"  JSON / CSV       : {paths['json']}")
 

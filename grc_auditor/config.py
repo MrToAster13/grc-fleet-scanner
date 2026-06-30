@@ -50,18 +50,12 @@ class CredentialGroup:
     bastion: Optional[BastionConfig] = None
 
     def matches(self, ip: str) -> bool:
-        for t in self.targets:
-            t = t.strip()
-            if t in ("default", "*", "0.0.0.0/0"):
-                return True
-            try:
-                if ipaddress.ip_address(ip) in ipaddress.ip_network(t, strict=False):
-                    return True
-            except ValueError:
-                # Allow an exact IP literal as a target.
-                if t == ip:
-                    return True
-        return False
+        # Catch-all tokens match any address -- including IPv6, which the literal
+        # "0.0.0.0/0" network would not. Everything else routes through the one
+        # shared membership helper so network matching lives in a single place.
+        if any(t.strip() in ("default", "*", "0.0.0.0/0") for t in self.targets):
+            return True
+        return ip_in_networks(ip, self.targets)
 
 
 @dataclass

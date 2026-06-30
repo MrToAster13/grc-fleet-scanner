@@ -11,6 +11,7 @@ each module can be developed independently against a stable contract.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Optional
@@ -211,10 +212,7 @@ class RunRecord:
 
     # --- convenience aggregates used by the report -----------------------
     def counts_by_status(self) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for h in self.hosts:
-            out[h.status.value] = out.get(h.status.value, 0) + 1
-        return out
+        return dict(Counter(h.status.value for h in self.hosts))
 
     def scanned_hosts(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status is HostStatus.SCANNED and h.scan]
@@ -224,8 +222,9 @@ class RunRecord:
 
     def fleet_pass_rate(self) -> Optional[float]:
         """Aggregate pass percentage across all scanned hosts, or None."""
-        passed = sum(h.scan.passed for h in self.scanned_hosts())
-        evaluated = sum(h.scan.total_evaluated for h in self.scanned_hosts())
+        scanned = self.scanned_hosts()
+        passed = sum(h.scan.passed for h in scanned)
+        evaluated = sum(h.scan.total_evaluated for h in scanned)
         if evaluated == 0:
             return None
         return round(100.0 * passed / evaluated, 1)
