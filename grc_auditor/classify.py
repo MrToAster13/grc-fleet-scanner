@@ -85,14 +85,12 @@ def _has_ssh(host: HostRecord) -> bool:
 def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
     """Set each host's initial coverage status from its discovery fingerprint.
 
-    When ``cfg.treat_unknown_linux_as_ubuntu`` is truthy (read defensively;
-    defaults to False so current behavior is preserved), hosts that look like
-    some non-specific Linux are promoted to Ubuntu *candidates*. They are NOT
-    asserted to be Ubuntu — the SSH detect stage remains authoritative and will
-    reclassify any that are not actually Ubuntu as NON_UBUNTU.
+    When ``cfg.treat_unknown_linux_as_ubuntu`` is truthy (it defaults to False,
+    preserving current behavior), hosts that look like some non-specific Linux
+    are promoted to Ubuntu *candidates*. They are NOT asserted to be Ubuntu —
+    the SSH detect stage remains authoritative and will reclassify any that are
+    not actually Ubuntu as NON_UBUNTU.
     """
-    # Config defines this knob (default False); a true value opts into probing
-    # unknown-Linux hosts as Ubuntu candidates. SSH detect stays authoritative.
     promote_unknown_linux = cfg.treat_unknown_linux_as_ubuntu
 
     for host in hosts:

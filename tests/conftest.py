@@ -108,7 +108,8 @@ def fixture_path(name: str) -> str:
     return os.path.join(FIXTURES_DIR, name)
 
 
-def make_config(cidrs=None, groups=None, output_dir="./grc-output"):
+def make_config(cidrs=None, groups=None, output_dir="./grc-output",
+                treat_unknown_linux_as_ubuntu=False):
     """Build a minimal valid Config in code (mirrors smoketest.py).
 
     Defaults to the lab catch-all credential group from the smoketest so an
@@ -122,6 +123,7 @@ def make_config(cidrs=None, groups=None, output_dir="./grc-output"):
         scope=ScanScope(cidrs=list(cidrs)),
         credential_groups=list(groups),
         output_dir=output_dir,
+        treat_unknown_linux_as_ubuntu=treat_unknown_linux_as_ubuntu,
     )
 
 

@@ -6,6 +6,8 @@ from grc_auditor.classify import classify
 from grc_auditor.config import CredentialGroup
 from grc_auditor.models import HostRecord, HostStatus
 
+from conftest import make_config
+
 
 def _ubuntu_ssh_host(ip="10.0.10.21"):
     return HostRecord(
@@ -94,14 +96,8 @@ def _linux_only_host(ip="10.0.10.40"):
 
 
 def _promoting_cfg():
-    from grc_auditor.config import Config, ScanScope
-    return Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
-        credential_groups=[
-            CredentialGroup(name="lab", ssh_user="u", targets=["default"]),
-        ],
-        treat_unknown_linux_as_ubuntu=True,
-    )
+    # Same shape as the default config, with unknown-Linux promotion enabled.
+    return make_config(treat_unknown_linux_as_ubuntu=True)
 
 
 def test_unknown_linux_stays_non_ubuntu_by_default(config_factory):
