@@ -224,10 +224,17 @@ Run a fresh audit after each change and check the host's status in `report.html`
 
 - [ ] **`non_ubuntu`** — point the scope at a non-Ubuntu host (e.g. the Kali run host's own
       IP). Must be `non_ubuntu`, never scanned against the Ubuntu benchmark.
-- [ ] **`scanner_absent`** — remove oscap on the target (`sudo apt remove -y libopenscap8`),
-      re-run. Host should be `scanner_absent` (and the tool must **not** install anything).
-- [ ] **`unsupported_version`** — temporarily point `ssg_dir` at an empty dir, or test on a
-      non-LTS release. Host should be `unsupported_version`, not a mis-scan.
+- [ ] **`scanner_absent`** — break the scanner either way and re-run after each: remove the
+      oscap binary (`sudo apt remove -y libopenscap8`), **or** hide the SSG content
+      (`sudo mv /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml /tmp/`). Host should be
+      `scanner_absent` both times (and the tool must **not** install anything). Restore with
+      `sudo apt install -y libopenscap8` or by moving the datastream back.
+- [ ] **`unsupported_version`** — test on a release the tool has no datastream mapping for
+      (anything other than Ubuntu 18.04 / 20.04 / 22.04 / 24.04). Host should be
+      `unsupported_version`, not a mis-scan. *(Pointing `ssg_dir` at an empty dir does **not**
+      test this: the version is still supported, so missing content reports as `scanner_absent`
+      above — `unsupported_version` fires only when no datastream is mapped for the version, or
+      the datastream lacks the requested CIS profile.)*
 - [ ] **`no_credentials`** — remove the `credential_groups` entry (or change its `targets`
       so it doesn't match). Host should be `no_credentials`.
 - [ ] **`unreachable`** — stop sshd on the target (`sudo systemctl stop ssh`), re-run.
