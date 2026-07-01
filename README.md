@@ -40,6 +40,8 @@ only reflects the checks that actually ran is flagged **low confidence**.
 - HTML dashboard: executive summary, coverage map, severity breakdown, fleet trend,
   assessment-confidence flags, and a NIST 800-53 / ISO 27001 cross-walk
 - Machine-readable exports (JSON/CSV) + retained raw OpenSCAP evidence (ARF/HTML) per host
+- `rmf` export: a NIST 800-53 control rollup (RMF SSP evidence) built from the retained ARF's
+  authoritative per-rule references
 - Run-over-run **drift** history in SQLite
 - Never modifies the system under audit (missing scanner → flagged, never installed)
 
