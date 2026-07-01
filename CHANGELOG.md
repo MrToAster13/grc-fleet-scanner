@@ -43,6 +43,18 @@ release, everything lives under **Unreleased**.
   LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **Out-of-profile rules no longer tank assessment confidence.** A complete CIS scan reports a
+  `notselected` result for every datastream rule outside the chosen profile (241 of 639 on a
+  real Ubuntu 22.04 run), which the parser buckets into `other`. `assessment_confidence` was
+  dividing by *every* rule-result — so those out-of-scope rules read as "checks that did not
+  run," dragging a clean, fully-privileged scan down to 62% and stamping it **LOW confidence /
+  "insufficient privilege / scores NOT trustworthy."** Confidence is now measured only over the
+  checks that *owed* a verdict (`pass + fail + notapplicable + error + notchecked`); a rule the
+  profile never selected neither helps nor hurts it. The same run now reads 100% and certifies
+  cleanly. The never-false-pass guard is unchanged: `error`/`notchecked` (the real
+  insufficient-privilege signal) still lower confidence, and a scan where nothing owed a verdict
+  is `scan_error`, never a clean pass. The LOW badge's "N unverified" count likewise drops
+  `other`.
 - **Actionable `scanner_absent` remediation.** The detail for missing SSG content pointed the
   operator at apt package `ssg-base`, but that package is not in the Ubuntu 22.04 archive (a
   live fire-test confirmed `apt install` can't find it). The detail now points at the real

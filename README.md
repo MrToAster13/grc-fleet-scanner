@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action — but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (97-test suite), and validated end-to-end
+> ℹ️ **Status:** functional, tested offline (107-test suite), and validated end-to-end
 > against a real cloud Ubuntu 22.04 host — the happy path (a full CIS scan producing a real
 > score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, …).
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
@@ -72,7 +72,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. Verify (no network needed)
-python -m pytest        # expect: 97 passed
+python -m pytest        # expect: 107 passed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
@@ -121,5 +121,5 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (97 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` (107 tests) before submitting; keep the
 offline `python smoketest.py` working.
