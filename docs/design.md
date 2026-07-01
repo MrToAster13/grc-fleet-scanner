@@ -150,7 +150,7 @@ Surfaced during development, intentionally not built yet:
 
 ## 10. Status & validation
 
-Offline behavior is covered by a 97-test pytest suite. The live SSH→`oscap` scan leg has
+Offline behavior is covered by a 107-test pytest suite. The live SSH→`oscap` scan leg has
 now been validated end-to-end against a real cloud Ubuntu 22.04 host — both the happy path
 (a full CIS scan producing a real score) and the negative-path honest-gap checks
 (`scanner_absent`, `host_key_mismatch`, and the rest of §6). Still re-run

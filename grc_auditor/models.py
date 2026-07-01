@@ -113,28 +113,38 @@ class ScanResult:
 
     @property
     def undetermined(self) -> Optional[int]:
-        """Rule results that produced no definitive verdict (error / notchecked
-        / other) -- the checks that drag ``assessment_confidence`` down. ``None``
-        when coverage is unknown."""
+        """Selected checks that owed a verdict but produced none (``error`` /
+        ``not_checked``) -- what drags ``assessment_confidence`` down and the
+        count shown on the LOW badge. Excludes ``other`` (``notselected`` and
+        friends): a rule the profile never selected is out of scope, not an
+        unanswered check. ``None`` when coverage is unknown (a pre-migration
+        row)."""
         if self.not_checked is None or self.other is None:
             return None
-        return self.error + self.not_checked + self.other
+        return self.error + self.not_checked
 
     @property
     def assessment_confidence(self) -> Optional[float]:
-        """Percent of the benchmark that produced a definitive verdict
-        (pass / fail / notapplicable).
+        """Percent of the *selected* checks that produced a definitive verdict
+        (pass / fail / notapplicable), out of the checks that owed one.
 
-        A high ``not_checked`` count -- typically insufficient privilege so the
-        check never ran -- drives this DOWN. It is the guard against the worst
-        outcome for a compliance tool: a high score that reflects only the few
-        checks that actually executed. ``None`` when nothing was evaluated.
+        The denominator is the checks the profile selected and tried to run --
+        ``definitive + error + not_checked`` -- NOT every rule-result oscap
+        emitted. A rule the profile does not select (``notselected``, bucketed
+        into ``other``) is not part of the assessment and neither helps nor hurts
+        this number; only a selected check that returned no verdict (``error`` /
+        ``not_checked``, typically insufficient privilege) drives it DOWN. That
+        is the guard against a compliance tool's worst outcome: a high score that
+        reflects only the few checks that actually executed. ``None`` when
+        coverage is unknown (a pre-migration row) or nothing owed a verdict.
         """
-        total = self.total_outcomes
-        if not total:                       # None (unknown) or 0 (nothing ran)
-            return None
+        if self.not_checked is None or self.other is None:
+            return None                     # coverage unknown (pre-migration row)
         definitive = self.passed + self.failed + self.not_applicable
-        return round(100.0 * definitive / total, 1)
+        owed = definitive + self.error + self.not_checked
+        if not owed:                        # nothing was selected/attempted
+            return None
+        return round(100.0 * definitive / owed, 1)
 
     def is_low_confidence(
         self, threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD
@@ -195,12 +205,22 @@ def finalize_scan_status(host: HostRecord, scan: ScanResult,
         host.detail = "oscap produced results.xml with no rule outcomes to assess"
         return
     conf = scan.assessment_confidence
-    if conf is not None and conf < hard_floor:
+    if conf is None:
+        # Outcomes existed but none owed a verdict (every selected check was
+        # error/not-checked, or the profile selected nothing) -- nothing to
+        # certify. Never a clean SCANNED.
         host.status = HostStatus.SCAN_ERROR
         host.detail = (
-            f"assessment incomplete: only {conf:.0f}% of the benchmark produced a "
-            f"verdict (below the {hard_floor:.0f}% hard floor) -- evidence retained "
-            f"but not certifiable; check the scan account's sudo/privilege"
+            "assessment produced no scorable verdict -- evidence retained but not "
+            "certifiable; check the scan account's sudo/privilege and the profile"
+        )
+        return
+    if conf < hard_floor:
+        host.status = HostStatus.SCAN_ERROR
+        host.detail = (
+            f"assessment incomplete: only {conf:.0f}% of the selected benchmark "
+            f"produced a verdict (below the {hard_floor:.0f}% hard floor) -- evidence "
+            f"retained but not certifiable; check the scan account's sudo/privilege"
         )
         return
     host.status = HostStatus.SCANNED

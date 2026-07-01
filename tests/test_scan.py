@@ -114,6 +114,24 @@ def test_adequately_covered_scan_is_scanned():
     assert host.status is HostStatus.SCANNED
 
 
+def test_notselected_heavy_scan_is_certified_scanned():
+    # A complete scan whose datastream is mostly out-of-profile (notselected ->
+    # `other`) certifies as SCANNED -- notselected rules are not "unrun" checks.
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, _scan(passed=238, failed=109, not_applicable=51,
+                                     other=241, score=69.4))
+    assert host.status is HostStatus.SCANNED
+
+
+def test_all_notselected_scan_is_not_certifiable():
+    # Degenerate: oscap emitted outcomes but none owed a verdict (all notselected).
+    # Nothing to certify -> SCAN_ERROR, never a clean pass (never-false-pass).
+    host = HostRecord(ip="10.0.0.9")
+    finalize_scan_status(host, _scan(other=17))
+    assert host.status is HostStatus.SCAN_ERROR
+    assert host.scan is not None              # evidence still attached
+
+
 def test_empty_results_file_does_not_become_a_clean_scanned_host(tmp_path):
     # End-to-end: an empty results.xml parses to all-zeros (not a crash), and the
     # chokepoint then refuses to certify it as SCANNED.
@@ -257,6 +275,18 @@ def test_low_privilege_scan_collapses_confidence():
                    passed=10, failed=0, not_checked=190, score=100.0)
     assert s.score == 100.0                   # looks clean...
     assert s.assessment_confidence == 5.0     # ...but only 10 of 200 ran
+
+
+def test_notselected_outcomes_do_not_lower_confidence():
+    # A real complete scan's shape: 0 error, 0 notchecked, but the datastream
+    # carries 241 rules outside the CIS profile (notselected -> `other`). Those
+    # are out of scope, not "checks that did not run" -- they must not drag
+    # confidence down or fire the LOW-confidence / insufficient-privilege alarm.
+    s = _scan(passed=238, failed=109, not_applicable=51, other=241, score=69.4)
+    assert s.total_outcomes == 639            # raw evidence count still counts `other`
+    assert s.undetermined == 0                # nothing was left unanswered
+    assert s.assessment_confidence == 100.0
+    assert not s.is_low_confidence()
 
 
 def test_is_low_confidence_predicate():
