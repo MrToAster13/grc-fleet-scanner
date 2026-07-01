@@ -6,6 +6,15 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **`rmf` subcommand — NIST 800-53 control rollup for SSP evidence.** Reads a run's retained
+  OpenSCAP ARF and aggregates each rule's pass/fail by the 800-53 control it maps to, using
+  the datastream's OWN authoritative per-rule references (not the indicative family
+  cross-walk). Emits `control-rollup.csv` — control, pass/fail counts, a suggested
+  Implementation Status (`Implemented`/`Planned`/`Not Assessed`), and a draft justification —
+  to fill an RMF SSP's control worksheet from real evidence. Reports honestly that the SSG
+  references are 800-53 **Rev 4** (a DoD baseline is Rev 5), that the status is a suggestion
+  from automated CIS checks (not an ATO decision), and that the results are the CIS profile,
+  not a DISA STIG.
 - **Structural never-false-pass chokepoint** — a single `finalize_scan_status` gate now
   decides `SCANNED`. A scan that evaluated nothing (empty/rule-result-less `results.xml`)
   or whose coverage falls below a **hard, non-overridable confidence floor (50%)** is

@@ -1,0 +1,132 @@
+"""Tests for grc_auditor.rmf: ARF -> 800-53 control rollup.
+
+Uses a small synthetic ARF (namespaced + nested like a real one) so the
+localname-based parse and the rollup/status logic are exercised offline.
+"""
+
+from __future__ import annotations
+
+import csv
+
+from grc_auditor import rmf
+
+# A miniature ARF: a Benchmark (rules + 800-53 references) and a TestResult
+# (rule-results), namespaced and nested the way oscap emits them.
+_ARF = """<?xml version="1.0"?>
+<arf:asset-report-collection
+    xmlns:arf="http://scap.nist.gov/schema/asset-reporting-format/1.1"
+    xmlns:cdf="http://checklists.nist.gov/xccdf/1.2">
+  <arf:report-requests><arf:report-request><arf:content>
+    <cdf:Benchmark>
+      <cdf:Rule id="xccdf_org.ssgproject.content_rule_sshd_disable_root_login">
+        <cdf:title>Disable SSH root login</cdf:title>
+        <cdf:reference href="http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r4.pdf">AC-6(2)</cdf:reference>
+        <cdf:reference href="http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r4.pdf">AC-17(a)</cdf:reference>
+        <cdf:reference href="https://static.open-scap.org/">CCE-12345-6</cdf:reference>
+      </cdf:Rule>
+      <cdf:Rule id="xccdf_org.ssgproject.content_rule_audit_time_change">
+        <cdf:reference href="http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r4.pdf">AU-9(3)</cdf:reference>
+        <cdf:reference href="http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r4.pdf">nist</cdf:reference>
+      </cdf:Rule>
+      <cdf:Rule id="xccdf_org.ssgproject.content_rule_cm6_notchecked">
+        <cdf:reference href="http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r4.pdf">CM-6(a)</cdf:reference>
+      </cdf:Rule>
+      <cdf:Rule id="xccdf_org.ssgproject.content_rule_no_mapping">
+        <cdf:title>No 800-53 reference</cdf:title>
+      </cdf:Rule>
+    </cdf:Benchmark>
+  </arf:content></arf:report-request></arf:report-requests>
+  <arf:reports><arf:report><arf:content>
+    <cdf:TestResult>
+      <cdf:rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login"><cdf:result>pass</cdf:result></cdf:rule-result>
+      <cdf:rule-result idref="xccdf_org.ssgproject.content_rule_audit_time_change"><cdf:result>fail</cdf:result></cdf:rule-result>
+      <cdf:rule-result idref="xccdf_org.ssgproject.content_rule_cm6_notchecked"><cdf:result>notchecked</cdf:result></cdf:rule-result>
+      <cdf:rule-result idref="xccdf_org.ssgproject.content_rule_no_mapping"><cdf:result>pass</cdf:result></cdf:rule-result>
+    </cdf:TestResult>
+  </arf:content></arf:report></arf:reports>
+</arf:asset-report-collection>
+"""
+
+
+def _write_arf(tmp_path, text=_ARF, name="arf.xml"):
+    p = tmp_path / name
+    p.write_text(text, encoding="utf-8")
+    return str(p)
+
+
+def test_base_control_normalization():
+    assert rmf._base_control("AC-17(2)") == "AC-17"
+    assert rmf._base_control("CM-6(a)") == "CM-6"
+    assert rmf._base_control("AU-9(3).1") == "AU-9"
+    assert rmf._base_control("nist") is None
+    assert rmf._base_control("") is None
+
+
+def test_rollup_maps_and_aggregates(tmp_path):
+    rows = rmf.rollup_from_arf([_write_arf(tmp_path)])
+    by = {r.control: r for r in rows}
+
+    # Four controls -- one per distinct base control that has an evaluated rule.
+    assert set(by) == {"AC-6", "AC-17", "AU-9", "CM-6"}
+
+    # A passing rule maps its pass to every control it references.
+    assert by["AC-6"].passed == 1 and by["AC-6"].failed == 0
+    assert by["AC-6"].status == "Implemented"
+    assert by["AC-17"].status == "Implemented"
+
+    # A failing rule -> Planned (feeds a POA&M row).
+    assert by["AU-9"].failed == 1 and by["AU-9"].status == "Planned"
+
+    # notchecked -> "other", no verdict -> Not Assessed.
+    assert by["CM-6"].other == 1 and by["CM-6"].passed == 0
+    assert by["CM-6"].status == "Not Assessed"
+
+    # The revision is read from the reference href, not assumed.
+    assert all(r.revision == "Rev 4" for r in rows)
+
+
+def test_unmapped_rule_is_excluded(tmp_path):
+    rows = rmf.rollup_from_arf([_write_arf(tmp_path)])
+    # The rule with no 800-53 reference contributes to no control, and the CCE
+    # reference (non-800-53 href) is ignored.
+    for r in rows:
+        assert "content_rule_no_mapping" not in r.rules
+
+
+def test_rows_sorted_by_family_then_number(tmp_path):
+    rows = rmf.rollup_from_arf([_write_arf(tmp_path)])
+    assert [r.control for r in rows] == ["AC-6", "AC-17", "AU-9", "CM-6"]
+
+
+def test_fleet_merge_one_failing_host_makes_control_planned(tmp_path):
+    # Same control passes in one ARF, fails in another -> Planned fleet-wide.
+    pass_arf = _write_arf(tmp_path, name="a.xml")
+    fail_text = _ARF.replace(
+        "content_rule_sshd_disable_root_login\"><cdf:result>pass",
+        "content_rule_sshd_disable_root_login\"><cdf:result>fail")
+    fail_arf = _write_arf(tmp_path, text=fail_text, name="b.xml")
+    rows = {r.control: r for r in rmf.rollup_from_arf([pass_arf, fail_arf])}
+    assert rows["AC-6"].passed == 1 and rows["AC-6"].failed == 1
+    assert rows["AC-6"].status == "Planned"
+
+
+def test_write_rollup_csv(tmp_path):
+    rows = rmf.rollup_from_arf([_write_arf(tmp_path)])
+    out = tmp_path / "control-rollup.csv"
+    rmf.write_rollup_csv(rows, str(out))
+    parsed = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert parsed[0]["control"] == "AC-6"
+    assert parsed[0]["implementation_status_suggestion"] == "Implemented"
+    assert parsed[0]["nist_800_53_rev"] == "Rev 4"
+    au9 = next(r for r in parsed if r["control"] == "AU-9")
+    assert au9["fail"] == "1" and au9["implementation_status_suggestion"] == "Planned"
+
+
+def test_bad_arf_raises_rmferror(tmp_path):
+    bad = tmp_path / "arf.xml"
+    bad.write_text("<not-xml", encoding="utf-8")
+    try:
+        rmf.rollup_from_arf([str(bad)])
+        assert False, "expected RmfError"
+    except rmf.RmfError:
+        pass

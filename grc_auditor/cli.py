@@ -219,6 +219,43 @@ def cmd_history(args) -> int:
     return 0
 
 
+def cmd_rmf(args) -> int:
+    from . import rmf
+    paths: list[str] = []
+    for p in args.arf:
+        if os.path.isdir(p):
+            for dirpath, _dirs, files in os.walk(p):
+                if "arf.xml" in files:
+                    paths.append(os.path.join(dirpath, "arf.xml"))
+        elif os.path.isfile(p):
+            paths.append(p)
+        else:
+            print(f"rmf: not found: {p}", file=sys.stderr)
+            return 2
+    if not paths:
+        print("rmf: no arf.xml found in the given path(s)", file=sys.stderr)
+        return 2
+
+    try:
+        rows = rmf.rollup_from_arf(paths)
+    except rmf.RmfError as exc:
+        print(f"rmf error: {exc}", file=sys.stderr)
+        return 1
+
+    out = args.output or "control-rollup.csv"
+    rmf.write_rollup_csv(rows, out)
+    rev = rows[0].revision if rows else "Rev 4"
+    impl = sum(1 for r in rows if r.status == "Implemented")
+    planned = sum(1 for r in rows if r.status == "Planned")
+    print(f"800-53 control rollup from {len(paths)} ARF file(s): {len(rows)} controls "
+          f"({impl} Implemented, {planned} Planned)")
+    print(f"  wrote {out}")
+    print(f"  refs are NIST 800-53 {rev} (from the SSG datastream); a DoD SSP baseline is "
+          f"Rev 5 -- most map 1:1, confirm each.")
+    print("  status is a suggestion from automated CIS checks, not an ATO decision.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="grc-audit",
@@ -250,6 +287,13 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("-o", "--output", default="./grc-output",
                    help="output directory holding history.db")
     h.set_defaults(func=cmd_history)
+
+    rmf_p = sub.add_parser(
+        "rmf", help="export a NIST 800-53 control rollup (SSP evidence) from ARF")
+    rmf_p.add_argument("arf", nargs="+",
+                       help="arf.xml file(s), or a run/host directory to search for arf.xml")
+    rmf_p.add_argument("-o", "--output", help="output CSV (default: control-rollup.csv)")
+    rmf_p.set_defaults(func=cmd_rmf)
 
     return p
 
