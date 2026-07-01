@@ -57,6 +57,13 @@ class HostStatus(str, Enum):
             HostStatus.SCAN_ERROR,
         }
 
+    @classmethod
+    def coverage_gap_values(cls) -> frozenset[str]:
+        """The `.value`s of the honest-gap statuses -- the single home for the
+        string set the report/template colour as coverage gaps (derived from
+        `is_coverage_gap` so the two can't drift)."""
+        return frozenset(s.value for s in cls if s.is_coverage_gap)
+
 
 @dataclass
 class RuleResult:

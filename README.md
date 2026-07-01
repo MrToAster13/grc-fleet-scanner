@@ -102,6 +102,7 @@ reference, scheduling, troubleshooting, and report interpretation are in the
 | [docs/operating.md](docs/operating.md) | Operator runbook — setup, config reference, reading the report, scheduling, troubleshooting |
 | [docs/validation.md](docs/validation.md) | Validate the live scan leg against one Ubuntu VM (incl. negative-path checks) |
 | [docs/design.md](docs/design.md) | Design, decisions, coverage model, and what's out of scope |
+| [AGENTS.md](AGENTS.md) | Writing + organization rules for AI agents editing this repo's docs |
 | [CHANGELOG.md](CHANGELOG.md) | What's changed and the build history |
 
 ## Security & authorization

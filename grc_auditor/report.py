@@ -506,11 +506,10 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         loader=FileSystemLoader(_TEMPLATE_DIR),
         autoescape=True,
     )
-    # Coverage-gap status VALUES, derived from the enum so the template's coverage
-    # map colours gap statuses off the single HostStatus.is_coverage_gap definition
-    # (the per-host table already does). A new gap status then can't silently render
-    # as a non-gap "other".
-    gap_statuses = {s.value for s in HostStatus if s.is_coverage_gap}
+    # Coverage-gap status values, owned by HostStatus, so the template's coverage
+    # map colours gap statuses off the single is_coverage_gap definition (the
+    # per-host table already does). A new gap status can't silently render as "other".
+    gap_statuses = HostStatus.coverage_gap_values()
 
     template = env.get_template("report.html.j2")
     html = template.render(
