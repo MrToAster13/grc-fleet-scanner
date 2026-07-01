@@ -150,6 +150,9 @@ Surfaced during development, intentionally not built yet:
 
 ## 10. Status & validation
 
-Offline behavior is covered by a 96-test pytest suite. The live SSH→`oscap` scan leg has
-not yet been validated against a real Ubuntu host — run [validation.md](validation.md)
-once against a single VM (including its negative-path checks) before trusting a fleet run.
+Offline behavior is covered by a 97-test pytest suite. The live SSH→`oscap` scan leg has
+now been validated end-to-end against a real cloud Ubuntu 22.04 host — both the happy path
+(a full CIS scan producing a real score) and the negative-path honest-gap checks
+(`scanner_absent`, `host_key_mismatch`, and the rest of §6). Still re-run
+[validation.md](validation.md) against a single VM in any new environment (including its
+negative-path checks) before trusting a fleet run.

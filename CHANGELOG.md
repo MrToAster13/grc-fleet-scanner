@@ -31,7 +31,7 @@ release, everything lives under **Unreleased**.
   stage gets to confirm or reject them. The flag is part of the canonical config, so
   it changes `config_hash` — two runs that differ only by it don't share provenance.
 - Project docs: README, operating guide, design doc, single-VM validation guide; MIT
-  LICENSE; 96-test pytest suite with namespaced XCCDF fixtures.
+  LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
 - **Actionable `scanner_absent` remediation.** The detail for missing SSG content pointed the
@@ -103,6 +103,13 @@ release, everything lives under **Unreleased**.
   the cloud-target classification fix (`nmap_extra_args: ["-Pn","-p22"]` +
   `treat_unknown_linux_as_ubuntu`). The run also live-validated the honest-coverage chain
   (`non_ubuntu` → `scanner_absent` → `scanned`).
+- **Operating guide + status synced to the fire-tested reality.** `docs/operating.md` still
+  showed a bare `pip install` (fails under PEP 668) and vague "provision oscap + SSG (config
+  mgmt)" with no commands — the exact snags the live run hit. It now mandates the venv and
+  cross-references `validation.md` §0/§1.1 for the real install (`libopenscap8`, SSG datastream
+  from a ComplianceAsCode release), keeping `validation.md` the single source of truth. The
+  README and `design.md` "live scan leg not yet validated" status is corrected — it has now
+  been validated end-to-end — and the stale "96-test suite" count is updated to 97 everywhere.
 - Refactor: single source of truth for the low-confidence default and rule
   (`models.DEFAULT_LOW_CONFIDENCE_THRESHOLD`, `ScanResult.is_low_confidence`); shared
   threshold validation; the report template renders low-confidence by IP membership rather
