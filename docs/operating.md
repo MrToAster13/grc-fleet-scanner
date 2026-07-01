@@ -29,13 +29,20 @@ a clean result — see the status table in §6.
 
 **Run host** (where you run the tool) — must be **Linux** (WSL2 is fine):
 - `nmap` installed (`sudo apt install nmap`)
-- Python 3.10+ and this project's deps (`pip install -r requirements.txt`)
+- Python 3.10+ and this project's deps installed into a **virtualenv** (see §3.1). Modern
+  Debian/Kali/Ubuntu refuse a bare `pip install` into the system Python (PEP 668,
+  `externally-managed-environment`), so the venv is **required, not optional** — do *not*
+  use `--break-system-packages`. Full rationale in [validation.md](validation.md) §0.
 - Network line-of-sight to the targets, and SSH reachability (directly or via a bastion)
 - Your SSH key loaded in `ssh-agent`
 
 **Target hosts** (to be deep-scanned) — must be **Ubuntu** with:
 - `oscap` installed + the matching SCAP Security Guide datastream
-  (`/usr/share/xml/scap/ssg/content/ssg-ubuntu<NNNN>-ds.xml`)
+  (`/usr/share/xml/scap/ssg/content/ssg-ubuntu<NNNN>-ds.xml`). On Ubuntu 22.04 the oscap
+  package is **`libopenscap8`** (newer releases: `openscap-scanner`), and the datastream
+  comes from a [ComplianceAsCode release](https://github.com/ComplianceAsCode/content/releases)
+  — **not** an `ssg-*` apt package (those aren't in Ubuntu's archive). Exact, tested commands:
+  [validation.md](validation.md) §1.1.
 - An SSH account you hold a key for, with **passwordless sudo** (CIS reads root-only files)
 
 > Hosts missing `oscap`/content are reported `scanner_absent` — the tool **never installs
@@ -162,7 +169,7 @@ is where it is. Act on the gaps:
 | `non_ubuntu` | Alive, not Ubuntu | Out of scope for this tool; inventory only |
 | `no_credentials` | Ubuntu, no credential group matched its IP | Add/adjust a `credential_groups` entry |
 | `unreachable` | Expected reachable but SSH failed | Check network/sshd/firewall/key |
-| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG (config mgmt) |
+| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG — see [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release — upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
@@ -226,7 +233,7 @@ Each run appends an immutable, timestamped result set, so trend/drift accrues au
 | `nmap not found on the run host` | `sudo apt install nmap`; run from Linux/WSL2 |
 | Host shows `host_key_mismatch` | **Stop.** Verify the host's real key (§3.2); only re-trust after confirming a legitimate re-provision |
 | Host shows `unreachable` | sshd down / firewall / wrong key / agent not loaded — test `ssh -i <key> <user>@<ip>` |
-| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong |
+| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong — install per [validation.md](validation.md) §1.1 (`libopenscap8`, SSG from a ComplianceAsCode release) |
 | Host shows `scan_error` | Read `<ip>/oscap.stderr.txt` and the run `audit.log` |
 | Scans hang / slow | Lower `ssh_concurrency`, raise `host_timeout_seconds`, or use `-T2` |
 | Permission/sudo failures | The scan account needs **passwordless** sudo on targets |
