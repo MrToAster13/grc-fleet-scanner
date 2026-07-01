@@ -383,10 +383,20 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
         posture = "weak"
         headline = "Fleet compliance is weak; broad remediation is required."
 
-    # Trend sentence.
+    # Trend sentence. fleet_delta is None both when there is genuinely no prior
+    # run AND when a delta can't be computed because this run (or the prior one)
+    # produced no pass rate -- so distinguish them rather than always claiming
+    # "first recorded run", which would misstate the audit history.
     delta = drift.fleet_delta
     if delta is None:
-        trend = "No prior run to compare against (first recorded run)."
+        if drift.prev_run_id is None:
+            trend = "No prior run to compare against (first recorded run)."
+        elif drift.curr_pass_rate is None:
+            trend = ("No hosts scored this run, so posture can't be compared "
+                     "against the prior run.")
+        else:
+            trend = ("The prior run produced no pass rate, so there is nothing "
+                     "to compare against.")
     elif delta > 0:
         trend = "Posture improved %.1f points versus the prior run." % delta
     elif delta < 0:

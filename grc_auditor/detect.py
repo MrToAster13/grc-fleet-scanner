@@ -28,10 +28,11 @@ from .remote import RemoteHostProtocol
 
 log = get_logger()
 
-# apt package that ships the Ubuntu SSG datastreams; named in operator-facing
-# details so a human can see exactly what is missing (we never install it).
-_SSG_APT_PACKAGE = "ssg-base"
-_OSCAP_APT_PACKAGE = "libopenscap8"  # provides the 'oscap' binary on Ubuntu
+# apt package that ships the 'oscap' binary on Ubuntu; named in the operator-facing
+# detail so a human can see exactly what is missing (we never install it). The SSG
+# *datastream* has no reliable apt package on Ubuntu 22.04 (the ssg-* packages are not
+# in the archive), so its detail points at the ComplianceAsCode content instead.
+_OSCAP_APT_PACKAGE = "libopenscap8"
 
 
 @dataclass
@@ -145,12 +146,13 @@ def detect(host: HostRecord, conn: RemoteHostProtocol, cfg: Config) -> Optional[
 
     oscap_ver = _oscap_version(conn)
 
-    # (c) oscap present but the SSG content package is absent on this host.
+    # (c) oscap present but the SSG datastream is absent on this host.
     if not conn.run_argv(["test", "-f", ds_path], timeout=30).ok:
         host.status = HostStatus.SCANNER_ABSENT
         host.detail = (
-            f"oscap present but SSG content missing at {ds_path} "
-            f"(likely apt package '{_SSG_APT_PACKAGE}'); not installing"
+            f"oscap present but SSG content missing at {ds_path}; provision the "
+            f"SCAP Security Guide datastream there (an ssg-ubuntu*-ds.xml from a "
+            f"ComplianceAsCode release) or point ssg_dir at it; not installing"
         )
         return None
 

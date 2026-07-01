@@ -140,7 +140,7 @@
 <h2>Fleet trend (last {{ trend.points|length }} run{{ '' if trend.points|length==1 else 's' }})</h2>
 {% if trend.first_run %}
   <div class="card">
-    <span class="muted">First recorded run with results &mdash; no history to trend yet.</span>
+    <span class="muted">Not enough scored runs yet to plot a trend.</span>
     {% if summary.fleet_pass_rate is not none %}
       Baseline fleet pass rate: <strong>{{ summary.fleet_pass_rate }}%</strong>.
     {% endif %}
