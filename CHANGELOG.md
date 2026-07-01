@@ -34,6 +34,18 @@ release, everything lives under **Unreleased**.
   LICENSE; 96-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **Actionable `scanner_absent` remediation.** The detail for missing SSG content pointed the
+  operator at apt package `ssg-base`, but that package is not in the Ubuntu 22.04 archive (a
+  live fire-test confirmed `apt install` can't find it). The detail now points at the real
+  source — a SCAP Security Guide / ComplianceAsCode `ssg-ubuntu*-ds.xml` datastream, or
+  setting `ssg_dir` — so the guidance is a next step, not a dead end. (The oscap-binary detail
+  already named the correct package, `libopenscap8`.)
+- **No false "first recorded run" in the report.** The executive-summary trend sentence
+  claimed "(first recorded run)" whenever a fleet delta couldn't be computed — including when
+  a *later* run simply scored nothing (e.g. every host `scanner_absent`), which misstated the
+  audit history. It now distinguishes a genuine first run from "this run scored nothing" and
+  "the prior run had no score"; the trend-chart caption likewise reads "Not enough scored runs
+  yet to plot a trend." rather than "First recorded run with results".
 - **Parse reconciliation no longer false-alarms.** The score-vs-counts check compared
   oscap's *weighted* `<score>` against a flat pass-ratio with too tight a tolerance, so a
   legitimate result warned "verify raw evidence" on every parse. It now flags only a gross

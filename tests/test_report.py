@@ -7,7 +7,8 @@ import os
 
 from grc_auditor.models import HostRecord, HostStatus, RuleResult, RunRecord, ScanResult
 from grc_auditor.report import (
-    compute_drift, low_confidence_hosts, top_failing_controls, write_reports,
+    Drift, compute_drift, executive_summary, low_confidence_hosts,
+    top_failing_controls, write_reports,
 )
 from grc_auditor.store import Store
 
@@ -103,6 +104,39 @@ def test_compute_drift_new_host_has_no_prev_score(tmp_path):
         assert by_ip["10.0.10.22"].delta is None  # no prior -> no delta
     finally:
         store.close()
+
+
+_EMPTY_SEV = {"by_severity": {}, "order": [], "total_rules": 0, "total_findings": 0}
+
+
+def _trend_sentence(prev_run_id, prev_rate, curr_rate):
+    drift = Drift(prev_run_id=prev_run_id, prev_pass_rate=prev_rate,
+                  curr_pass_rate=curr_rate, per_host=[])
+    return executive_summary(RunRecord(run_id="r", started_at="t"),
+                             drift, top=[], sev=_EMPTY_SEV)["trend"]
+
+
+def test_trend_sentence_distinguishes_first_run_from_an_unscored_run():
+    # fleet_delta is None in three different situations; the copy must not
+    # collapse them all into "first recorded run" (that would misstate history).
+
+    # 1) Genuinely the first recorded run -> may claim it.
+    assert "first recorded run" in _trend_sentence(None, None, None)
+
+    # 2) A prior run EXISTS but this run scored nothing (e.g. scanner_absent).
+    #    Must NOT claim a first run -- this is the scanner_absent report bug.
+    unscored = _trend_sentence("20260101T000000Z-abc", None, None)
+    assert "first recorded run" not in unscored
+    assert "compared against the prior run" in unscored
+
+    # 3) The prior run had no pass rate but this run scored -> also not a first run.
+    prior_unscored = _trend_sentence("20260101T000000Z-abc", None, 71.0)
+    assert "first recorded run" not in prior_unscored
+    assert "prior run produced no pass rate" in prior_unscored
+
+    # A real delta still reads as improved / regressed.
+    assert "improved" in _trend_sentence("prev", 60.0, 68.6)
+    assert "regressed" in _trend_sentence("prev", 70.0, 68.6)
 
 
 # --- top_failing_controls -------------------------------------------------- #
