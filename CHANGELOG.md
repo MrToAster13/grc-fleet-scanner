@@ -94,7 +94,7 @@ release, everything lives under **Unreleased**.
   no-results / clean scan). This locks the injection and status-mapping fixes against
   regression.
 - Documentation consolidated into `docs/` with a single canonical home per topic.
-- **Live-validation guide battle-tested + corrected.** `docs/validation.md` was run
+- **Live-validation guide fire-tested + corrected.** `docs/validation.md` was run
   end-to-end against a real cloud Ubuntu 22.04 target and rewritten to match reality: the
   mandatory venv (PEP 668), the correct `oscap` package (`libopenscap8` on 22.04 — the old
   `openscap-scanner`/`ssg-debderived` names aren't in Ubuntu's archive), pulling SSG content

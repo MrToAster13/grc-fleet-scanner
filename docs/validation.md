@@ -4,7 +4,7 @@ Goal: exercise the one path the offline tests can't — **discover → SSH → `
 — against a real Ubuntu host, and confirm each coverage-gap status fires correctly. Do this
 before trusting a fleet run.
 
-This guide is **battle-tested against a cloud Ubuntu 22.04 target from a Kali run host**, so
+This guide is **fire-tested against a cloud Ubuntu 22.04 target from a Kali run host**, so
 it calls out the real-world snags (PEP 668, varying package names, cloud SSH banners, strict
 host-key auth) that trip up the happy path.
 
