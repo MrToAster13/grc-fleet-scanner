@@ -163,10 +163,10 @@ SQLite schema) as stable seams.
 **Hardening (parallel team).** Five agents then hardened distinct modules with exclusive
 file ownership:
 - **oscap correctness** — version normalization, pre-flight `oscap info` profile check,
-  evidence capture, resilient XCCDF parsing, guaranteed remote temp cleanup.
+  evidence capture, namespace-tolerant XCCDF parsing, guaranteed remote temp cleanup.
 - **reporting** — executive summary, fleet trend, severity breakdown, NIST/ISO cross-walk.
-- **discovery/classify** — robust nmap XML parsing, large-scope chunking, timing
-  validation, broader Ubuntu heuristics.
+- **discovery/classify** — nmap XML parsing that tolerates missing elements, large-scope
+  chunking, timing validation, broader Ubuntu heuristics.
 - **SSH/bastion** — a `RemoteError` exception taxonomy (incl. host-key mismatch), bastion
   teardown, hardened command execution, host-key bootstrap docs.
 - **tests** — the pytest suite + XCCDF fixtures.
