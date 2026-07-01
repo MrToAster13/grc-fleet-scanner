@@ -129,7 +129,7 @@
      'discovered':'Discovered, unprocessed' } %}
   {% for status, n in summary.counts_by_status.items() %}
   <tr>
-    <td><span class="pill {{ 's-scanned' if status=='scanned' else ('s-gap' if status in ['no_credentials','unreachable','scanner_absent','unsupported_version','host_key_mismatch','scan_error'] else 's-other') }}">{{ status }}</span></td>
+    <td><span class="pill {{ 's-scanned' if status=='scanned' else ('s-gap' if status in gap_statuses else 's-other') }}">{{ status }}</span></td>
     <td>{{ n }}</td>
     <td class="muted">{{ meanings.get(status, '') }}</td>
   </tr>

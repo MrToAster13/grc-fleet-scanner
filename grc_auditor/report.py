@@ -29,7 +29,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 
 from . import crosswalk
 from .logging_setup import get_logger
-from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, RunRecord
+from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, HostStatus, RunRecord
 from .store import Store
 
 log = get_logger()
@@ -506,12 +506,18 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         loader=FileSystemLoader(_TEMPLATE_DIR),
         autoescape=True,
     )
+    # Coverage-gap status VALUES, derived from the enum so the template's coverage
+    # map colours gap statuses off the single HostStatus.is_coverage_gap definition
+    # (the per-host table already does). A new gap status then can't silently render
+    # as a non-gap "other".
+    gap_statuses = {s.value for s in HostStatus if s.is_coverage_gap}
+
     template = env.get_template("report.html.j2")
     html = template.render(
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
-        low_conf_ips=low_conf_ips,
+        low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:

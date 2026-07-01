@@ -143,7 +143,6 @@ def cmd_run(args) -> int:
     run.hosts = hosts
 
     candidates = [h for h in hosts if h.status is HostStatus.DISCOVERED]
-    candidate_ips = {h.ip for h in candidates}
 
     # Stage 7 persistence is now INCREMENTAL: the run row is written before any
     # SSH (so a crash leaves a visibly-incomplete run, not orphaned evidence), and
@@ -152,9 +151,10 @@ def cmd_run(args) -> int:
     try:
         store.begin_run(run)
         # Hosts already finalized by classify (non_ubuntu / no_credentials / ...)
-        # are done -- persist them up front.
+        # are done -- persist them up front. The candidates (still DISCOVERED) are
+        # persisted below as each finishes reach/detect/scan.
         for h in run.hosts:
-            if h.ip not in candidate_ips:
+            if h.status is not HostStatus.DISCOVERED:
                 store.save_host(run.run_id, h)
 
         if args.dry_run:
