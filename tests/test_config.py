@@ -167,6 +167,7 @@ def test_deep_forces_l2_fetch_and_aggressive_timing(tmp_path):
     assert cfg.credential_groups[0].cis_level is None          # pin cleared
     assert cfg.cis_level_for(cfg.credential_groups[0]) == 2    # inherits forced L2
     assert cfg.fetch_remote_resources is True
+    assert cfg.os_detect is True                               # deep enables OS detect
     assert cfg.scope.nmap_timing == "-T4"
     assert cfg.hash() != before                                # provenance changes
     assert cfg.canonical()["fetch_remote_resources"] is True
@@ -177,6 +178,19 @@ def test_deep_overrides_a_weaker_cis_level(tmp_path):
     cfg = load_config(_write(tmp_path, _DEEP_YAML))
     apply_overrides(cfg, cis_level=1, deep=True)
     assert cfg.cis_level == 2
+
+
+def test_os_detect_is_a_hashed_run_input(tmp_path):
+    # OS detection changes discovery behavior (it feeds classify's Ubuntu hint),
+    # so it must be part of the canonical config hash, not a loose CLI-only arg.
+    cfg = load_config(_write(tmp_path, VALID_YAML))
+    assert cfg.os_detect is False
+    assert cfg.canonical()["os_detect"] is False
+    before = cfg.hash()
+    apply_overrides(cfg, os_detect=True)
+    assert cfg.os_detect is True
+    assert cfg.canonical()["os_detect"] is True
+    assert cfg.hash() != before
 
 
 def test_overrides_change_config_hash(tmp_path):

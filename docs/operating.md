@@ -172,6 +172,8 @@ treat_unknown_linux_as_ubuntu: false  # default false; if true, probe unknown-Li
                              #   as Ubuntu candidates (SSH detect stays authoritative)
 fetch_remote_resources: false # default false; if true, oscap fetches off-box OVAL/CVE
                              #   content (higher coverage; target reaches out). --deep forces on.
+os_detect: false             # default false; nmap -O OS detection (feeds the classify hint).
+                             #   Part of config_hash. Also settable via --os-detect / --deep.
 # known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
 
 credential_groups:           # first matching group (top-down) wins

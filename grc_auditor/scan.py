@@ -44,6 +44,7 @@ log = get_logger()
 _PASS = "pass"
 _FAIL = "fail"
 _ERROR = "error"
+_UNKNOWN = "unknown"
 
 # Exit codes that mean "the evaluation ran and produced results" (0 = all pass,
 # 2 = some rules failed). Both are successful scans for our purposes.
@@ -148,7 +149,7 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
     try:
         log.info("scan[%s]: evaluating CIS L%d (%s)",
                  host.ip, plan.cis_level, plan.ubuntu_version)
-        res = conn.run_argv(oscap_argv, sudo=True, timeout=timeout)
+        res = conn.run_argv(oscap_argv, sudo=plan.sudo, timeout=timeout)
 
         # Persist the scanner's own output as evidence regardless of outcome --
         # this is what an auditor reads to understand an error or partial run.
@@ -198,7 +199,7 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
         # Guarantee remote temp cleanup on every path (success, oscap error,
         # parse failure, transfer failure). Best-effort: never mask the original
         # error and never fail the run on a leftover temp dir.
-        cleanup = conn.run_argv(["rm", "-rf", remote_dir], sudo=True, timeout=30)
+        cleanup = conn.run_argv(["rm", "-rf", remote_dir], sudo=plan.sudo, timeout=30)
         if not cleanup.ok:
             log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
                         host.ip, remote_dir, cleanup.exit_code)
@@ -235,9 +236,11 @@ def parse_xccdf_results(path: str) -> ScanResult:
         full benchmark+results file both parse.)
       * Each rule outcome is a ``<rule-result idref="..." severity="...">``
         element whose direct child ``<result>`` carries the verdict text, one
-        of: ``pass`` | ``fail`` | ``error`` | ``notapplicable`` | ``notchecked``
-        (anything else is bucketed into ``other``). The ``idref`` and
-        ``severity`` attributes are optional (default to ``"unknown"``).
+        of: ``pass`` | ``fail`` | ``error`` | ``notapplicable`` | ``notchecked``.
+        ``unknown`` (ran but reached no verdict) counts with ``error``; anything
+        else (``notselected`` / ``informational`` / ``fixed``, i.e. out of scope)
+        goes to ``other`` and is excluded from assessment confidence. The ``idref``
+        and ``severity`` attributes are optional (default to ``"unknown"``).
       * An optional ``<score>`` element whose text is the XCCDF percentage
         (0..100). The first one found wins; a missing/non-numeric score yields
         ``score=None``.
@@ -290,7 +293,10 @@ def parse_xccdf_results(path: str) -> ScanResult:
                     break
             if result_el is None or result_el.text is None:
                 continue
-            outcome = result_el.text.strip()
+            # Normalize case so the buckets match regardless of how the
+            # benchmark emits the verdict text (oscap uses lowercase; rmf.py
+            # lowercases too -- keep the two parsers in agreement).
+            outcome = result_el.text.strip().lower()
             if outcome == _PASS:
                 scan.passed += 1
             elif outcome == _FAIL:
@@ -300,7 +306,14 @@ def parse_xccdf_results(path: str) -> ScanResult:
                     result=outcome,
                     severity=_clean_field(el.get("severity")) or "unknown",
                 ))
-            elif outcome == _ERROR:
+            elif outcome in (_ERROR, _UNKNOWN):
+                # 'unknown' = a check that RAN but reached no verdict (OVAL probe
+                # error, missing dependency). Like 'error' it OWED a verdict and
+                # produced none, so it must lower assessment_confidence -- it is
+                # NOT out-of-scope like 'notselected'/'informational' (which fall
+                # through to `other` and are excluded from the confidence
+                # denominator). Never-false-pass: an unanswered check is not a
+                # trustworthy one, so both count as undetermined coverage.
                 scan.error += 1
             elif outcome == "notapplicable":
                 scan.not_applicable += 1

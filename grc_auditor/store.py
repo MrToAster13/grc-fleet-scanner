@@ -182,8 +182,13 @@ class Store:
         return [dict(r) for r in cur.fetchall()]
 
     def previous_run_id(self, before_run_id: str) -> Optional[str]:
+        # Only a FINISHED run is a valid drift baseline. A run that crashed
+        # mid-fleet has finished_at NULL and only a partial set of hosts
+        # persisted; comparing against it would compute deltas versus a
+        # truncated baseline and report a spurious improvement/regression.
         cur = self._conn.execute(
-            "SELECT run_id FROM runs WHERE run_id < ? ORDER BY run_id DESC LIMIT 1",
+            "SELECT run_id FROM runs WHERE run_id < ? AND finished_at IS NOT NULL "
+            "ORDER BY run_id DESC LIMIT 1",
             (before_run_id,),
         )
         row = cur.fetchone()

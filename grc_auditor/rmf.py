@@ -143,7 +143,13 @@ def _parse_one(path: str):
                 continue
             for child in el:
                 if _localname(child.tag) == "result":
-                    rule_results[idref] = (child.text or "").strip().lower()
+                    outcome = (child.text or "").strip().lower()
+                    # Never downgrade a fail: a merged / multi-TestResult ARF can
+                    # repeat an idref, and last-write-wins could drop a real
+                    # failure and report the control Implemented (a false pass in
+                    # SSP evidence). Once failed on this host, it stays failed.
+                    if rule_results.get(idref) != _FAIL:
+                        rule_results[idref] = outcome
                     break
 
     return rule_controls, rule_results, revision

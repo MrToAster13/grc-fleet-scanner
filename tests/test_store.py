@@ -19,6 +19,24 @@ def _make_run(run_id, started_at, hosts, scope=None):
     )
 
 
+def test_previous_run_id_skips_unfinished_baseline(tmp_path):
+    # Drift must baseline only against a FINISHED run. A run that crashed mid-fleet
+    # (finished_at NULL, only some hosts persisted) must never be chosen, or deltas
+    # are computed against a truncated baseline.
+    store = Store(str(tmp_path))
+    try:
+        finished = _make_run("20260101T000000Z", "2026-01-01T00:00:00+00:00", [])
+        store.save_run(finished)                       # finished_at is set
+        crashed = RunRecord(
+            run_id="20260102T000000Z", started_at="2026-01-02T00:00:00+00:00",
+            scope=["10.0.10.0/24"], config_hash="x", hosts=[],
+        )
+        store.begin_run(crashed)                        # finished_at stays NULL
+        assert store.previous_run_id("20260103T000000Z") == "20260101T000000Z"
+    finally:
+        store.close()
+
+
 def test_save_and_load_round_trip_including_findings(tmp_path):
     store = Store(str(tmp_path))
     try:

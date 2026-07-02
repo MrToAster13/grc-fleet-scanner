@@ -44,6 +44,10 @@ class ScanPlan:
     cis_level: int
     ubuntu_version: str
     fetch_remote_resources: bool = False
+    # Whether oscap must be wrapped in `sudo -n`. False when the credential group
+    # logs in as root already (group.sudo: false) -- scan.py honors this so a
+    # root-login host is not failed by a `sudo -n` that the box may not provide.
+    sudo: bool = True
 
 
 def _parse_os_release(text: str) -> dict[str, str]:
@@ -184,6 +188,7 @@ def detect(host: HostRecord, conn: RemoteHostProtocol, cfg: Config) -> Optional[
         cis_level=level,
         ubuntu_version=version,
         fetch_remote_resources=cfg.fetch_remote_resources,
+        sudo=group_uses_sudo,
     )
     log.info("detect[%s]: Ubuntu %s, CIS L%d ready (%s)",
              host.ip, version, level, oscap_ver or "oscap version unknown")

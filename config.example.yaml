@@ -34,6 +34,8 @@ low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer t
                                # instead of returning notchecked. Aggressive: the TARGET host
                                # reaches out to the network mid-scan. The `--deep` CLI flag
                                # forces this on (along with CIS L2 + -T4 discovery).
+# os_detect: false            # default false. nmap -O OS detection; feeds the classify Ubuntu
+                               # hint, so it is part of config_hash. Also set by --os-detect/--deep.
 # known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
 
 # ---------------------------------------------------------------------------
