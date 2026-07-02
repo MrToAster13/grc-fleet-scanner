@@ -88,6 +88,12 @@ class Config:
     # off: a host must show an Ubuntu marker to be probed. Affects which hosts are
     # connected to, so it is part of the run's canonical (hashed) behavior.
     treat_unknown_linux_as_ubuntu: bool = False
+    # High-assurance coverage: pass `--fetch-remote-resources` to oscap so checks
+    # whose OVAL/CVE content lives off-box are actually evaluated instead of coming
+    # back notchecked. It makes the TARGET host reach out to the network mid-scan,
+    # so it is opt-in (config here, or forced by the `--deep` CLI flag). Off by
+    # default; it changes the scan's coverage, so it is part of the canonical hash.
+    fetch_remote_resources: bool = False
     raw: dict = field(default_factory=dict)   # original parsed document
 
     def cis_level_for(self, group: Optional[CredentialGroup]) -> int:
@@ -135,6 +141,7 @@ class Config:
             "known_hosts": self.known_hosts,
             "low_confidence_threshold": self.low_confidence_threshold,
             "treat_unknown_linux_as_ubuntu": self.treat_unknown_linux_as_ubuntu,
+            "fetch_remote_resources": self.fetch_remote_resources,
             "credential_groups": sorted(
                 (self._group_canonical(g) for g in self.credential_groups),
                 key=lambda d: d["name"],
@@ -341,18 +348,25 @@ def load_config(path: str) -> Config:
         low_confidence_threshold=threshold,
         treat_unknown_linux_as_ubuntu=bool(
             doc.get("treat_unknown_linux_as_ubuntu", False)),
+        fetch_remote_resources=bool(doc.get("fetch_remote_resources", False)),
         raw=doc,
     )
 
 
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
                     cis_level=None, ssh_concurrency=None,
-                    low_confidence_threshold=None) -> Config:
+                    low_confidence_threshold=None, deep=False) -> Config:
     """Apply CLI overrides onto a loaded Config (CLI wins over file).
 
     Every override runs through the SAME validators as the file path -- a --cidr
     override is no longer a way to slip a malformed or over-broad (blast-radius)
     range past the checks that load_config enforces.
+
+    ``deep`` is the high-assurance preset (--deep). It is applied LAST so it wins
+    over a weaker ``--cis-level``: it forces CIS Level 2 fleet-wide, enables
+    ``--fetch-remote-resources``, and switches discovery to aggressive-but-accurate
+    ``-T4`` timing. All of it lands in the resolved dataclass, so ``config_hash``
+    and ``effective-config.json`` record exactly what ran.
     """
     if cidrs:
         cfg.scope.cidrs = _validate_cidrs(list(cidrs), "--cidr")
@@ -368,4 +382,14 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.scope.ssh_concurrency = _validate_concurrency(ssh_concurrency)
     if low_confidence_threshold is not None:
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
+    if deep:
+        cfg.cis_level = 2
+        # Force the fleet-wide baseline: clear any per-group level so every group
+        # inherits the forced L2 (a group pinned to L1 would otherwise scan L1).
+        for g in cfg.credential_groups:
+            g.cis_level = None
+        cfg.fetch_remote_resources = True
+        # -T4 is aggressive but accuracy-preserving; -T5 ("insane") can drop hosts
+        # and would LOWER discovery certainty, the opposite of this mode's intent.
+        cfg.scope.nmap_timing = "-T4"
     return cfg

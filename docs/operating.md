@@ -117,7 +117,38 @@ python -m grc_auditor history -o ./grc-output
 | `--concurrency N` | override parallel SSH/scan workers |
 | `--low-confidence-threshold PCT` | flag a score LOW CONFIDENCE below this % of the benchmark producing a verdict (default 90) |
 | `--os-detect` | enable nmap OS detection (`-O`; needs root on the run host) |
+| `--deep` | high-assurance mode (see below) |
 | `-v, --verbose` | debug-level console logging |
+
+### High-assurance mode (`--deep`)
+
+For a maximum-coverage, maximum-confidence audit when you don't care about being
+aggressive. `--deep` is a preset that turns three dials to max in one switch:
+
+- **CIS Level 2**, fleet-wide — overrides the config level *and* any per-group
+  `cis_level`, so every host is audited against the stricter L2 server baseline.
+- **`oscap --fetch-remote-resources`** — checks whose OVAL/CVE content lives
+  off-box are actually evaluated instead of returning `notchecked`, so the
+  assessment covers more of the benchmark (higher `assessment_confidence`).
+- **Aggressive discovery** — `-T4` timing (aggressive but accuracy-preserving;
+  `-T5` can drop hosts) plus OS detection.
+
+Two things to know before using it:
+
+- **The target reaches out to the network.** `--fetch-remote-resources` makes the
+  *scanned host* fetch remote content mid-scan. In an air-gapped or egress-locked
+  environment those checks still won't run — that's expected, not a bug.
+- **It changes `config_hash`.** `--deep` genuinely changes what runs, so its
+  effect lands in `effective-config.json` and the hash: a deep run and a normal
+  run of the same config file do **not** share provenance. That's deliberate —
+  they scanned different baselines.
+
+```bash
+python -m grc_auditor run -c config.yaml --deep
+```
+
+Equivalent config (if you want it as the standing posture instead of a flag):
+set `cis_level: 2` and `fetch_remote_resources: true`.
 
 ---
 
@@ -139,6 +170,8 @@ ssg_dir: "/usr/share/xml/scap/ssg/content"   # where SSG content lives on target
 low_confidence_threshold: 90 # flag a host LOW CONFIDENCE below this % of checks running
 treat_unknown_linux_as_ubuntu: false  # default false; if true, probe unknown-Linux hosts
                              #   as Ubuntu candidates (SSH detect stays authoritative)
+fetch_remote_resources: false # default false; if true, oscap fetches off-box OVAL/CVE
+                             #   content (higher coverage; target reaches out). --deep forces on.
 # known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
 
 credential_groups:           # first matching group (top-down) wins

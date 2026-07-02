@@ -43,6 +43,7 @@ class ScanPlan:
     profile_id: str
     cis_level: int
     ubuntu_version: str
+    fetch_remote_resources: bool = False
 
 
 def _parse_os_release(text: str) -> dict[str, str]:
@@ -182,6 +183,7 @@ def detect(host: HostRecord, conn: RemoteHostProtocol, cfg: Config) -> Optional[
         profile_id=resolved_profile,
         cis_level=level,
         ubuntu_version=version,
+        fetch_remote_resources=cfg.fetch_remote_resources,
     )
     log.info("detect[%s]: Ubuntu %s, CIS L%d ready (%s)",
              host.ip, version, level, oscap_ver or "oscap version unknown")
