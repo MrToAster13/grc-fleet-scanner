@@ -141,6 +141,44 @@ def test_apply_overrides_invalid_cis_level_raises(tmp_path):
         apply_overrides(cfg, cis_level=3)
 
 
+_DEEP_YAML = """
+    scope:
+      cidrs:
+        - 10.0.10.0/24
+      nmap_timing: -T2
+    cis_level: 1
+    credential_groups:
+      - name: prod
+        ssh_user: grc-scan
+        targets:
+          - 10.0.10.0/24
+        cis_level: 1
+"""
+
+
+def test_deep_forces_l2_fetch_and_aggressive_timing(tmp_path):
+    # --deep is the high-assurance preset: L2 fleet-wide (overriding the group's
+    # pinned L1), remote-resource fetch, and aggressive-but-accurate -T4 timing.
+    cfg = load_config(_write(tmp_path, _DEEP_YAML))
+    before = cfg.hash()
+    assert cfg.cis_level_for(cfg.credential_groups[0]) == 1   # group pins L1
+    apply_overrides(cfg, deep=True)
+    assert cfg.cis_level == 2
+    assert cfg.credential_groups[0].cis_level is None          # pin cleared
+    assert cfg.cis_level_for(cfg.credential_groups[0]) == 2    # inherits forced L2
+    assert cfg.fetch_remote_resources is True
+    assert cfg.scope.nmap_timing == "-T4"
+    assert cfg.hash() != before                                # provenance changes
+    assert cfg.canonical()["fetch_remote_resources"] is True
+
+
+def test_deep_overrides_a_weaker_cis_level(tmp_path):
+    # --deep is applied last, so it wins over an explicit --cis-level 1.
+    cfg = load_config(_write(tmp_path, _DEEP_YAML))
+    apply_overrides(cfg, cis_level=1, deep=True)
+    assert cfg.cis_level == 2
+
+
 def test_overrides_change_config_hash(tmp_path):
     # config_hash is computed from the EFFECTIVE config, so every run-affecting
     # override changes it -- including --cis-level, which previously hashed

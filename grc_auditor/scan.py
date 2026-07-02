@@ -88,6 +88,29 @@ def _clean_field(text: Optional[str], maxlen: int = _MAX_FIELD_LEN) -> Optional[
     return "".join(ch for ch in str(text) if ch.isprintable())[:maxlen]
 
 
+def _build_oscap_argv(plan: ScanPlan, r_results: str, r_arf: str,
+                      r_report: str) -> list[str]:
+    """The ``oscap xccdf eval`` argv for one host.
+
+    High-assurance mode adds ``--fetch-remote-resources`` so checks whose OVAL/CVE
+    content lives off-box are actually evaluated (higher coverage/confidence)
+    rather than returning notchecked. It makes the TARGET reach out to the
+    network, which is why it is opt-in (config ``fetch_remote_resources`` /
+    ``--deep``). The flag is placed before the datastream positional so it applies
+    to the whole evaluation.
+    """
+    argv = ["oscap", "xccdf", "eval", "--profile", plan.profile_id]
+    if plan.fetch_remote_resources:
+        argv.append("--fetch-remote-resources")
+    argv += [
+        "--results", r_results,
+        "--results-arf", r_arf,
+        "--report", r_report,
+        plan.datastream_path,
+    ]
+    return argv
+
+
 def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
               run_id: str, artifacts_root: str,
               timeout: int = 600) -> ScanResult:
@@ -115,14 +138,7 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
     # Built as an argv list so every token is shell-quoted (run_argv) -- no value
     # interpolated into a remote shell command is ever unquoted (defense in depth
     # alongside the _SAFE_REMOTE_DIR check above).
-    oscap_argv = [
-        "oscap", "xccdf", "eval",
-        "--profile", plan.profile_id,
-        "--results", r_results,
-        "--results-arf", r_arf,
-        "--report", r_report,
-        plan.datastream_path,
-    ]
+    oscap_argv = _build_oscap_argv(plan, r_results, r_arf, r_report)
 
     local_dir = os.path.join(artifacts_root, run_id, host.ip)
     local_results = os.path.join(local_dir, "results.xml")

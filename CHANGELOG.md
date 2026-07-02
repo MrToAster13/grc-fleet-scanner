@@ -6,6 +6,14 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **`--deep` high-assurance scan mode.** One flag turns every coverage dial to max: forces
+  **CIS Level 2** fleet-wide (overriding the config level and any per-group `cis_level`), runs
+  `oscap --fetch-remote-resources` so checks whose OVAL/CVE content lives off-box are evaluated
+  instead of returning `notchecked`, and switches discovery to aggressive-but-accurate `-T4`
+  timing plus OS detection. It's aggressive by design — the target reaches out to the network
+  mid-scan — and it changes `config_hash` (the effective config records exactly what ran, so a
+  deep run and a normal run don't share provenance). Also available as standing config:
+  `fetch_remote_resources: true` (+ `cis_level: 2`).
 - **`rmf` subcommand — NIST 800-53 control rollup for SSP evidence.** Reads a run's retained
   OpenSCAP ARF and aggregates each rule's pass/fail by the 800-53 control it maps to, using
   the datastream's OWN authoritative per-rule references (not the indicative family

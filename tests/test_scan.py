@@ -114,6 +114,22 @@ def test_adequately_covered_scan_is_scanned():
     assert host.status is HostStatus.SCANNED
 
 
+def test_build_oscap_argv_adds_fetch_remote_resources_only_when_deep():
+    from grc_auditor.scan import _build_oscap_argv
+    base = ScanPlan(datastream_path="/ds.xml", profile_id="p", cis_level=2,
+                    ubuntu_version="22.04")
+    assert "--fetch-remote-resources" not in _build_oscap_argv(base, "r", "a", "h")
+
+    deep = ScanPlan(datastream_path="/ds.xml", profile_id="p", cis_level=2,
+                    ubuntu_version="22.04", fetch_remote_resources=True)
+    argv = _build_oscap_argv(deep, "r", "a", "h")
+    assert "--fetch-remote-resources" in argv
+    # must apply to the whole eval -> before the datastream positional.
+    assert argv.index("--fetch-remote-resources") < argv.index("/ds.xml")
+    # and it never displaces the results/report outputs.
+    assert argv[-1] == "/ds.xml" and "--results-arf" in argv
+
+
 def test_notselected_heavy_scan_is_certified_scanned():
     # A complete scan whose datastream is mostly out-of-profile (notselected ->
     # `other`) certifies as SCANNED -- notselected rules are not "unrun" checks.
