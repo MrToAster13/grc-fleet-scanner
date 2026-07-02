@@ -264,8 +264,13 @@ class Store:
         """
         if n <= 0:
             return []
+        # Only FINISHED runs belong on the trend, matching previous_run_id: a run
+        # that crashed mid-fleet (finished_at NULL) holds a partial host set and
+        # would chart a spurious dip/spike that the drift baseline deliberately
+        # ignores -- the two posture displays must agree on what counts as a run.
         run_rows = self._conn.execute(
-            "SELECT run_id, started_at FROM runs ORDER BY run_id DESC LIMIT ?",
+            "SELECT run_id, started_at FROM runs WHERE finished_at IS NOT NULL "
+            "ORDER BY run_id DESC LIMIT ?",
             (n,),
         ).fetchall()
         out: list[dict] = []
