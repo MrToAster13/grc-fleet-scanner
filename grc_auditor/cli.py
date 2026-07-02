@@ -92,7 +92,7 @@ def cmd_run(args) -> int:
             cfg, cidrs=args.cidr, exclude=args.exclude, output_dir=args.output,
             cis_level=args.cis_level, ssh_concurrency=args.concurrency,
             low_confidence_threshold=args.low_confidence_threshold,
-            deep=args.deep,
+            os_detect=args.os_detect, deep=args.deep,
         )
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
@@ -128,7 +128,7 @@ def cmd_run(args) -> int:
 
     # Stage 1-2: discover
     try:
-        hosts = discovery.discover(cfg.scope, want_os=args.os_detect or args.deep)
+        hosts = discovery.discover(cfg.scope, want_os=cfg.os_detect)
     except discovery.DiscoveryError as exc:
         log.error("discovery failed: %s", exc)
         return 1

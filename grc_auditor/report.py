@@ -356,8 +356,8 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     """A plain-language posture block for non-technical readers.
 
     Synthesizes overall posture, scanned-vs-gap coverage, the trend direction,
-    and the biggest risks (top high-severity, widespread controls). Robust when
-    nothing was scanned or there is no prior run.
+    and the biggest risks (top high-severity, widespread controls). Handles the
+    empty cases too: nothing scanned, or no prior run to compare against.
     """
     scanned = run.scanned_hosts()
     gaps = run.coverage_gaps()

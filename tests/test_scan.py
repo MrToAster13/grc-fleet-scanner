@@ -130,6 +130,47 @@ def test_build_oscap_argv_adds_fetch_remote_resources_only_when_deep():
     assert argv[-1] == "/ds.xml" and "--results-arf" in argv
 
 
+class _SudoRecordingHost(FakeRemoteHost):
+    """FakeRemoteHost that also records the sudo flag each command ran with."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.sudo_by_cmd: list[tuple[str, bool]] = []
+
+    def run(self, command, *, sudo=False, timeout=None):
+        self.sudo_by_cmd.append((command, sudo))
+        return self._match(command)
+
+    def run_argv(self, argv, *, sudo=False, timeout=None):
+        cmd = " ".join(str(a) for a in argv)
+        self.sudo_by_cmd.append((cmd, sudo))
+        return self._match(cmd)
+
+
+def test_scan_host_honors_plan_sudo_false(tmp_path):
+    # A root-login group (ScanPlan.sudo=False) must NOT wrap oscap in `sudo -n`;
+    # a `sudo -n` on a box without sudo would false-error a scannable host.
+    results_xml = (
+        '<?xml version="1.0"?>\n'
+        '<TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">\n'
+        '  <rule-result idref="r1"><result>pass</result></rule-result>\n'
+        '  <rule-result idref="r2"><result>fail</result></rule-result>\n'
+        '</TestResult>\n'
+    )
+    conn = _SudoRecordingHost(
+        responses=[("mktemp", CommandResult(0, "/tmp/grc_audit.abc123", ""))],
+        files={"results.xml": results_xml, "arf.xml": "<x/>", "report.html": "<html/>"},
+    )
+    plan = ScanPlan(datastream_path="/ds.xml", profile_id="p", cis_level=1,
+                    ubuntu_version="22.04", sudo=False)
+    host = HostRecord(ip="10.0.0.7")
+    scan_host(host, conn, plan, "runid", str(tmp_path))
+    oscap = [(c, s) for c, s in conn.sudo_by_cmd if "oscap xccdf eval" in c]
+    rm = [(c, s) for c, s in conn.sudo_by_cmd if c.startswith("rm -rf")]
+    assert oscap and all(s is False for _, s in oscap)   # oscap ran without sudo
+    assert rm and all(s is False for _, s in rm)          # cleanup too
+
+
 def test_notselected_heavy_scan_is_certified_scanned():
     # A complete scan whose datastream is mostly out-of-profile (notselected ->
     # `other`) certifies as SCANNED -- notselected rules are not "unrun" checks.
@@ -291,6 +332,33 @@ def test_low_privilege_scan_collapses_confidence():
                    passed=10, failed=0, not_checked=190, score=100.0)
     assert s.score == 100.0                   # looks clean...
     assert s.assessment_confidence == 5.0     # ...but only 10 of 200 ran
+
+
+def test_unknown_verdicts_count_as_undetermined_not_out_of_scope(tmp_path):
+    # 'unknown' (a check that RAN but reached no verdict -- OVAL probe error) must
+    # lower confidence like error/notchecked, NOT be excluded as out-of-scope the
+    # way 'notselected' is. Otherwise a scan that answered almost nothing reads as
+    # a trustworthy 100% and certifies SCANNED (a never-false-pass regression).
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">\n'
+        '  <rule-result idref="r1"><result>pass</result></rule-result>\n'
+        '  <rule-result idref="r2"><result>unknown</result></rule-result>\n'
+        '  <rule-result idref="r3"><result>unknown</result></rule-result>\n'
+        '  <rule-result idref="r4"><result>notselected</result></rule-result>\n'
+        '</TestResult>\n'
+    )
+    p = tmp_path / "results.xml"
+    p.write_text(xml, encoding="utf-8")
+    scan = parse_xccdf_results(str(p))
+    assert scan.passed == 1
+    assert scan.error == 2          # the two 'unknown' are counted with error
+    assert scan.other == 1          # only 'notselected' is out-of-scope
+    # 1 definitive of 3 owed -> ~33%, well below the 50% hard floor.
+    assert scan.assessment_confidence is not None and scan.assessment_confidence < 50.0
+    host = HostRecord(ip="10.0.0.1")
+    finalize_scan_status(host, scan)
+    assert host.status is HostStatus.SCAN_ERROR   # never a clean pass
 
 
 def test_notselected_outcomes_do_not_lower_confidence():

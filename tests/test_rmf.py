@@ -122,6 +122,24 @@ def test_write_rollup_csv(tmp_path):
     assert au9["fail"] == "1" and au9["implementation_status_suggestion"] == "Planned"
 
 
+def test_duplicate_rule_result_never_downgrades_a_fail(tmp_path):
+    # A merged / multi-TestResult ARF can repeat an idref. A later pass must not
+    # overwrite an earlier fail -- dropping the fail would report the control
+    # Implemented (a false pass in SSP evidence).
+    dup = _ARF.replace(
+        '<cdf:rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login">'
+        '<cdf:result>pass</cdf:result></cdf:rule-result>',
+        '<cdf:rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login">'
+        '<cdf:result>fail</cdf:result></cdf:rule-result>'
+        '<cdf:rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login">'
+        '<cdf:result>pass</cdf:result></cdf:rule-result>')
+    assert dup != _ARF  # the replace matched
+    rows = {r.control: r for r in rmf.rollup_from_arf([_write_arf(tmp_path, text=dup)])}
+    # That rule maps to AC-6 and AC-17; the fail must stick despite the later pass.
+    assert rows["AC-6"].failed == 1 and rows["AC-6"].passed == 0
+    assert rows["AC-6"].status == "Planned"
+
+
 def test_bad_arf_raises_rmferror(tmp_path):
     bad = tmp_path / "arf.xml"
     bad.write_text("<not-xml", encoding="utf-8")

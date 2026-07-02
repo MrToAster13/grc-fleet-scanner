@@ -108,3 +108,24 @@ def test_detect_happy_path_returns_plan():
     assert plan.profile_id == _PROFILE
     assert plan.ubuntu_version == "22.04"
     assert host.is_ubuntu is True
+    assert plan.sudo is True          # a sudo:true group -> oscap runs under sudo
+
+
+def test_detect_sudo_false_group_yields_no_sudo_plan():
+    # A root-login group (sudo: false) is scannable without the sudo probe, and
+    # the plan must carry sudo=False so scan.py does not wrap oscap in `sudo -n`
+    # on a host that may not provide sudo at all.
+    cfg = make_config(groups=[
+        CredentialGroup(name="root", ssh_user="root", targets=["default"], sudo=False),
+    ])
+    conn = FakeRemoteHost(responses=[
+        ("os-release", CommandResult(0, _UBUNTU_OSR, "")),
+        ("command -v oscap", CommandResult(0, "/usr/bin/oscap", "")),
+        ("--version", CommandResult(0, "OpenSCAP 1.3.6", "")),
+        ("test -f", CommandResult(0, "", "")),
+        ("oscap info", CommandResult(0, f"Profiles:\n  {_PROFILE}\n", "")),
+    ])
+    host = _host()
+    plan = detect(host, conn, cfg)
+    assert plan is not None
+    assert plan.sudo is False

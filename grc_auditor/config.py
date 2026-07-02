@@ -94,6 +94,11 @@ class Config:
     # so it is opt-in (config here, or forced by the `--deep` CLI flag). Off by
     # default; it changes the scan's coverage, so it is part of the canonical hash.
     fetch_remote_resources: bool = False
+    # nmap OS detection (-O). A run-behavior input: -O feeds os_guess, which the
+    # classify stage uses as an Ubuntu hint, which changes which hosts get SSH'd
+    # -- so it belongs in the canonical hash, not as a loose CLI-only arg. Set by
+    # config or the --os-detect / --deep flags.
+    os_detect: bool = False
     raw: dict = field(default_factory=dict)   # original parsed document
 
     def cis_level_for(self, group: Optional[CredentialGroup]) -> int:
@@ -142,6 +147,7 @@ class Config:
             "low_confidence_threshold": self.low_confidence_threshold,
             "treat_unknown_linux_as_ubuntu": self.treat_unknown_linux_as_ubuntu,
             "fetch_remote_resources": self.fetch_remote_resources,
+            "os_detect": self.os_detect,
             "credential_groups": sorted(
                 (self._group_canonical(g) for g in self.credential_groups),
                 key=lambda d: d["name"],
@@ -349,13 +355,15 @@ def load_config(path: str) -> Config:
         treat_unknown_linux_as_ubuntu=bool(
             doc.get("treat_unknown_linux_as_ubuntu", False)),
         fetch_remote_resources=bool(doc.get("fetch_remote_resources", False)),
+        os_detect=bool(doc.get("os_detect", False)),
         raw=doc,
     )
 
 
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
                     cis_level=None, ssh_concurrency=None,
-                    low_confidence_threshold=None, deep=False) -> Config:
+                    low_confidence_threshold=None, os_detect=None,
+                    deep=False) -> Config:
     """Apply CLI overrides onto a loaded Config (CLI wins over file).
 
     Every override runs through the SAME validators as the file path -- a --cidr
@@ -382,6 +390,8 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.scope.ssh_concurrency = _validate_concurrency(ssh_concurrency)
     if low_confidence_threshold is not None:
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
+    if os_detect:
+        cfg.os_detect = True
     if deep:
         cfg.cis_level = 2
         # Force the fleet-wide baseline: clear any per-group level so every group
@@ -389,6 +399,7 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         for g in cfg.credential_groups:
             g.cis_level = None
         cfg.fetch_remote_resources = True
+        cfg.os_detect = True
         # -T4 is aggressive but accuracy-preserving; -T5 ("insane") can drop hosts
         # and would LOWER discovery certainty, the opposite of this mode's intent.
         cfg.scope.nmap_timing = "-T4"
