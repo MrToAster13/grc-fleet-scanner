@@ -64,16 +64,20 @@ release, everything lives under **Unreleased**.
   `sudo: false` (which `detect` honors to mean "the login user is already root"). On a box
   without sudo that turned a fully scannable host into a `scan_error`. `ScanPlan` now carries
   `sudo` and `scan_host` respects it.
-- **Drift baselines only against finished runs.** `previous_run_id` filtered on `run_id` alone,
-  so a run that crashed mid-fleet (partial hosts persisted, `finished_at` NULL) could become the
-  drift baseline and produce a spurious delta. It now requires `finished_at IS NOT NULL`.
+- **Drift and trend ignore crashed runs.** `previous_run_id` filtered on `run_id` alone, so a run
+  that crashed mid-fleet (partial hosts persisted, `finished_at` NULL) could become the drift
+  baseline and produce a spurious delta; `fleet_pass_rate_history` (the trend sparkline) had the
+  same gap. Both now require `finished_at IS NOT NULL`, so the two posture displays agree on what
+  counts as a completed run.
 - **`rmf` never downgrades a fail.** A merged / multi-`TestResult` ARF can repeat a rule's
   `idref`; last-write-wins could drop a real failure and report the control `Implemented` in SSP
   evidence. A failing result now sticks for that rule.
 - **OS detection is provenance-tracked.** `--os-detect` (and `--deep`'s OS-detect) fed discovery
   without entering `config_hash`/`effective-config.json`, so two runs that behaved differently
   could hash identically. `os_detect` is now a canonical config field (settable in YAML or via
-  the flags), honoring the "two runs hash the same iff they behave the same" invariant.
+  the flags), honoring the "two runs hash the same iff they behave the same" invariant. Note: like
+  any change to the canonical config, adding this field shifts `config_hash` — a run of an
+  unchanged config now hashes differently than the same config did before this release.
 - **Out-of-profile rules no longer tank assessment confidence.** A complete CIS scan reports a
   `notselected` result for every datastream rule outside the chosen profile (241 of 639 on a
   real Ubuntu 22.04 run), which the parser buckets into `other`. `assessment_confidence` was
