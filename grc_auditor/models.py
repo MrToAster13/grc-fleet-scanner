@@ -27,6 +27,20 @@ DEFAULT_LOW_CONFIDENCE_THRESHOLD = 90.0
 # host; see finalize_scan_status.
 HARD_CONFIDENCE_FLOOR = 50.0
 
+# Canonical XCCDF/oscap result strings, grouped by compliance meaning -- the single
+# source of truth the scan parser (assessment_confidence) and the rmf rollup (SSP
+# status) both read, so the two can't drift (the same one-home discipline as
+# HostStatus.coverage_gap_values). Raw result text is lowercased before lookup.
+VERDICT_PASS = "pass"
+VERDICT_FAIL = "fail"
+VERDICT_NOT_APPLICABLE = "notapplicable"
+# A selected check that ran or was attempted but reached no verdict -- the
+# never-false-pass danger signal; must never read as a pass / Implemented.
+UNDETERMINED_VERDICTS = frozenset({"error", "unknown", "notchecked"})
+# The profile did not select the rule, or the result carries no compliance verdict
+# (informational / fixed): out of scope -- not evidence for or against a control.
+OUT_OF_SCOPE_VERDICTS = frozenset({"notselected", "informational", "fixed"})
+
 
 class HostStatus(str, Enum):
     """Coverage classification. The report is honest about every one of these."""

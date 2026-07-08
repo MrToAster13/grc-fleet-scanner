@@ -36,15 +36,12 @@ from .detect import ScanPlan
 from .logging_setup import get_logger
 from .models import (
     HostRecord, HostStatus, RuleResult, ScanResult, finalize_scan_status,
+    UNDETERMINED_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
 from .remote import RemoteHostProtocol
+from .scap_xml import localname
 
 log = get_logger()
-
-_PASS = "pass"
-_FAIL = "fail"
-_ERROR = "error"
-_UNKNOWN = "unknown"
 
 # Exit codes that mean "the evaluation ran and produced results" (0 = all pass,
 # 2 = some rules failed). Both are successful scans for our purposes.
@@ -65,10 +62,6 @@ _SCORE_RECONCILE_TOLERANCE = 40.0
 # Anything else (a crafted path with shell metacharacters from a hostile host) is
 # refused before it can be interpolated into a sudo command. See scan_host.
 _SAFE_REMOTE_DIR = re.compile(r"^/tmp/grc_audit\.[A-Za-z0-9]{6,}$")
-
-
-def _localname(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
 
 
 # Cap on any single target-supplied string (rule id / title / severity) before it
@@ -284,11 +277,11 @@ def parse_xccdf_results(path: str) -> ScanResult:
     failed_rules: list[RuleResult] = []
 
     for el in root.iter():
-        name = _localname(el.tag)
+        name = localname(el.tag)
         if name == "rule-result":
             result_el = None
             for child in el:
-                if _localname(child.tag) == "result":
+                if localname(child.tag) == "result":
                     result_el = child
                     break
             if result_el is None or result_el.text is None:
@@ -297,28 +290,30 @@ def parse_xccdf_results(path: str) -> ScanResult:
             # benchmark emits the verdict text (oscap uses lowercase; rmf.py
             # lowercases too -- keep the two parsers in agreement).
             outcome = result_el.text.strip().lower()
-            if outcome == _PASS:
+            if outcome == VERDICT_PASS:
                 scan.passed += 1
-            elif outcome == _FAIL:
+            elif outcome == VERDICT_FAIL:
                 scan.failed += 1
                 failed_rules.append(RuleResult(
                     rule_id=_clean_field(el.get("idref")) or "unknown",
                     result=outcome,
                     severity=_clean_field(el.get("severity")) or "unknown",
                 ))
-            elif outcome in (_ERROR, _UNKNOWN):
-                # 'unknown' = a check that RAN but reached no verdict (OVAL probe
-                # error, missing dependency). Like 'error' it OWED a verdict and
-                # produced none, so it must lower assessment_confidence -- it is
-                # NOT out-of-scope like 'notselected'/'informational' (which fall
-                # through to `other` and are excluded from the confidence
-                # denominator). Never-false-pass: an unanswered check is not a
-                # trustworthy one, so both count as undetermined coverage.
-                scan.error += 1
-            elif outcome == "notapplicable":
+            elif outcome in UNDETERMINED_VERDICTS:
+                # A selected check that OWED a verdict but produced none. 'error'
+                # and 'unknown' RAN but reached none (OVAL probe error, missing
+                # dependency); 'notchecked' was not evaluated. All lower
+                # assessment_confidence -- never-false-pass: an unanswered check is
+                # not a trustworthy one. They are NOT out-of-scope like
+                # 'notselected'/'informational' (which fall through to `other`,
+                # excluded from the confidence denominator). 'notchecked' keeps its
+                # own field; 'error'/'unknown' share the error probe-failure bucket.
+                if outcome == "notchecked":
+                    scan.not_checked += 1
+                else:
+                    scan.error += 1
+            elif outcome == VERDICT_NOT_APPLICABLE:
                 scan.not_applicable += 1
-            elif outcome == "notchecked":
-                scan.not_checked += 1
             else:
                 scan.other += 1
         elif name == "score" and scan.score is None:
@@ -356,13 +351,13 @@ def parse_xccdf_results(path: str) -> ScanResult:
 def _rule_titles(root: ET.Element) -> dict[str, str]:
     titles: dict[str, str] = {}
     for el in root.iter():
-        if _localname(el.tag) != "Rule":
+        if localname(el.tag) != "Rule":
             continue
         rid = _clean_field(el.get("id"))
         if not rid:
             continue
         for child in el:
-            if _localname(child.tag) == "title":
+            if localname(child.tag) == "title":
                 titles[rid] = _clean_field((child.text or "").strip()) or ""
                 break
     return titles
