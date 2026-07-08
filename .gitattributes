@@ -1,0 +1,4 @@
+# Shell scripts and git hooks must keep LF endings so they run on a Unix clone
+# (a CRLF shebang line breaks `#!/usr/bin/env bash`).
+*.sh text eol=lf
+.githooks/** text eol=lf
