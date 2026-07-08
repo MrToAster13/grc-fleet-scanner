@@ -240,6 +240,11 @@ def cmd_rmf(args) -> int:
     if not paths:
         print("rmf: no arf.xml found in the given path(s)", file=sys.stderr)
         return 2
+    run_dirs = {os.path.dirname(os.path.dirname(p)) for p in paths}
+    if len(run_dirs) > 1:
+        print(f"rmf: note: merging {len(paths)} ARF file(s) across {len(run_dirs)} "
+              f"directories into one rollup; pass a single run directory for a "
+              f"per-run view.", file=sys.stderr)
 
     try:
         rows = rmf.rollup_from_arf(paths)
@@ -247,15 +252,21 @@ def cmd_rmf(args) -> int:
         print(f"rmf error: {exc}", file=sys.stderr)
         return 1
 
+    if not rows:
+        print(f"rmf: no 800-53 control mappings found in {len(paths)} ARF file(s) -- is "
+              f"this SSG content with 800-53 references? Nothing written.",
+              file=sys.stderr)
+        return 1
+
     out = args.output or "control-rollup.csv"
     rmf.write_rollup_csv(rows, out)
-    rev = rows[0].revision if rows else "Rev 4"
+    revs = rmf.summarize_revisions(rows)
     impl = sum(1 for r in rows if r.status == "Implemented")
     planned = sum(1 for r in rows if r.status == "Planned")
     print(f"800-53 control rollup from {len(paths)} ARF file(s): {len(rows)} controls "
           f"({impl} Implemented, {planned} Planned)")
     print(f"  wrote {out}")
-    print(f"  refs are NIST 800-53 {rev} (from the SSG datastream); a DoD SSP baseline is "
+    print(f"  refs are NIST 800-53 {revs} (from the SSG datastream); a DoD SSP baseline is "
           f"Rev 5 -- most map 1:1, confirm each.")
     print("  status is a suggestion from automated CIS checks, not an ATO decision.")
     return 0
