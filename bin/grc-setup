@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# grc-setup — one-shot run-host preparation: build the virtualenv + install the
+# Python deps, then make sure nmap is on this host (auto-installing it via the
+# system package manager, escalating with sudo if a terminal is present).
+#
+# Everything here is the RUN host only. Target hosts are prepared separately and
+# explicitly with grc-target-setup -- the auditor never touches a target itself.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+
+grc_load_env
+grc_ensure_venv   # venv + Python deps (self-bootstrap, idempotent)
+
+echo "grc: ensuring nmap is installed on this run host ..." >&2
+# tracebacklimit=0 keeps a hard failure to a one-line message, not a stack dump;
+# basicConfig surfaces deps.py's INFO audit lines. stdin stays the terminal, so
+# an interactive sudo password prompt still works.
+"$GRC_PY" -c \
+  "import sys, logging; sys.tracebacklimit=0; logging.basicConfig(level=logging.INFO, format='%(message)s'); from grc_auditor import deps; deps.ensure_nmap()" \
+  || grc_die "nmap could not be installed automatically (see the message above)."
+
+echo >&2
+echo "grc: setup complete. Next:" >&2
+echo "  grc-demo                     # render a sample report (offline sanity check)" >&2
+echo "  cd <your working dir>" >&2
+echo "  grc-run                      # scaffolds config.yaml on first run; edit its scope, re-run" >&2

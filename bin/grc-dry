@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# grc-dry — dry run: discover + classify only, NO SSH and NO scanning. Always
+# the safe first step against a new scope.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+grc_setup
+grc_run_tool run --dry-run "$@"

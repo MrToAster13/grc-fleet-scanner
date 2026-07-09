@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# grc-report — open the latest run's HTML report. Looks under ./grc-output by
+# default (override with -o <dir>). Opens in a browser when there's a display;
+# prints the path when headless (e.g. over SSH) so you can copy it out.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"   # only for grc_die; no venv/env needed to read a report
+
+out="./grc-output"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|--output) out="${2:?-o needs a directory}"; shift 2 ;;
+        -h|--help)   echo "usage: grc-report [-o OUTPUT_DIR]"; exit 0 ;;
+        *)           grc_die "unknown argument: $1 (usage: grc-report [-o OUTPUT_DIR])" ;;
+    esac
+done
+
+# Run ids are sortable timestamps, so the lexically-last dir is the newest run.
+latest="$(ls -1d "$out"/runs/*/ 2>/dev/null | sort | tail -1 || true)"
+[ -n "$latest" ] || grc_die "no runs found under $out/runs -- run grc-run first (or pass -o <dir>)."
+report="${latest}report.html"
+[ -f "$report" ] || grc_die "the latest run has no report.html ($report) -- did the run finish?"
+
+# With a display, open in the first available browser; headless, print the path.
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    for opener in xdg-open sensible-browser; do
+        if command -v "$opener" >/dev/null 2>&1; then
+            echo "opening $report" >&2
+            "$opener" "$report" >/dev/null 2>&1 &
+            exit 0
+        fi
+    done
+fi
+echo "$report"

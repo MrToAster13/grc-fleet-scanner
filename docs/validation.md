@@ -51,6 +51,16 @@ python smoketest.py     # renders a sample report
 
 ## 1. Provision the target (on the **Ubuntu** host)
 
+> **Shortcut:** `grc-target-setup` does all of §1 (§1.1–§1.3) in one idempotent, self-verifying
+> pass. Copy it to the target and run it there — the run host never modifies a target:
+> ```bash
+> scp grc-target-setup <user>@<VM_IP>:/tmp/
+> ssh <user>@<VM_IP> 'sudo bash /tmp/grc-target-setup --scan-user grc-scan --pubkey "$(cat ~/.ssh/grc_scan_ed25519.pub)"'
+> ```
+> (`grc-provision` on the run host prints these commands and can pipe the script over SSH.)
+> The manual steps below are the same actions spelled out — do them by hand, or read them to
+> understand exactly what the script does before you trust it.
+
 ### 1.1 Install `oscap` + the CIS datastream
 
 ```bash

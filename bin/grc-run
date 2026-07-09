@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# grc-run — run a full fleet audit against ./config.yaml (scaffolds one if absent).
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+grc_setup
+grc_run_tool run "$@"

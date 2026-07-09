@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action — but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (123-test suite), and validated end-to-end
+> ℹ️ **Status:** functional, tested offline (148-test suite), and validated end-to-end
 > against a real cloud Ubuntu 22.04 host — the happy path (a full CIS scan producing a real
 > score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, …).
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
@@ -46,11 +46,14 @@ only reflects the checks that actually ran is flagged **low confidence**.
   authoritative per-rule references
 - Run-over-run **drift** history in SQLite
 - Never modifies the system under audit (missing scanner → flagged, never installed)
+- Single-word commands (`grc-run`, `grc-dry`, `grc-deep`, …) with a self-bootstrapping
+  virtualenv and run-host `nmap` auto-install; targets are prepped explicitly and separately
 
 ## Requirements
 
 **Run host** (where you run the tool): **Linux** (Debian/Ubuntu/Kali/WSL2), **Python 3.8+**
-(3.10+ recommended), `nmap`, `git`, and SSH access to the targets.
+(3.10+ recommended), `git`, and SSH access to the targets. `nmap` is installed for you by
+`grc-setup` (or on demand at the start of the first run).
 
 **Target hosts** (to be deep-scanned): **Ubuntu** (18.04/20.04/22.04/24.04) with `oscap` +
 the matching SCAP Security Guide datastream, and an SSH account with **passwordless sudo**
@@ -59,46 +62,69 @@ never installs anything on a host under audit.
 
 ## Install (run host)
 
-Works on Debian, Ubuntu, and Kali:
+Works on Debian, Ubuntu, Kali, and WSL2. Two commands, no root:
 
 ```bash
-# 1. System dependencies
-sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
-
-# 2. Get the code
 git clone https://github.com/MrToAster13/grc-fleet-scanner.git
 cd grc-fleet-scanner
+./install.sh        # puts the grc-* commands on your PATH (~/.local/bin)
+grc-setup           # builds the virtualenv + deps, and installs nmap on this host
+```
 
-# 3. Python environment + dependencies
+`install.sh` copies the single-word launchers into `~/.local/bin` and records where the repo
+lives (it offers to add `~/.local/bin` to your PATH if it isn't already). `grc-setup` then
+builds the `.venv`, installs the Python dependencies, and makes sure `nmap` is present —
+auto-installing it through your package manager (apt/dnf/pacman/zypper/brew) and asking for
+`sudo` only when it has to. Sanity-check it offline:
+
+```bash
+grc-demo            # renders a sample report you can open in a browser
+```
+
+### Manual install (from source, no launchers)
+
+```bash
+sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
+git clone https://github.com/MrToAster13/grc-fleet-scanner.git && cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Verify (no network needed)
-python -m pytest        # expect: 123 passed
+python -m pytest        # expect: 148 passed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
 ## Quick start
 
+From any working directory:
+
 ```bash
-cp config.example.yaml config.yaml
-nano config.yaml          # set scope.cidrs to your AUTHORIZED range + credential_groups
-
-# Dry run — discover + classify only; NO SSH, NO scanning (always do this first)
-python -m grc_auditor run -c config.yaml --dry-run -v
-
-# Full audit
-python -m grc_auditor run -c config.yaml
-
-# Maximum-assurance audit (CIS L2 + remote-resource fetch + aggressive discovery)
-python -m grc_auditor run -c config.yaml --deep
-
-# History
-python -m grc_auditor history -o ./grc-output
+grc-run             # first run scaffolds ./config.yaml, then stops so you can edit it
+$EDITOR config.yaml # set scope.cidrs to your AUTHORIZED range + credential_groups
+grc-dry             # discover + classify only; NO SSH, NO scanning (always do this first)
+grc-run             # full audit against ./config.yaml
 ```
 
+The first `grc-run` writes a starter `config.yaml` (from `config.example.yaml`, with an
+**empty** scope) and exits — it refuses to run until you set an authorized range, and an
+empty scope stays refused. That's the authorization guard, on purpose.
+
+The commands (`grc-run`, `grc-dry`, and `grc-deep` read `./config.yaml`; extra flags pass straight through to the tool):
+
+| Command | Does |
+|---|---|
+| `grc-run` | full fleet audit |
+| `grc-dry` | discover + classify only — no SSH, no scan |
+| `grc-deep` | high-assurance audit (CIS L2 + remote-resource fetch + aggressive discovery) |
+| `grc-history` | list prior runs |
+| `grc-report` | open the latest run's HTML report (or print its path when headless) |
+| `grc-rmf` | export a NIST 800-53 control rollup (SSP evidence) from a run's ARF |
+| `grc-demo` | render a sample report offline |
+| `grc-setup` | build the venv/deps + install nmap on this run host |
+| `grc-provision` | how to prepare an Ubuntu **target** (`grc-target-setup`) |
+
 Reports and evidence land under `grc-output/runs/<run_id>/` (`report.html`, `report.json`,
-`hosts.csv`, `findings.csv`, `audit.log`, and per-host raw OpenSCAP evidence). Full field
+`hosts.csv`, `findings.csv`, `audit.log`, and per-host raw OpenSCAP evidence); `grc-report`
+opens the latest for you. The launchers just wrap `python -m grc_auditor …`, which still
+works directly (`python -m grc_auditor run -c config.yaml`) if you prefer. Full field
 reference, scheduling, troubleshooting, and report interpretation are in the
 [operating guide](docs/operating.md).
 
@@ -126,7 +152,7 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (123 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` (148 tests) before submitting; keep the
 offline `python smoketest.py` working.
 
 A pre-commit hook runs the suite for you and blocks a commit if it fails. Enable it once

@@ -21,6 +21,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
         "defusedxml is required. Install dependencies: pip install -r requirements.txt"
     ) from exc
 
+from . import deps
 from .config import ScanScope
 from .logging_setup import get_logger
 from .models import HostRecord
@@ -151,10 +152,15 @@ def discover(scope: ScanScope, *, want_os: bool = False,
     seam directly rather than driving this function.
     """
     if not _nmap_available():
-        raise DiscoveryError(
-            "nmap not found on the run host. Install it (apt install nmap) or run "
-            "from a host that has it."
-        )
+        # Auto-install nmap on the RUN host only -- this never touches a target
+        # under audit. ensure_nmap returns once nmap is on PATH, or raises with
+        # the exact manual command when it can't proceed (no package manager, a
+        # refused sudo -n under cron, an installer error). Surface that as a
+        # DiscoveryError so the operator gets a concrete next step.
+        try:
+            deps.ensure_nmap(log=log)
+        except deps.DependencyError as exc:
+            raise DiscoveryError(str(exc)) from exc
 
     cidrs = list(scope.cidrs)
     batches = _chunk(cidrs, batch_size) or [[]]

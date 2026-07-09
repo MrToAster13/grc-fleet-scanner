@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# grc-demo — render a sample report end-to-end offline (no nmap/SSH/oscap), so
+# you can open the HTML and confirm the pipeline plumbing works. Wraps smoketest.py.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+grc_setup
+exec "$GRC_PY" "$GRC_HOME/smoketest.py" "$@"

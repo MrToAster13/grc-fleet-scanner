@@ -28,7 +28,9 @@ a clean result — see the status table in §6.
 ## 2. Before you operate
 
 **Run host** (where you run the tool) — must be **Linux** (WSL2 is fine):
-- `nmap` installed (`sudo apt install nmap`)
+- `nmap` — `grc-setup` installs it for you (or the first run does, on demand); it detects
+  the package manager and asks for `sudo` only if it must. `sudo apt install nmap` by hand
+  still works.
 - Python 3.10+ and this project's deps installed into a **virtualenv** (see §3.1). Modern
   Debian/Kali/Ubuntu refuse a bare `pip install` into the system Python (PEP 668,
   `externally-managed-environment`), so the venv is **required, not optional** — do *not*
@@ -53,6 +55,15 @@ a clean result — see the status table in §6.
 ## 3. One-time setup
 
 ### 3.1 Install (run host)
+
+The quick path puts the single-word commands on your PATH and bootstraps everything:
+```bash
+cd grc-fleet-scanner
+./install.sh        # copies grc-* into ~/.local/bin (no root); offers to fix PATH
+grc-setup           # builds .venv + deps and installs nmap on this host
+grc-demo            # offline sanity check — renders a sample report
+```
+Or set the virtualenv up by hand (the `python -m grc_auditor …` form works either way):
 ```bash
 cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
@@ -70,12 +81,17 @@ Treat `known_hosts` as audit-controlled inventory. A *changed* key later surface
 `host_key_mismatch` (a security finding), and must be re-verified, not blindly re-added.
 
 ### 3.3 Write `config.yaml`
-Copy and edit the example:
+The first `grc-run` (or `grc-dry`) in a directory with no `config.yaml` scaffolds one from
+the example — with an **empty** scope — and stops so you can fill it in:
 ```bash
-cp config.example.yaml config.yaml
-$EDITOR config.yaml
+grc-run              # writes ./config.yaml, then exits asking for an authorized scope
+$EDITOR config.yaml  # set scope.cidrs to your AUTHORIZED range + credential_groups
 ```
-See the full field reference in §5.
+Or copy the example yourself:
+```bash
+cp config.example.yaml config.yaml && $EDITOR config.yaml
+```
+Either way an empty scope stays refused (the authorization guard). Full field reference in §5.
 
 ---
 
@@ -83,12 +99,16 @@ See the full field reference in §5.
 
 Always **dry-run first** — it discovers and classifies but does **no SSH and no scanning**:
 ```bash
-python -m grc_auditor run -c config.yaml --dry-run -v
+grc-dry -v                              # or: python -m grc_auditor run -c config.yaml --dry-run -v
 ```
 Confirm the host list and scope look right, then run for real:
 ```bash
-python -m grc_auditor run -c config.yaml
+grc-run                                 # or: python -m grc_auditor run -c config.yaml
+grc-report                              # open the latest run's HTML report
 ```
+The audit commands (`grc-run`, `grc-dry`, `grc-deep`) read `./config.yaml` and pass any extra
+flags straight through; they're thin wrappers around `python -m grc_auditor …`, which works
+identically if you'd rather call it directly.
 
 **Reading the console summary:**
 ```
@@ -108,7 +128,7 @@ python -m grc_auditor history -o ./grc-output
 ### CLI flags (override config per-run)
 | Flag | Effect |
 |---|---|
-| `-c, --config PATH` | config file (required) |
+| `-c, --config PATH` | config file (default `./config.yaml`; scaffolded if absent) |
 | `--dry-run` | discover + classify only; no SSH, no scan |
 | `--cidr CIDR` | override scope CIDR (repeatable) |
 | `--exclude CIDR` | override exclusions (repeatable) |
@@ -204,7 +224,7 @@ is where it is. Act on the gaps:
 | `non_ubuntu` | Alive, not Ubuntu | Out of scope for this tool; inventory only |
 | `no_credentials` | Ubuntu, no credential group matched its IP | Add/adjust a `credential_groups` entry |
 | `unreachable` | Expected reachable but SSH failed | Check network/sshd/firewall/key |
-| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG — see [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
+| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG on the target — run `grc-target-setup` there (see `grc-provision`), or the manual steps in [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release — upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
@@ -256,6 +276,11 @@ The tool is on-demand and persists history; schedule it **externally**.
 
 **systemd timer:** a `grc-audit.service` (`Type=oneshot`, `ExecStart=...python -m grc_auditor run -c config.yaml`) plus a `grc-audit.timer` (`OnCalendar=weekly`).
 
+> Run `grc-setup` once before scheduling. Under cron/systemd there's no terminal to answer a
+> `sudo` prompt, so if `nmap` is missing the run tries `sudo -n` once and then fails fast with
+> the manual command rather than hanging — it never blocks a scheduled job. Installing `nmap`
+> up front avoids that path entirely.
+
 Each run appends an immutable, timestamped result set, so trend/drift accrues automatically.
 
 ---
@@ -265,10 +290,11 @@ Each run appends an immutable, timestamped result set, so trend/drift accrues au
 | Symptom | Likely cause / fix |
 |---|---|
 | `config error: scope.cidrs is empty` | Populate `scope.cidrs` (the authorization guard) |
-| `nmap not found on the run host` | `sudo apt install nmap`; run from Linux/WSL2 |
+| `installing nmap failed …` / `no supported package manager` | Auto-install couldn't proceed (unknown distro, or `sudo -n` refused under cron). Run the exact manual command it prints, e.g. `sudo apt-get install -y nmap`, then re-run |
+| `nmap … still not on PATH` | Package installed but the binary isn't on this shell's PATH — open a new shell or install `nmap` by hand |
 | Host shows `host_key_mismatch` | **Stop.** Verify the host's real key (§3.2); only re-trust after confirming a legitimate re-provision |
 | Host shows `unreachable` | sshd down / firewall / wrong key / agent not loaded — test `ssh -i <key> <user>@<ip>` |
-| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong — install per [validation.md](validation.md) §1.1 (`libopenscap8`, SSG from a ComplianceAsCode release) |
+| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong — run `grc-target-setup` on the target (`grc-provision` shows how), or install per [validation.md](validation.md) §1.1 |
 | Host shows `scan_error` | Read `<ip>/oscap.stderr.txt` and the run `audit.log` |
 | Scans hang / slow | Lower `ssh_concurrency`, raise `host_timeout_seconds`, or use `-T2` |
 | Permission/sudo failures | The scan account needs **passwordless** sudo on targets |
