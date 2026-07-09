@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# grc-target-setup — prepare an UBUNTU TARGET host to be audited by grc-fleet-scanner.
+#
+# ┌────────────────────────────────────────────────────────────────────────┐
+# │ RUN THIS ON THE TARGET (the Ubuntu host to be scanned), where you have  │
+# │ sudo. The auditor / run host NEVER modifies a target -- that hands-off  │
+# │ property is the whole audit-defensibility thesis. This script is the    │
+# │ operator's own, explicit, on-target provisioning step, nothing more.    │
+# └────────────────────────────────────────────────────────────────────────┘
+#
+# It (idempotently):
+#   * installs the oscap scanner (openscap-scanner, or libopenscap8 on 22.04),
+#   * installs the matching SCAP Security Guide datastream for this release,
+#   * optionally creates a passwordless-sudo scan account (--scan-user NAME) and
+#     authorizes an SSH public key for it (--pubkey 'ssh-ed25519 AAAA... you').
+# Verifies the result at the end. Mirrors docs/validation.md §1 (fire-tested on
+# Ubuntu 22.04).
+#
+# Usage:
+#   sudo bash grc-target-setup [--scan-user NAME] [--pubkey 'KEY' | --pubkey-file PATH]
+#                              [--ssg-dir DIR] [--force]
+set -euo pipefail
+
+SSG_DIR="/usr/share/xml/scap/ssg/content"
+SCAN_USER=""
+PUBKEY=""
+PUBKEY_FILE=""
+FORCE=0
+
+die() { echo "grc-target-setup: $*" >&2; exit 1; }
+
+usage() {
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --scan-user)   SCAN_USER="${2:?--scan-user needs a name}"; shift 2 ;;
+        --pubkey)      PUBKEY="${2:?--pubkey needs a key string}"; shift 2 ;;
+        --pubkey-file) PUBKEY_FILE="${2:?--pubkey-file needs a path}"; shift 2 ;;
+        --ssg-dir)     SSG_DIR="${2:?--ssg-dir needs a path}"; shift 2 ;;
+        --force)       FORCE=1; shift ;;
+        -h|--help)     usage 0 ;;
+        *)             die "unknown argument: $1 (try --help)" ;;
+    esac
+done
+
+# --- privilege ------------------------------------------------------------- #
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+elif command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+else
+    die "not root and no sudo available. Re-run as root or install sudo."
+fi
+
+# --- confirm this is an Ubuntu target -------------------------------------- #
+[ -r /etc/os-release ] || die "cannot read /etc/os-release -- is this a Linux host?"
+# shellcheck disable=SC1091
+. /etc/os-release
+if [ "${ID:-}" != "ubuntu" ] && [ "$FORCE" -ne 1 ]; then
+    die "this host is ID='${ID:-unknown}', not ubuntu. grc-fleet-scanner only audits Ubuntu targets. Use --force only if you know what you're doing."
+fi
+VER="${VERSION_ID:-}"
+[ -n "$VER" ] || die "no VERSION_ID in /etc/os-release -- cannot pick the SSG datastream."
+SSG_FILE="ssg-ubuntu${VER//./}-ds.xml"   # 22.04 -> ssg-ubuntu2204-ds.xml
+echo "grc-target-setup: Ubuntu $VER detected; target datastream = $SSG_FILE"
+
+# --- 1. install oscap ------------------------------------------------------ #
+echo "== installing oscap =="
+if ! command -v oscap >/dev/null 2>&1; then
+    # 'universe' carries the openscap packages on Ubuntu; enabling it is a no-op
+    # if already on. A flaky third-party repo shouldn't abort us, hence the
+    # guards. Refresh only when oscap is actually missing, so a re-run on an
+    # already-provisioned target skips the repo-enable + metadata network hit.
+    $SUDO add-apt-repository -y universe >/dev/null 2>&1 || true
+    $SUDO apt-get update -y || true
+    # Package name varies by release: openscap-scanner on newer, libopenscap8 on 22.04.
+    $SUDO apt-get install -y openscap-scanner || $SUDO apt-get install -y libopenscap8 \
+        || die "could not install oscap (tried openscap-scanner and libopenscap8)."
+fi
+command -v oscap >/dev/null 2>&1 || die "oscap still not on PATH after install."
+
+# --- 2. install the SSG datastream ----------------------------------------- #
+echo "== installing SCAP Security Guide content =="
+if [ -f "$SSG_DIR/$SSG_FILE" ]; then
+    echo "already present: $SSG_DIR/$SSG_FILE"
+else
+    # The ssg-* apt packages aren't reliably in Ubuntu's archive; pull the
+    # datastream straight from the official ComplianceAsCode release instead.
+    command -v curl  >/dev/null 2>&1 || $SUDO apt-get install -y curl
+    command -v unzip >/dev/null 2>&1 || $SUDO apt-get install -y unzip
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    echo "resolving latest ComplianceAsCode release ..."
+    LATEST="$(curl -fsSL https://api.github.com/repos/ComplianceAsCode/content/releases/latest \
+              | grep -oP '"tag_name":\s*"\K[^"]+' || true)"
+    [ -n "$LATEST" ] || die "could not resolve the latest release (network/proxy?). Install $SSG_FILE into $SSG_DIR manually."
+    echo "downloading scap-security-guide $LATEST ..."
+    curl -fsSL -o "$tmp/ssg.zip" \
+        "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/scap-security-guide-${LATEST#v}.zip" \
+        || die "download failed for release $LATEST."
+    unzip -oq "$tmp/ssg.zip" -d "$tmp" || die "could not unzip the SSG archive."
+    found="$(find "$tmp" -name "$SSG_FILE" | head -1 || true)"
+    [ -n "$found" ] || die "release $LATEST has no $SSG_FILE -- Ubuntu $VER may be unsupported by this SSG release."
+    $SUDO mkdir -p "$SSG_DIR"
+    $SUDO cp "$found" "$SSG_DIR/"
+    echo "installed $SSG_DIR/$SSG_FILE"
+fi
+
+# --- 3. optional scan account ---------------------------------------------- #
+if [ -n "$SCAN_USER" ]; then
+    echo "== scan account: $SCAN_USER =="
+    if ! id "$SCAN_USER" >/dev/null 2>&1; then
+        $SUDO adduser --disabled-password --gecos "" "$SCAN_USER"
+    else
+        echo "user $SCAN_USER already exists"
+    fi
+    # Passwordless sudo -- CIS checks read root-only files. Validate the drop-in
+    # before it lands so a syntax error can't lock sudo out.
+    tmp_sudoers="$(mktemp)"
+    echo "$SCAN_USER ALL=(ALL) NOPASSWD:ALL" > "$tmp_sudoers"
+    $SUDO visudo -cf "$tmp_sudoers" >/dev/null || { rm -f "$tmp_sudoers"; die "generated sudoers line failed validation."; }
+    $SUDO cp "$tmp_sudoers" "/etc/sudoers.d/$SCAN_USER"
+    $SUDO chmod 440 "/etc/sudoers.d/$SCAN_USER"
+    rm -f "$tmp_sudoers"
+    echo "sudoers: /etc/sudoers.d/$SCAN_USER (NOPASSWD)"
+
+    # Authorize a public key, if given.
+    if [ -n "$PUBKEY_FILE" ]; then
+        [ -r "$PUBKEY_FILE" ] || die "--pubkey-file not readable: $PUBKEY_FILE"
+        PUBKEY="$(cat "$PUBKEY_FILE")"
+    fi
+    if [ -n "$PUBKEY" ]; then
+        home="$(getent passwd "$SCAN_USER" | cut -d: -f6)"
+        [ -n "$home" ] || die "could not resolve home dir for $SCAN_USER"
+        $SUDO mkdir -p "$home/.ssh"
+        # Append then de-duplicate so re-running doesn't stack copies of the key.
+        echo "$PUBKEY" | $SUDO tee -a "$home/.ssh/authorized_keys" >/dev/null
+        $SUDO sort -u -o "$home/.ssh/authorized_keys" "$home/.ssh/authorized_keys"
+        $SUDO chown -R "$SCAN_USER:$SCAN_USER" "$home/.ssh"
+        $SUDO chmod 700 "$home/.ssh"
+        $SUDO chmod 600 "$home/.ssh/authorized_keys"
+        echo "authorized 1 key for $SCAN_USER (sshd StrictModes-safe perms set)"
+    else
+        echo "no --pubkey given: authorize your run-host key in $SCAN_USER's authorized_keys before scanning."
+    fi
+fi
+
+# --- verify ---------------------------------------------------------------- #
+echo "== verification =="
+oscap --version | head -1
+ls -l "$SSG_DIR/$SSG_FILE"
+if [ -n "$SCAN_USER" ]; then
+    id "$SCAN_USER"
+fi
+echo
+echo "grc-target-setup: done. This host is ready to be audited."
+echo "Next, on the RUN host: pin this host's key (ssh-keyscan) and pre-flight the"
+echo "scan account (ssh ... 'sudo -n true && echo AUTH_OK'). See docs/validation.md."

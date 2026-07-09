@@ -85,7 +85,92 @@ def _process_host(host: HostRecord, cfg: Config, run_id: str,
     return host
 
 
+def _example_config_path() -> "str | None":
+    """Locate config.example.yaml: at the repo root (one level above this
+    package), falling back to the current directory. Independent of the caller's
+    cwd so the scaffold works whether run from the repo or an operator's own dir."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(os.path.dirname(here), "config.example.yaml"),
+                 os.path.join(os.getcwd(), "config.example.yaml")):
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _starter_config_text(example: str) -> str:
+    """Derive a starter config from the example text: identical content and
+    comments, but with an EMPTY ``scope.cidrs``.
+
+    The point is safety. A verbatim copy would carry the example's sample range
+    (10.0.10.0/24), so a blind re-run would actively scan a network the operator
+    never chose. Emptying the scope makes a blind re-run hit the existing
+    authorization guard (empty cidrs -> refuse) instead. The operator must type
+    their authorized range in by hand -- exactly the intended friction.
+    """
+    out: list[str] = []
+    lines = example.splitlines()
+    i, replaced = 0, False
+    while i < len(lines):
+        line = lines[i]
+        if not replaced and line.strip().startswith("cidrs:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            out.append(f"{indent}cidrs: []   # SET THIS to your AUTHORIZED range(s), "
+                       f"e.g. [10.0.10.0/24]. Empty => refused (authorization guard).")
+            # Drop the sample list items that belonged to this key (the
+            # more-indented "- ..." lines immediately following it).
+            item_floor = len(indent)
+            i += 1
+            while i < len(lines) and lines[i].strip().startswith("-") \
+                    and (len(lines[i]) - len(lines[i].lstrip())) > item_floor:
+                i += 1
+            replaced = True
+            continue
+        out.append(line)
+        i += 1
+    banner = (
+        "# ---------------------------------------------------------------------------\n"
+        "# Starter config scaffolded by `grc-run` from config.example.yaml.\n"
+        "# EDIT scope.cidrs below to the network range you are AUTHORIZED to scan,\n"
+        "# then re-run. The tool refuses to run with an empty scope, by design.\n"
+        "# ---------------------------------------------------------------------------\n"
+    )
+    return banner + "\n".join(out) + "\n"
+
+
+def _scaffold_config(dest: str) -> int:
+    """Write a starter config to ``dest`` and exit asking for an authorized
+    scope. Returns exit code 2 either way (nothing ran) -- so a scheduled job
+    that finds no config stops cleanly instead of scanning a template scope."""
+    example = _example_config_path()
+    if example is None:
+        print(f"config error: {dest} not found, and no config.example.yaml was "
+              f"available to scaffold one from. Create {dest} with an authorized "
+              f"scope first.", file=sys.stderr)
+        return 2
+    try:
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(example, "r", encoding="utf-8") as fh:
+            starter = _starter_config_text(fh.read())
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write(starter)
+    except OSError as exc:
+        print(f"config error: could not scaffold {dest} from {example}: {exc}",
+              file=sys.stderr)
+        return 2
+    print(f"No config found -- wrote a starter to {dest} (from "
+          f"{os.path.basename(example)}).")
+    print(f"  Next: set scope.cidrs in {dest} to the range you are AUTHORIZED to "
+          f"scan, then re-run.")
+    print("  It stays empty until you do, and an empty scope is refused -- the "
+          "authorization guard, on purpose.")
+    return 2
+
+
 def cmd_run(args) -> int:
+    if not os.path.exists(args.config):
+        return _scaffold_config(args.config)
     try:
         cfg = load_config(args.config)
         cfg = apply_overrides(
@@ -282,7 +367,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     r = sub.add_parser("run", help="run a fleet audit")
-    r.add_argument("-c", "--config", required=True, help="path to YAML config")
+    r.add_argument("-c", "--config", default="config.yaml",
+                   help="path to YAML config (default: ./config.yaml)")
     r.add_argument("--cidr", action="append", help="override scope CIDR (repeatable)")
     r.add_argument("--exclude", action="append", help="override exclusions (repeatable)")
     r.add_argument("-o", "--output", help="override output directory")

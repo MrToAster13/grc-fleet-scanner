@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# grc-rmf — export a NIST 800-53 control rollup (RMF SSP evidence) from a run's
+# retained ARF. Pass an arf.xml or a run/host directory to search.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+grc_setup
+grc_run_tool rmf "$@"

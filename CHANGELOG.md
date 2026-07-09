@@ -6,6 +6,30 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Single-word commands + one-command install.** `./install.sh` copies prefixed launchers
+  into `~/.local/bin` (no root; offers to fix PATH) and records the repo location; each
+  launcher self-bootstraps the virtualenv + deps on first use, so the workflow is now
+  `install.sh` → `grc-setup` → `grc-run`. The audit commands (`grc-run`, `grc-dry`, `grc-deep`)
+  read `./config.yaml` and pass extra flags straight through to `python -m grc_auditor …`, which
+  is unchanged and still works directly; `grc-history`, `grc-report`, `grc-rmf`, `grc-demo`,
+  `grc-setup`, and `grc-provision` each map to their own subcommand or task.
+- **Run-host `nmap` auto-install.** When discovery finds `nmap` missing on the *run host*, the
+  new `grc_auditor.deps` module installs it through the detected package manager
+  (apt-get/dnf/pacman/zypper/brew). It escalates only as far as the environment allows: direct
+  as root, interactive `sudo` with a terminal, and — under cron/CI with no terminal — one
+  `sudo -n` attempt that fails fast with the exact manual command rather than hanging on a
+  prompt. Every step is written to the run's `audit.log`. This is the **run host only**; the
+  audit pipeline's hands-off guarantee (a target missing `oscap` → `scanner_absent`, never
+  installed) is untouched.
+- **`grc-target-setup` — scripted target provisioning.** A self-contained script the operator
+  runs *on the Ubuntu target* (never invoked by the run host) that installs `oscap` + the
+  matching SCAP Security Guide datastream and, optionally, a passwordless-sudo scan account
+  with an authorized key (`--scan-user` / `--pubkey`). Idempotent and self-verifying; automates
+  `docs/validation.md` §1. `grc-provision` on the run host shows how to deliver it.
+- **`run` scaffolds a config when none exists.** `--config` now defaults to `./config.yaml`;
+  if it's missing, `run` writes a starter from `config.example.yaml` with an **empty** scope and
+  exits asking for an authorized range. A blind re-run stays refused by the existing empty-scope
+  authorization guard, so the scaffold can never quietly scan the example's sample range.
 - **`--deep` high-assurance scan mode.** One flag turns every coverage dial to max: forces
   **CIS Level 2** fleet-wide (overriding the config level and any per-group `cis_level`), runs
   `oscap --fetch-remote-resources` so checks whose OVAL/CVE content lives off-box are evaluated
@@ -143,6 +167,11 @@ release, everything lives under **Unreleased**.
   truncation can no longer permanently bucket a possibly-Ubuntu host out of scope.
 
 ### Changed
+- **Offline suite grew to 148 tests** (+25): package-manager detection, the sudo/no-TTY
+  privilege matrix, the `sudo -n` fail-fast path, best-effort refresh, audit logging, the
+  never-install-during-parse guarantee, and the config default/scaffold-and-refuse behavior.
+  Still hermetic — the installer's `which`/`run`/TTY seams are injected, so nothing is
+  installed and nothing can hang.
 - **Testable remote-exec seam.** Introduced `RemoteHostProtocol` and a `FakeRemoteHost`
   double so the detect/scan decision layer — the load-bearing middle of the never-false-pass
   guarantee, previously with zero coverage — is now exercised by offline decision-table tests

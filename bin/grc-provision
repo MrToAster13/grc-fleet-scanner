@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# grc-provision — how to prepare an Ubuntu TARGET host for auditing.
+#
+# The auditor never installs anything on a target (that's the audit-defensibility
+# guarantee: a missing scanner is reported, never silently fixed). Target prep is
+# a separate, explicit step the operator runs ON the target with the self-contained
+# grc-target-setup script. This command just shows you how, and can print the
+# script so you can pipe it over SSH.
+here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+. "$here/_grc-common.sh"
+grc_load_env
+
+script="$GRC_HOME/grc-target-setup"
+
+[ -f "$script" ] || grc_die "target-setup script not found at $script -- re-run ./install.sh."
+
+if [ "${1:-}" = "--print" ]; then
+    cat "$script"
+    exit 0
+fi
+
+cat <<EOF
+grc-provision — prepare an Ubuntu TARGET to be audited.
+
+The run host never modifies a target. Run the self-contained target script ON
+the Ubuntu target instead. Two ways:
+
+  # A) copy it over, then run it on the target (needs sudo there)
+  scp "$script" <user>@<target>:/tmp/grc-target-setup
+  ssh <user>@<target> 'sudo bash /tmp/grc-target-setup --scan-user grc-scan'
+
+  # B) pipe it over SSH without copying a file
+  grc-provision --print | ssh <user>@<target> 'sudo bash -s -- --scan-user grc-scan'
+
+What it does on the target: installs oscap + the matching SCAP Security Guide
+datastream for that Ubuntu release, and (with --scan-user NAME) creates a
+passwordless-sudo scan account. Add --pubkey 'ssh-ed25519 AAAA... you' to
+authorize your run-host key in one shot. Idempotent; verifies at the end.
+
+Full walkthrough (host-key pinning, pre-flight AUTH_OK check): docs/validation.md.
+Print the script:  grc-provision --print
+EOF
