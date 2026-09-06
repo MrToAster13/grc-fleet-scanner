@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# grc-target-setup — prepare an UBUNTU TARGET host to be audited by grc-fleet-scanner.
+# grc-target-setup: prepare an UBUNTU TARGET host to be audited by grc-fleet-scanner.
 #
 # ┌────────────────────────────────────────────────────────────────────────┐
 # │ RUN THIS ON THE TARGET (the Ubuntu host to be scanned), where you have  │
