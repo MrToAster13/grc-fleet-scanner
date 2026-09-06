@@ -10,7 +10,8 @@ not AI slop.
 - Take a position and say it plainly. Don't hedge ("it's important to note," "generally speaking") or trail off into "it depends."
 - Use concrete nouns over inflated adjectives: "a framework," not "a robust, comprehensive framework."
 - Show with a real example instead of describing in the abstract.
-- Go easy on rule-of-three lists and em-dash asides. One is fine; a pattern is a tell.
+- Go easy on rule-of-three lists. One is fine; a pattern is a tell.
+- Never use em-dashes (the `—` character). Rewrite with a comma, colon, period, or parentheses instead.
 - Avoid AI-tell words: delve, leverage, robust, seamless, crucial, tapestry, testament, elevate, underscore, boasts, realm, "navigate the landscape."
 - Markdown only, one `#` H1 per file. Wrap commands, paths, and code in backticks.
 

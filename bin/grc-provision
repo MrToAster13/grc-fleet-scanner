@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# grc-provision — how to prepare an Ubuntu TARGET host for auditing.
+# grc-provision: how to prepare an Ubuntu TARGET host for auditing.
 #
 # The auditor never installs anything on a target (that's the audit-defensibility
 # guarantee: a missing scanner is reported, never silently fixed). Target prep is
@@ -20,7 +20,7 @@ if [ "${1:-}" = "--print" ]; then
 fi
 
 cat <<EOF
-grc-provision — prepare an Ubuntu TARGET to be audited.
+grc-provision: prepare an Ubuntu TARGET to be audited.
 
 The run host never modifies a target. Run the self-contained target script ON
 the Ubuntu target instead. Two ways:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# grc-setup — one-shot run-host preparation: build the virtualenv + install the
+# grc-setup: one-shot run-host preparation: build the virtualenv + install the
 # Python deps, then make sure nmap is on this host (auto-installing it via the
 # system package manager, escalating with sudo if a terminal is present).
 #

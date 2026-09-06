@@ -1,4 +1,4 @@
-# Operating Guide — GRC Fleet Auditor
+# Operating Guide: GRC Fleet Auditor
 
 A hands-on runbook for the analyst who runs this tool. For the design rationale see
 [design.md](design.md); for first-time live validation see [validation.md](validation.md).
@@ -11,7 +11,7 @@ For installation, see the [README](../README.md#install-run-host).
 **Only scan what you are authorized to scan.** This tool performs *active* network
 discovery and logs into hosts. Run it only against IP ranges your organization has given
 you written sign-off to assess. The tool will refuse to run without an explicit scope and
-records every action in an audit log — but it cannot grant you authority you don't have.
+records every action in an audit log, but it cannot grant you authority you don't have.
 
 ---
 
@@ -21,33 +21,33 @@ records every action in an audit log — but it cannot grant you authority you d
 `run OpenSCAP CIS scan` → `persist` → `report (HTML + JSON/CSV + drift)`.
 
 Every host ends in an **honest coverage bucket**. Partial coverage is never dressed up as
-a clean result — see the status table in §6.
+a clean result; see the status table in §6.
 
 ---
 
 ## 2. Before you operate
 
-**Run host** (where you run the tool) — must be **Linux** (WSL2 is fine):
-- `nmap` — `grc-setup` installs it for you (or the first run does, on demand); it detects
+**Run host** (where you run the tool) must be **Linux** (WSL2 is fine):
+- `nmap`: `grc-setup` installs it for you (or the first run does, on demand); it detects
   the package manager and asks for `sudo` only if it must. `sudo apt install nmap` by hand
   still works.
 - Python 3.10+ and this project's deps installed into a **virtualenv** (see §3.1). Modern
   Debian/Kali/Ubuntu refuse a bare `pip install` into the system Python (PEP 668,
-  `externally-managed-environment`), so the venv is **required, not optional** — do *not*
+  `externally-managed-environment`), so the venv is **required, not optional**: do *not*
   use `--break-system-packages`. Full rationale in [validation.md](validation.md) §0.
 - Network line-of-sight to the targets, and SSH reachability (directly or via a bastion)
 - Your SSH key loaded in `ssh-agent`
 
-**Target hosts** (to be deep-scanned) — must be **Ubuntu** with:
+**Target hosts** (to be deep-scanned) must be **Ubuntu** with:
 - `oscap` installed + the matching SCAP Security Guide datastream
   (`/usr/share/xml/scap/ssg/content/ssg-ubuntu<NNNN>-ds.xml`). On Ubuntu 22.04 the oscap
   package is **`libopenscap8`** (newer releases: `openscap-scanner`), and the datastream
   comes from a [ComplianceAsCode release](https://github.com/ComplianceAsCode/content/releases)
-  — **not** an `ssg-*` apt package (those aren't in Ubuntu's archive). Exact, tested commands:
+  **rather than** an `ssg-*` apt package (those aren't in Ubuntu's archive). Exact, tested commands:
   [validation.md](validation.md) §1.1.
 - An SSH account you hold a key for, with **passwordless sudo** (CIS reads root-only files)
 
-> Hosts missing `oscap`/content are reported `scanner_absent` — the tool **never installs
+> Hosts missing `oscap`/content are reported `scanner_absent`; the tool **never installs
 > anything** on a host under audit.
 
 ---
@@ -61,16 +61,16 @@ The quick path puts the single-word commands on your PATH and bootstraps everyth
 cd grc-fleet-scanner
 ./install.sh        # copies grc-* into ~/.local/bin (no root); offers to fix PATH
 grc-setup           # builds .venv + deps and installs nmap on this host
-grc-demo            # offline sanity check — renders a sample report
+grc-demo            # offline sanity check: renders a sample report
 ```
-Or set the virtualenv up by hand (the `python -m grc_auditor …` form works either way):
+Or set the virtualenv up by hand (the `python -m grc_auditor ...` form works either way):
 ```bash
 cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3.2 Bootstrap host keys (host identity is verified — strictly)
+### 3.2 Bootstrap host keys (host identity is verified, strictly)
 The tool refuses unknown host keys (no auto-accept). Pre-populate `known_hosts` and
 **verify each fingerprint out-of-band** before trusting it:
 ```bash
@@ -82,7 +82,7 @@ Treat `known_hosts` as audit-controlled inventory. A *changed* key later surface
 
 ### 3.3 Write `config.yaml`
 The first `grc-run` (or `grc-dry`) in a directory with no `config.yaml` scaffolds one from
-the example — with an **empty** scope — and stops so you can fill it in:
+the example (with an **empty** scope) and stops so you can fill it in:
 ```bash
 grc-run              # writes ./config.yaml, then exits asking for an authorized scope
 $EDITOR config.yaml  # set scope.cidrs to your AUTHORIZED range + credential_groups
@@ -97,7 +97,7 @@ Either way an empty scope stays refused (the authorization guard). Full field re
 
 ## 4. Running
 
-Always **dry-run first** — it discovers and classifies but does **no SSH and no scanning**:
+Always **dry-run first**; it discovers and classifies but does **no SSH and no scanning**:
 ```bash
 grc-dry -v                              # or: python -m grc_auditor run -c config.yaml --dry-run -v
 ```
@@ -107,7 +107,7 @@ grc-run                                 # or: python -m grc_auditor run -c confi
 grc-report                              # open the latest run's HTML report
 ```
 The audit commands (`grc-run`, `grc-dry`, `grc-deep`) read `./config.yaml` and pass any extra
-flags straight through; they're thin wrappers around `python -m grc_auditor …`, which works
+flags straight through; they're thin wrappers around `python -m grc_auditor ...`, which works
 identically if you'd rather call it directly.
 
 **Reading the console summary:**
@@ -145,22 +145,22 @@ python -m grc_auditor history -o ./grc-output
 For a maximum-coverage, maximum-confidence audit when you don't care about being
 aggressive. `--deep` is a preset that turns three dials to max in one switch:
 
-- **CIS Level 2**, fleet-wide — overrides the config level *and* any per-group
+- **CIS Level 2**, fleet-wide: overrides the config level *and* any per-group
   `cis_level`, so every host is audited against the stricter L2 server baseline.
-- **`oscap --fetch-remote-resources`** — checks whose OVAL/CVE content lives
+- **`oscap --fetch-remote-resources`**: checks whose OVAL/CVE content lives
   off-box are actually evaluated instead of returning `notchecked`, so the
   assessment covers more of the benchmark (higher `assessment_confidence`).
-- **Aggressive discovery** — `-T4` timing (aggressive but accuracy-preserving;
+- **Aggressive discovery**: `-T4` timing (aggressive but accuracy-preserving;
   `-T5` can drop hosts) plus OS detection.
 
 Two things to know before using it:
 
 - **The target reaches out to the network.** `--fetch-remote-resources` makes the
   *scanned host* fetch remote content mid-scan. In an air-gapped or egress-locked
-  environment those checks still won't run — that's expected, not a bug.
+  environment those checks still won't run; that's expected, not a bug.
 - **It changes `config_hash`.** `--deep` genuinely changes what runs, so its
   effect lands in `effective-config.json` and the hash: a deep run and a normal
-  run of the same config file do **not** share provenance. That's deliberate —
+  run of the same config file do **not** share provenance. That's deliberate:
   they scanned different baselines.
 
 ```bash
@@ -176,11 +176,11 @@ set `cis_level: 2` and `fetch_remote_resources: true`.
 
 ```yaml
 scope:
-  cidrs: [10.0.10.0/24]      # REQUIRED — authorized ranges. Empty => refuses to run.
+  cidrs: [10.0.10.0/24]      # REQUIRED: authorized ranges. Empty => refuses to run.
                              #   Refused if wider than /16 (blast-radius guard).
   exclude: [10.0.10.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
   nmap_timing: "-T3"         # cautious default; only -T0..-T5 accepted
-  nmap_extra_args: []        # flags only — no bare targets, no scope/output-altering flags
+  nmap_extra_args: []        # flags only: no bare targets, no scope/output-altering flags
   ssh_concurrency: 10        # bounded parallel SSH/scan workers (1..100)
   host_timeout_seconds: 600  # per-host scan timeout
 
@@ -224,14 +224,14 @@ is where it is. Act on the gaps:
 | `non_ubuntu` | Alive, not Ubuntu | Out of scope for this tool; inventory only |
 | `no_credentials` | Ubuntu, no credential group matched its IP | Add/adjust a `credential_groups` entry |
 | `unreachable` | Expected reachable but SSH failed | Check network/sshd/firewall/key |
-| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG on the target — run `grc-target-setup` there (see `grc-provision`), or the manual steps in [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
-| `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release — upgrade or accept gap |
+| `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG on the target: run `grc-target-setup` there (see `grc-provision`), or the manual steps in [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
+| `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release: upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
 
 **Other report sections:** executive summary (posture + biggest risks), fleet trend
 (pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
-an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only — authoritative
+an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only; authoritative
 references live in the raw ARF evidence).
 
 **Assessment confidence (read this before trusting a score).** Each scanned host shows a
@@ -246,18 +246,18 @@ untrustworthy until the scan account's `sudo` access is fixed. Tune the threshol
 > non-overridable floor (50%)** a scan is too incomplete to certify at all: the host is
 > recorded as `scan_error` ("assessment incomplete"), never `scanned`, regardless of the
 > threshold you set. A near-empty scan can never read as a clean host.
-**Always read the coverage-gaps count alongside the pass rate** — never the pass rate alone.
+**Always read the coverage-gaps count alongside the pass rate**, never the pass rate alone.
 
 **Where everything lands** under `output_dir/runs/<run_id>/`:
-- `report.html` — the fleet dashboard
-- `report.json` — full data for GRC-platform ingestion
-- `hosts.csv`, `findings.csv` — spreadsheet/ticketing exports
-- `audit.log` — every action the tool took (an audit artifact in its own right)
-- `<host_ip>/results.xml`, `arf.xml`, `report.html` — **raw OpenSCAP evidence** (immutable)
-- `<host_ip>/oscap.stdout.txt`, `oscap.stderr.txt` — captured scanner output
-- `manifest.json` — SHA-256 + size of every report/evidence file (chain-of-custody seal)
-- `effective-config.json` — the resolved config (after CLI overrides) this run used
-- `output_dir/history.db` — run history that powers drift
+- `report.html`: the fleet dashboard
+- `report.json`: full data for GRC-platform ingestion
+- `hosts.csv`, `findings.csv`: spreadsheet/ticketing exports
+- `audit.log`: every action the tool took (an audit artifact in its own right)
+- `<host_ip>/results.xml`, `arf.xml`, `report.html`: **raw OpenSCAP evidence** (immutable)
+- `<host_ip>/oscap.stdout.txt`, `oscap.stderr.txt`: captured scanner output
+- `manifest.json`: SHA-256 + size of every report/evidence file (chain-of-custody seal)
+- `effective-config.json`: the resolved config (after CLI overrides) this run used
+- `output_dir/history.db`: run history that powers drift
 
 Outputs are written **owner-only** (umask `0o077`): the evidence encodes the fleet's full
 internal posture and scope, so it must not be world-readable on a shared run/jump host.
@@ -278,7 +278,7 @@ The tool is on-demand and persists history; schedule it **externally**.
 
 > Run `grc-setup` once before scheduling. Under cron/systemd there's no terminal to answer a
 > `sudo` prompt, so if `nmap` is missing the run tries `sudo -n` once and then fails fast with
-> the manual command rather than hanging — it never blocks a scheduled job. Installing `nmap`
+> the manual command rather than hanging; it never blocks a scheduled job. Installing `nmap`
 > up front avoids that path entirely.
 
 Each run appends an immutable, timestamped result set, so trend/drift accrues automatically.
@@ -290,11 +290,11 @@ Each run appends an immutable, timestamped result set, so trend/drift accrues au
 | Symptom | Likely cause / fix |
 |---|---|
 | `config error: scope.cidrs is empty` | Populate `scope.cidrs` (the authorization guard) |
-| `installing nmap failed …` / `no supported package manager` | Auto-install couldn't proceed (unknown distro, or `sudo -n` refused under cron). Run the exact manual command it prints, e.g. `sudo apt-get install -y nmap`, then re-run |
-| `nmap … still not on PATH` | Package installed but the binary isn't on this shell's PATH — open a new shell or install `nmap` by hand |
+| `installing nmap failed ...` / `no supported package manager` | Auto-install couldn't proceed (unknown distro, or `sudo -n` refused under cron). Run the exact manual command it prints, e.g. `sudo apt-get install -y nmap`, then re-run |
+| `nmap ... still not on PATH` | Package installed but the binary isn't on this shell's PATH: open a new shell or install `nmap` by hand |
 | Host shows `host_key_mismatch` | **Stop.** Verify the host's real key (§3.2); only re-trust after confirming a legitimate re-provision |
-| Host shows `unreachable` | sshd down / firewall / wrong key / agent not loaded — test `ssh -i <key> <user>@<ip>` |
-| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong — run `grc-target-setup` on the target (`grc-provision` shows how), or install per [validation.md](validation.md) §1.1 |
+| Host shows `unreachable` | sshd down / firewall / wrong key / agent not loaded: test `ssh -i <key> <user>@<ip>` |
+| Host shows `scanner_absent` | oscap/SSG not installed on target, or `ssg_dir` wrong: run `grc-target-setup` on the target (`grc-provision` shows how), or install per [validation.md](validation.md) §1.1 |
 | Host shows `scan_error` | Read `<ip>/oscap.stderr.txt` and the run `audit.log` |
 | Scans hang / slow | Lower `ssh_concurrency`, raise `host_timeout_seconds`, or use `-T2` |
 | Permission/sudo failures | The scan account needs **passwordless** sudo on targets |
@@ -310,7 +310,7 @@ Run with `-v` for debug logging; the per-run `audit.log` has the full trace.
   any key authorized for sudo across the fleet. The tool never uses password auth.
 - **Host identity:** keep `known_hosts` under change control; treat `host_key_mismatch`
   as a security event.
-- **Evidence:** the raw ARF/HTML per host and the `audit.log` are your audit trail — retain
+- **Evidence:** the raw ARF/HTML per host and the `audit.log` are your audit trail: retain
   them per your evidence-retention policy; never edit them.
 - **The tool never:** installs software on audited hosts, modifies their configuration,
   auto-accepts unknown host keys, or scans outside the configured scope.
@@ -320,5 +320,5 @@ Run with `-v` for debug logging; the per-run `audit.log` has the full trace.
 ## 10. First time? 
 
 Don't point it at the fleet on day one. Run one Ubuntu VM through
-[validation.md](validation.md) end-to-end — including the six negative-path checks — then
+[validation.md](validation.md) end-to-end (including the six negative-path checks), then
 widen `scope.cidrs` to the authorized range.
