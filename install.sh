@@ -3,8 +3,9 @@
 #
 # It copies the launchers from ./bin into ~/.local/bin and records where this
 # repo lives (in ~/.config/grc/env) so the launchers can find the code and build
-# their virtualenv on first use. Re-runnable and idempotent. After this, run
-# `grc-setup` to build the venv + install nmap.
+# their virtualenv on first use. Re-runnable: running it again does not append
+# the PATH export line a second time. After this, run `grc-setup` to build the
+# venv + install nmap.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
@@ -39,7 +40,12 @@ done
 echo "grc install: installed ${#commands[@]} commands to $DEST:"
 printf '  %s\n' "${commands[@]}"
 
-# PATH check + offer to add DEST to the shell rc.
+# PATH check + offer to add DEST to the shell rc. A child process can never
+# change the parent shell's environment, so accepting the offer still leaves
+# this terminal without the new commands until the operator runs the export
+# themselves or opens a new shell. path_pending tracks that so the closing
+# summary can say so instead of listing commands that would just fail.
+path_pending=0
 case ":$PATH:" in
     *":$DEST:"*)
         echo "grc install: $DEST is already on your PATH."
@@ -57,19 +63,32 @@ case ":$PATH:" in
         read -r ans || ans=""
         case "$ans" in
             y|Y)
-                printf '\n# grc-fleet-scanner\n%s\n' "$line" >> "$rc"
-                echo "Added to $rc. Run: source $rc   (or open a new shell)."
+                if [ -f "$rc" ] && grep -qxF "$line" "$rc"; then
+                    echo "$rc already has that export line, did not add it again."
+                else
+                    printf '\n# grc-fleet-scanner\n%s\n' "$line" >> "$rc"
+                    echo "Added to $rc."
+                fi
+                path_pending=1
                 ;;
             *)
                 echo "Skipped. Add this line to your shell rc yourself:"
                 echo "  $line"
+                path_pending=1
                 ;;
         esac
         ;;
 esac
 
 echo
-echo "grc install: done. Next:"
+if [ "$path_pending" -eq 1 ]; then
+    echo "grc install: done, but the commands below are not on PATH in this terminal yet."
+    echo "Run this now, in this shell:"
+    echo "  $line"
+    echo "A new shell picks it up automatically. Then:"
+else
+    echo "grc install: done. Next:"
+fi
 echo "  grc-setup     # build the venv + deps, and install nmap on this host"
 echo "  grc-demo      # render a sample report (offline sanity check)"
 echo "  grc-run       # in a dir with config.yaml (scaffolded on first run)"
