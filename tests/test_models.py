@@ -37,3 +37,34 @@ def test_zero_scanned_false_when_at_least_one_host_scanned():
         fabricate_scanned_host(ip="10.0.10.11"),
     ]
     assert _run(hosts).zero_scanned() is False
+
+
+def test_zero_scanned_false_when_one_scanned_and_forty_are_gaps():
+    # One good host out of forty-one must never alarm: the predicate is about
+    # *nothing* being scanned, not about a low scan rate.
+    gaps = [HostRecord(ip=f"10.0.10.{i}", status=HostStatus.UNREACHABLE)
+            for i in range(40)]
+    hosts = [fabricate_scanned_host(ip="10.0.10.99")] + gaps
+    assert _run(hosts).zero_scanned() is False
+
+
+def test_zero_scanned_false_for_a_dry_run_even_with_every_host_gated():
+    # --dry-run never scans by design (discover + classify only). Every host
+    # left DISCOVERED (the dry-run outcome) or already gated by classify must
+    # not trip the alarm meant for a real run that scanned nothing.
+    hosts = [
+        HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED),
+        HostRecord(ip="10.0.10.11", status=HostStatus.NO_CREDENTIALS),
+    ]
+    assert _run(hosts).zero_scanned(dry_run=True) is False
+
+
+def test_zero_scanned_false_when_fleet_is_entirely_non_ubuntu():
+    # non_ubuntu hosts were never scan candidates -- scanning none of them is
+    # the tool working as designed, not the same failure as every credential
+    # or SSH path being wrong across the fleet.
+    hosts = [
+        HostRecord(ip="10.0.10.10", status=HostStatus.NON_UBUNTU),
+        HostRecord(ip="10.0.10.11", status=HostStatus.NON_UBUNTU),
+    ]
+    assert _run(hosts).zero_scanned() is False
