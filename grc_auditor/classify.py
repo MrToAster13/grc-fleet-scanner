@@ -87,7 +87,7 @@ def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
 
     When ``cfg.treat_unknown_linux_as_ubuntu`` is truthy (it defaults to False,
     preserving current behavior), hosts that look like some non-specific Linux
-    are promoted to Ubuntu *candidates*. They are NOT asserted to be Ubuntu —
+    are promoted to Ubuntu *candidates*. They are NOT asserted to be Ubuntu:
     the SSH detect stage remains authoritative and will reclassify any that are
     not actually Ubuntu as NON_UBUNTU.
     """

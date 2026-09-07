@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline smoke test — exercises the parts that don't need nmap/oscap/SSH.
+"""Offline smoke test: exercises the parts that don't need nmap/oscap/SSH.
 
 Runs on any OS (needs only PyYAML + Jinja2). Feeds canned nmap XML through the
 discovery parser and classify stage, fabricates a scanned host, then persists a

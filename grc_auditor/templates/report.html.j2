@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GRC Fleet Audit — {{ summary.run_id }}</title>
+<title>GRC Fleet Audit: {{ summary.run_id }}</title>
 <style>
   :root { --bg:#0f1419; --card:#1a2029; --ink:#e6e9ef; --muted:#8b97a7;
           --ok:#3fb950; --warn:#d29922; --bad:#f85149; --line:#2a313c; }
@@ -60,7 +60,7 @@
 </head>
 <body>
 
-<h1>GRC Fleet Audit — CIS Ubuntu Benchmark</h1>
+<h1>GRC Fleet Audit: CIS Ubuntu Benchmark</h1>
 <div class="sub">
   Run <code>{{ summary.run_id }}</code> ·
   started {{ summary.started_at }}{% if summary.finished_at %} · finished {{ summary.finished_at }}{% endif %}<br>
@@ -119,12 +119,12 @@
   <tr><th>Status</th><th>Hosts</th><th>Meaning</th></tr>
   {% set meanings = {
      'scanned':'Audited against CIS',
-     'non_ubuntu':'Alive, not Ubuntu — inventory only',
+     'non_ubuntu':'Alive, not Ubuntu (inventory only)',
      'no_credentials':'Ubuntu, no credential group matched',
      'unreachable':'Expected reachable but SSH failed',
      'scanner_absent':'OpenSCAP / SSG content not present (not installed)',
      'unsupported_version':'No SSG CIS profile for this Ubuntu release',
-     'host_key_mismatch':'SSH host key mismatch — possible MITM or unverified re-provisioning (SECURITY)',
+     'host_key_mismatch':'SSH host key mismatch: possible MITM or unverified re-provisioning (SECURITY)',
      'scan_error':'Scan attempted but errored',
      'discovered':'Discovered, unprocessed' } %}
   {% for status, n in summary.counts_by_status.items() %}
@@ -150,7 +150,7 @@
     {% if trend.spark %}<div class="spark">{{ trend.spark }}</div>{% endif %}
     <div class="sub" style="margin-top:6px">
       Pass rate range across window:
-      {% if trend.min is not none %}{{ trend.min }}%–{{ trend.max }}%{% else %}n/a{% endif %}
+      {% if trend.min is not none %}{{ trend.min }}% to {{ trend.max }}%{% else %}n/a{% endif %}
     </div>
     <table>
       <tr><th>Run</th><th>When</th><th>Scanned</th><th>Pass rate</th></tr>
@@ -237,13 +237,13 @@
     <td>{{ h.ip }}{% if h.hostname %}<br><span class="sub">{{ h.hostname }}</span>{% endif %}</td>
     <td><span class="pill {{ 's-scanned' if h.status.value=='scanned' else ('s-gap' if h.status.is_coverage_gap else 's-other') }}">{{ h.status.value }}</span>
         {% if h.detail %}<br><span class="sub">{{ h.detail }}</span>{% endif %}</td>
-    <td>{{ h.ubuntu_version or '—' }}</td>
-    <td>{% if h.scan %}<span class="ok">{{ h.scan.passed }}</span> / <span class="bad">{{ h.scan.failed }}</span>{% else %}—{% endif %}</td>
+    <td>{{ h.ubuntu_version or '-' }}</td>
+    <td>{% if h.scan %}<span class="ok">{{ h.scan.passed }}</span> / <span class="bad">{{ h.scan.failed }}</span>{% else %}-{% endif %}</td>
     <td>
       {% if h.scan and h.scan.score is not none %}
         {{ '%.1f'|format(h.scan.score) }}%
         <div class="bar"><span style="width:{{ h.scan.score }}%"></span></div>
-      {% else %}—{% endif %}
+      {% else %}-{% endif %}
     </td>
     <td>
       {% if h.scan %}
@@ -252,16 +252,16 @@
           {% set low = h.ip in low_conf_ips %}
           <span class="{{ 'bad' if low else 'muted' }}">{{ '%.0f'|format(conf) }}%</span>
           {% if low %}<br><span class="pill s-lowconf nowrap">LOW · {{ h.scan.undetermined }} unverified</span>{% endif %}
-        {% else %}—{% endif %}
-      {% else %}—{% endif %}
+        {% else %}-{% endif %}
+      {% else %}-{% endif %}
     </td>
     <td>
       {% set d = host_drift.get(h.ip) %}
       {% if d and d.delta is not none %}
         <span class="{{ 'delta-up' if d.delta >= 0 else 'delta-down' }}">{{ '+' if d.delta >= 0 else '' }}{{ d.delta }}</span>
-      {% else %}—{% endif %}
+      {% else %}-{% endif %}
     </td>
-    <td>{% if h.scan and h.scan.html_path %}<code>{{ h.scan.html_path }}</code>{% else %}—{% endif %}</td>
+    <td>{% if h.scan and h.scan.html_path %}<code>{{ h.scan.html_path }}</code>{% else %}-{% endif %}</td>
   </tr>
   {% endfor %}
 </table>

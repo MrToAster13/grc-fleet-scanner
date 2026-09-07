@@ -1,4 +1,4 @@
-# GRC Fleet Auditor — example configuration
+# GRC Fleet Auditor: example configuration
 # Copy to config.yaml and edit. Active scanning requires an explicit, AUTHORIZED scope.
 
 # ---------------------------------------------------------------------------

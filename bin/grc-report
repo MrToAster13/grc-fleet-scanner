@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# grc-report — open the latest run's HTML report. Looks under ./grc-output by
+# grc-report: open the latest run's HTML report. Looks under ./grc-output by
 # default (override with -o <dir>). Opens in a browser when there's a display;
 # prints the path when headless (e.g. over SSH) so you can copy it out.
 here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — put the grc-* single-word commands on this run host. No root.
+# install.sh: put the grc-* single-word commands on this run host. No root.
 #
 # It copies the launchers from ./bin into ~/.local/bin and records where this
 # repo lives (in ~/.config/grc/env) so the launchers can find the code and build
