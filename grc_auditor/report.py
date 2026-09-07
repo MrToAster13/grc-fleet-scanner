@@ -479,7 +479,8 @@ def _summary(run: RunRecord, drift: Drift) -> dict:
 
 
 def write_reports(run: RunRecord, store: Store, run_dir: str,
-                  low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD
+                  low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
+                  dry_run: bool = False,
                   ) -> dict[str, str]:
     """Render all report artifacts into run_dir. Returns {kind: path}."""
     os.makedirs(run_dir, exist_ok=True)
@@ -517,6 +518,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
         low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
+        dry_run=dry_run,
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:
