@@ -4,7 +4,7 @@ Written 2026-09-05 19:44:26. Closed 2026-09-06. Status: **complete, committed as
 
 ## Where the work is
 
-Repo: `C:\Users\Elijah\grc-fleet-scanner`
+Repo: the repo root
 Branch: `docs/standards-cleanup`, branched from `main` at `e717275`
 Committed as `d17f1a9` on `docs/standards-cleanup`: 23 files, 199 insertions, 189 deletions.
 `main` is still at `e717275`. Not yet pushed, no PR open.
@@ -12,7 +12,7 @@ Committed as `d17f1a9` on `docs/standards-cleanup`: 23 files, 199 insertions, 18
 Review it with:
 
 ```powershell
-cd C:\Users\Elijah\grc-fleet-scanner
+cd the repo root
 git show d17f1a9
 ```
 
@@ -21,7 +21,7 @@ git show d17f1a9
 "Project reflect the standards I set forth in my files, reduce the m dashes, clean up the
 documentation."
 
-The governing standard is `C:\Users\Elijah\.claude\CLAUDE.md`, not the repo's `AGENTS.md`.
+The governing standard is the global agent instructions, not the repo's `AGENTS.md`.
 The global file bans the em-dash outright. `AGENTS.md` only said "go easy on em-dash asides",
 which is why they accumulated.
 
