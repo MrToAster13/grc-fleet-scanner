@@ -223,6 +223,41 @@ def test_write_reports_produces_all_artifacts(tmp_path):
         store.close()
 
 
+# --- zero-scanned banner (ELI-140) ------------------------------------------ #
+
+def test_report_shows_zero_scanned_banner_when_nothing_scanned(tmp_path):
+    store = Store(str(tmp_path))
+    try:
+        gaps = [
+            HostRecord(ip="10.0.10.40", status=HostStatus.NO_CREDENTIALS,
+                      is_ubuntu=True, detail="no credential group"),
+            HostRecord(ip="10.0.10.41", status=HostStatus.UNREACHABLE,
+                      is_ubuntu=True, detail="ssh refused"),
+        ]
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", gaps)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        html = open(paths["html"], encoding="utf-8").read()
+        assert "ZERO HOSTS SCANNED" in html
+    finally:
+        store.close()
+
+
+def test_report_omits_zero_scanned_banner_when_a_host_was_scanned(tmp_path):
+    store = Store(str(tmp_path))
+    try:
+        host = fabricate_scanned_host(ip="10.0.10.21")
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        html = open(paths["html"], encoding="utf-8").read()
+        assert "ZERO HOSTS SCANNED" not in html
+    finally:
+        store.close()
+
+
 # --- low-confidence (anti-false-pass) -------------------------------------- #
 
 def test_low_confidence_host_is_flagged(tmp_path):
