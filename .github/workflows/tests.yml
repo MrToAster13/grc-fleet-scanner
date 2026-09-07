@@ -25,3 +25,11 @@ jobs:
           pip install -r requirements.txt
       - name: Run the offline test suite
         run: python -m pytest -q
+
+  shell-tests:
+    runs-on: ubuntu-latest
+    name: shell tests (grc-target-setup)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the grc-target-setup integrity test harness
+        run: bash tests/shell/test_target_setup_integrity.sh
