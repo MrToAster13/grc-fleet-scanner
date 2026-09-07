@@ -3,8 +3,9 @@
 #
 # It copies the launchers from ./bin into ~/.local/bin and records where this
 # repo lives (in ~/.config/grc/env) so the launchers can find the code and build
-# their virtualenv on first use. Re-runnable and idempotent. After this, run
-# `grc-setup` to build the venv + install nmap.
+# their virtualenv on first use. Re-runnable: running it again does not append
+# the PATH export line a second time. After this, run `grc-setup` to build the
+# venv + install nmap.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
