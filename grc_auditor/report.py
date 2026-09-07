@@ -491,7 +491,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     exec_summary = executive_summary(run, drift, top, severity,
                                      low_confidence_threshold)
     # The template renders the low-confidence decision by IP membership, so the
-    # rule (ScanResult.is_low_confidence) stays the single source — the template
+    # rule (ScanResult.is_low_confidence) stays the single source: the template
     # does no threshold arithmetic of its own.
     low_conf_ips = {d["ip"] for d in exec_summary["low_confidence_hosts"]}
 
