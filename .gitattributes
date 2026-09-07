@@ -2,3 +2,16 @@
 # (a CRLF shebang line breaks `#!/usr/bin/env bash`).
 *.sh text eol=lf
 .githooks/** text eol=lf
+
+# The launchers under bin/ are extensionless, so *.sh above never matches them.
+# Cover the whole directory with one glob instead of listing each script by
+# name, so a launcher added later is covered automatically.
+bin/* text eol=lf
+
+# grc-target-setup lives at the repo root, outside bin/, and needs the same rule.
+grc-target-setup text eol=lf
+
+# install.ps1 does not exist on this branch yet, but PowerShell reads LF fine
+# on Windows, and a `#!/usr/bin/env pwsh` shebang breaks under CRLF on Linux,
+# so pin LF now so the rule is already in place when the file lands.
+*.ps1 text eol=lf
