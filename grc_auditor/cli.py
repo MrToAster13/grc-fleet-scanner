@@ -276,7 +276,22 @@ def cmd_run(args) -> int:
         store.close()
 
     _print_summary(run, paths)
-    return 0
+    return _exit_code_for_run(run)
+
+
+# Exit code reserved for a run that completed but scanned zero hosts. 0, 1,
+# and 2 are already spoken for elsewhere in this module (success; discovery/
+# rmf failure; config scaffold-or-refusal), and ELI-143 already flags 2 as
+# overloaded -- so this signal gets its own unused code rather than
+# overloading a taken one further.
+EXIT_ZERO_SCANNED = 3
+
+
+def _exit_code_for_run(run: RunRecord) -> int:
+    """The single home for the run's exit code, so the console summary, the
+    report banner, and the process exit status all read the same
+    `zero_scanned` predicate and can't disagree with each other."""
+    return EXIT_ZERO_SCANNED if run.zero_scanned() else 0
 
 
 def _print_summary(run: RunRecord, paths: dict) -> None:
@@ -291,6 +306,12 @@ def _print_summary(run: RunRecord, paths: dict) -> None:
     print(f"  Fleet pass rate  : {pr_str}")
     print(f"  Report           : {paths['html']}")
     print(f"  JSON / CSV       : {paths['json']}")
+    if run.zero_scanned():
+        print()
+        print("  *** ZERO HOSTS SCANNED -- this report has no findings. ***")
+        print("      Every host landed in a coverage gap (no_credentials, "
+              "unreachable, or scanner_absent). See the banner at the top "
+              "of the report for detail.")
 
 
 def cmd_history(args) -> int:

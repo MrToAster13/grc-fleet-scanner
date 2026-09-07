@@ -10,9 +10,13 @@ import pytest
 import yaml
 
 from grc_auditor.cli import (
-    _example_config_path, _run_id, _scaffold_config, _starter_config_text, cmd_run,
+    _example_config_path, _exit_code_for_run, _print_summary, _run_id,
+    _scaffold_config, _starter_config_text, cmd_run,
 )
 from grc_auditor.config import ConfigError, load_config
+from grc_auditor.models import HostRecord, HostStatus, RunRecord
+
+from conftest import fabricate_scanned_host
 
 
 def test_run_id_is_timestamp_sortable_with_random_suffix():
@@ -85,3 +89,50 @@ def test_cmd_run_scaffolds_when_config_missing(tmp_path, capsys):
     # A blind re-run of the scaffolded config is still refused.
     with pytest.raises(ConfigError):
         load_config(str(dest))
+
+
+# --------------------------------------------------------------------------- #
+# zero-scanned signal: exit code + console summary (ELI-140)
+# --------------------------------------------------------------------------- #
+def _run(hosts):
+    return RunRecord(run_id="20260627T000000Z", started_at="2026-06-27T00:00:00+00:00",
+                     hosts=hosts)
+
+
+def test_exit_code_is_zero_scanned_code_when_nothing_scanned():
+    hosts = [
+        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
+        HostRecord(ip="10.0.10.11", status=HostStatus.UNREACHABLE),
+    ]
+    assert _exit_code_for_run(_run(hosts)) == 3
+
+
+def test_exit_code_is_zero_when_at_least_one_host_scanned():
+    hosts = [
+        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
+        fabricate_scanned_host(ip="10.0.10.11"),
+    ]
+    assert _exit_code_for_run(_run(hosts)) == 0
+
+
+def test_exit_code_does_not_collide_with_config_scaffold_or_discovery_codes():
+    # ELI-143 already flags 2 as overloaded between "scaffold written" and a
+    # real ConfigError; discovery failure returns 1. The zero-scanned signal
+    # must not reuse either.
+    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
+    rc = _exit_code_for_run(_run(hosts))
+    assert rc not in (0, 1, 2)
+
+
+def test_print_summary_warns_loudly_when_zero_scanned(capsys):
+    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
+    _print_summary(_run(hosts), {"html": "r.html", "json": "r.json"})
+    out = capsys.readouterr().out
+    assert "ZERO HOSTS SCANNED" in out
+
+
+def test_print_summary_is_quiet_when_hosts_scanned(capsys):
+    hosts = [fabricate_scanned_host(ip="10.0.10.11")]
+    _print_summary(_run(hosts), {"html": "r.html", "json": "r.json"})
+    out = capsys.readouterr().out
+    assert "ZERO HOSTS SCANNED" not in out
