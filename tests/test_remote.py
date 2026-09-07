@@ -11,9 +11,13 @@ import base64
 import socket
 
 import paramiko
+import pytest
 
+import grc_auditor.remote as remote_mod
+from grc_auditor.config import CredentialGroup
 from grc_auditor.remote import (
-    BastionError, CommandResult, HostKeyMismatch, RemoteHost, _bastion_error,
+    BastionError, CommandResult, ConnectionFailed, HostKeyMismatch,
+    RemoteError, RemoteHost, _bastion_error, _classify_connect_error,
 )
 
 
@@ -74,3 +78,98 @@ def test_bastion_non_key_failure_is_a_bastion_error():
 
     assert isinstance(err, BastionError)
     assert not isinstance(err, HostKeyMismatch)
+
+
+# --------------------------------------------------------------------------- #
+# Timeout paths (ELI-141)
+#
+# The failure mode that matters here is a fleet scan hanging or silently
+# dropping hosts. These tests pin: a connect-level timeout is classified as a
+# ConnectionFailed (a RemoteError, so a caller's `except RemoteError` still
+# catches it and the host is bucketed UNREACHABLE), and a command that times
+# out mid-run raises RemoteError rather than blocking or returning a bogus
+# CommandResult. No live SSH -- fabricated paramiko/socket exceptions and a
+# fake exec_command stream drive it offline.
+# --------------------------------------------------------------------------- #
+def test_connect_timeout_is_classified_as_connection_failed():
+    err = _classify_connect_error(socket.timeout("timed out"), "10.0.10.21")
+
+    assert isinstance(err, ConnectionFailed)
+    assert isinstance(err, RemoteError)
+    assert "timed out" in str(err)
+
+
+class _FakeTimeoutSSHClient:
+    """Stands in for paramiko.SSHClient: connect() always times out, and
+    records whether it was torn down so a timed-out attempt never leaks."""
+
+    def __init__(self):
+        self.closed = False
+
+    def load_system_host_keys(self):
+        pass
+
+    def load_host_keys(self, path):
+        pass
+
+    def set_missing_host_key_policy(self, policy):
+        pass
+
+    def connect(self, **kwargs):
+        raise socket.timeout("timed out")
+
+    def close(self):
+        self.closed = True
+
+
+def test_connect_timeout_raises_connection_failed_and_tears_down_client(monkeypatch):
+    fake_client = _FakeTimeoutSSHClient()
+    monkeypatch.setattr(remote_mod.paramiko, "SSHClient", lambda: fake_client)
+
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+
+    with pytest.raises(ConnectionFailed):
+        rh.connect()
+    # A timed-out connect attempt must not leak a half-open client.
+    assert fake_client.closed is True
+
+
+class _RaisingStream:
+    """A paramiko command-output stream whose read() always times out, as if
+    the command wedged mid-run and the channel's own timeout tripped."""
+
+    class _Channel:
+        def close(self):
+            pass
+
+    def __init__(self):
+        self.channel = self._Channel()
+
+    def read(self, n):
+        raise socket.timeout("timed out")
+
+
+class _FakeStdin:
+    class _Channel:
+        def shutdown_write(self):
+            pass
+
+    channel = _Channel()
+
+
+class _FakeConnectedClient:
+    """A connected paramiko client whose exec_command hands back a stream that
+    times out on read, simulating a command that hangs mid-run."""
+
+    def exec_command(self, command, timeout=None):
+        return _FakeStdin(), _RaisingStream(), _RaisingStream()
+
+
+def test_run_command_timeout_mid_run_raises_remote_error_not_a_hang():
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh._client = _FakeConnectedClient()
+
+    with pytest.raises(RemoteError, match="timed out"):
+        rh.run("some-long-running-command", timeout=5)
