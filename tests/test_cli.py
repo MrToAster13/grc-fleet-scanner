@@ -274,7 +274,7 @@ def test_process_host_no_credential_group_short_circuits_before_reach(monkeypatc
 
     assert calls == []  # never even attempted to connect
     assert result.status == HostStatus.NO_CREDENTIALS
-    assert result.detail
+    assert "no credential group matched" in result.detail
 
 
 def test_process_host_reach_failure_stops_detect_and_scan(monkeypatch):
