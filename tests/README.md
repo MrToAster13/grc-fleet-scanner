@@ -57,3 +57,16 @@ namespaced XCCDF 1.2 documents shaped like real `oscap xccdf eval --results`
 output (a `Benchmark` embedding `Rule` titles plus a `TestResult` of
 `rule-result` elements and a `score`). The second omits `<score>` to prove the
 parser returns `score=None` without erroring.
+
+## Shell tests
+
+`grc-target-setup` is bash, not Python, and runs installer steps (apt,
+sudoers, real root paths) on a target host this suite has no seam or target
+to exercise. `tests/shell/test_target_setup_integrity.sh` covers the one
+pure function it exposes, `verify_sha512sum()`, in isolation: matching
+digest, tampered content, and an empty or missing checksum file all resolve
+correctly. Run it directly, it is not part of `python -m pytest`:
+
+```bash
+bash tests/shell/test_target_setup_integrity.sh
+```
