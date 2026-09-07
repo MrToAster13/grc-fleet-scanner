@@ -264,6 +264,18 @@ class RunRecord:
     def scanned_hosts(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status is HostStatus.SCANNED and h.scan]
 
+    def zero_scanned(self) -> bool:
+        """True when no host in this run reached SCANNED.
+
+        `no_credentials`, `unreachable`, and `scanner_absent` (among other
+        coverage gaps) can each absorb every host in a run silently -- the
+        run still completes and a report still gets written. This is the
+        single home for that "nothing was scanned" predicate, shared by the
+        console summary, the report banner, and the exit code, so the three
+        surfaces can't drift apart.
+        """
+        return not self.scanned_hosts()
+
     def coverage_gaps(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status.is_coverage_gap]
 
