@@ -4,6 +4,12 @@ Guidance for AI agents working in this repo. It holds documentation and
 writing, kept well-organized. The goal is clear, human-sounding writing,
 not AI slop.
 
+## Subagents
+
+- Every subagent runs on Sonnet (`claude-sonnet-5`, i.e. `model: sonnet` on the Agent tool). This is a rule, not a default. It applies to nested subagents too: an agent that spawns its own helpers passes Sonnet down.
+- State the model at the call site, even when the agent's file already sets it in frontmatter. An unstated model inherits the orchestrator's, which is how a twenty-unit fan-out quietly becomes forty Opus agents.
+- The only exception is an explicitly named model for that run. A weak result from a subagent is a briefing problem: fix the prompt, don't raise the model.
+
 ## Writing
 - Plain, direct, specific. Cut filler, hype, and throat-clearing. Start with the point.
 - Vary sentence length: mix short, punchy lines with longer ones. Uniform rhythm reads as machine-written.
