@@ -6,6 +6,14 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Zero-scanned signal.** A run that completes and writes a report while scanning
+  zero hosts (every host landed in a coverage gap, or discovery found nothing) is
+  now unmistakable: the console summary prints a loud warning, the HTML report
+  gets a banner at the top, and the process exits `3` instead of `0`. All three
+  surfaces read one predicate, `RunRecord.zero_scanned()`, so they can't drift
+  apart. The alarm is deliberately silent for `--dry-run` (which never scans by
+  design) and for a fleet that is entirely `non_ubuntu` (those hosts were never
+  scan candidates). Exit codes are documented in `docs/operating.md` §4.
 - **Single-word commands + one-command install.** `./install.sh` copies prefixed launchers
   into `~/.local/bin` (no root; offers to fix PATH) and records the repo location; each
   launcher self-bootstraps the virtualenv + deps on first use, so the workflow is now
