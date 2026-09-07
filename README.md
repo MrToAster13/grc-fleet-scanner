@@ -73,6 +73,10 @@ cd grc-fleet-scanner
 grc-setup           # builds the virtualenv + deps, and installs nmap on this host
 ```
 
+If you accept `install.sh`'s offer to add `~/.local/bin` to your PATH, run the `export` line
+it prints before `grc-setup`: the PATH change is not live in the current shell until then. A
+new shell picks it up on its own.
+
 `install.sh` copies the single-word launchers into `~/.local/bin` and records where the repo
 lives (it offers to add `~/.local/bin` to your PATH if it isn't already). `grc-setup` then
 builds the `.venv`, installs the Python dependencies, and makes sure `nmap` is present:
