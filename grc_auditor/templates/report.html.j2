@@ -65,15 +65,21 @@
 <body>
 
 <h1>GRC Fleet Audit: CIS Ubuntu Benchmark</h1>
-{% if run.zero_scanned() %}
+{% if run.zero_scanned(dry_run=dry_run) %}
 <div class="zero-scanned-banner">
   <div class="title">&#9888; ZERO HOSTS SCANNED &mdash; this report contains no findings</div>
-  <div class="sub">No host reached <code>scanned</code> this run: every host
-    landed in a gap bucket such as <code>no_credentials</code>,
+  {% if run.hosts %}
+  <div class="sub">No host reached <code>scanned</code> this run: hosts landed
+    in gap buckets such as <code>no_credentials</code>,
     <code>unreachable</code>, or <code>scanner_absent</code> instead. A
     clean-looking report below does not mean a clean fleet: it means nothing
     was assessed. See the coverage gaps in the executive summary and host
     table.</div>
+  {% else %}
+  <div class="sub">No hosts were discovered in this run's scope, so nothing
+    could be scanned. Check the scope/CIDRs in <code>config.yaml</code> and
+    that the targets were reachable to discovery.</div>
+  {% endif %}
 </div>
 {% endif %}
 <div class="sub">
