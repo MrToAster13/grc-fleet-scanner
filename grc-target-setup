@@ -45,6 +45,7 @@ usage() {
 # shell test harness (tests/shell/) exercises directly.
 verify_sha512sum() {
     local file="$1" sumfile="$2" expected actual
+    command -v sha512sum >/dev/null 2>&1 || die "sha512sum not found -- cannot verify content, refusing to install unverified content."
     [ -s "$sumfile" ] || die "checksum file $sumfile is missing or empty -- refusing to install unverified content."
     expected="$(awk '{print $1; exit}' "$sumfile")"
     [ -n "$expected" ] || die "checksum file $sumfile has no digest -- refusing to install unverified content."
@@ -55,7 +56,10 @@ verify_sha512sum() {
 
 # The shell test harness sources this file with GRC_TARGET_SETUP_TEST=1 to
 # reach verify_sha512sum() above without running the installer body below.
+# Logged to stderr so a leaked/inherited env var makes a real provisioning
+# run visibly do nothing, rather than silently reporting nothing wrong.
 if [ "${GRC_TARGET_SETUP_TEST:-0}" = "1" ]; then
+    echo "grc-target-setup: GRC_TARGET_SETUP_TEST=1 set -- test mode, skipping the installer." >&2
     return 0 2>/dev/null || exit 0
 fi
 
