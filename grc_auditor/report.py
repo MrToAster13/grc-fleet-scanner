@@ -275,6 +275,82 @@ def controls_by_severity(run: RunRecord) -> dict:
     }
 
 
+def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
+    """Fleet pass-rate trend across the last ``n`` runs (incl. this one).
+
+    Pulls history from :meth:`Store.fleet_pass_rate_history`. Gracefully reports
+    a single-point "first run" when there is no prior history. The current run
+    is reconciled in from the live ``run`` object so the latest point reflects
+    this in-progress run even before/independent of persistence.
+
+    Returns::
+
+        {"points": [{"run_id","label","pass_rate","scanned","is_current"}],
+         "first_run": bool, "min": float|None, "max": float|None,
+         "spark": "▁▂▅█..."}
+    """
+    history = store.fleet_pass_rate_history(n) if store else []
+
+    # Ensure the current run is represented and authoritative for its own point.
+    curr_rate = run.fleet_pass_rate()
+    curr_scanned = len(run.scanned_hosts())
+    found_current = False
+    for h in history:
+        if h["run_id"] == run.run_id:
+            h["pass_rate"] = curr_rate
+            h["scanned"] = curr_scanned
+            found_current = True
+    if not found_current:
+        history.append({
+            "run_id": run.run_id,
+            "started_at": run.started_at,
+            "scanned": curr_scanned,
+            "pass_rate": curr_rate,
+        })
+        history.sort(key=lambda r: r["run_id"])
+        history = history[-n:]
+
+    points = []
+    for h in history:
+        points.append({
+            "run_id": h["run_id"],
+            "label": (h.get("started_at") or h["run_id"])[:16],
+            "pass_rate": h.get("pass_rate"),
+            "scanned": h.get("scanned", 0),
+            "is_current": h["run_id"] == run.run_id,
+        })
+
+    rated = [p["pass_rate"] for p in points if p["pass_rate"] is not None]
+    return {
+        "points": points,
+        "first_run": len(rated) <= 1,
+        "min": min(rated) if rated else None,
+        "max": max(rated) if rated else None,
+        "spark": _sparkline([p["pass_rate"] for p in points]),
+    }
+
+
+_SPARK_CHARS = "▁▂▃▄▅▆▇█"
+
+
+def _sparkline(values: list) -> str:
+    """A tiny inline unicode sparkline scaled to 0..100. None -> gap (' ')."""
+    present = [v for v in values if v is not None]
+    if not present:
+        return ""
+    lo, hi = min(present), max(present)
+    span = (hi - lo) or 1.0
+    out = []
+    last = len(_SPARK_CHARS) - 1
+    for v in values:
+        if v is None:
+            out.append(" ")
+            continue
+        idx = int(round((v - lo) / span * last))
+        out.append(_SPARK_CHARS[max(0, min(last, idx))])
+    return "".join(out)
+
+
 def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
                       low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> dict:
     """A plain-language posture block for non-technical readers.
@@ -412,6 +488,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     summary = _summary(run, drift)
     top = top_failing_controls(run)
     severity = controls_by_severity(run)
+    trend = fleet_trend(run, store)
     exec_summary = executive_summary(run, drift, top, severity,
                                      low_confidence_threshold)
     # The template renders the low-confidence decision by IP membership, so the
@@ -438,7 +515,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     template = env.get_template("report.html.j2")
     html = template.render(
         run=run, summary=summary, drift=drift, top=top,
-        severity=severity, exec_summary=exec_summary,
+        severity=severity, trend=trend, exec_summary=exec_summary,
         crosswalk_label=crosswalk.CROSSWALK_LABEL,
         low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
         dry_run=dry_run,
@@ -454,6 +531,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     payload["executive_summary"] = exec_summary
     payload["top_failing_controls"] = top
     payload["controls_by_severity"] = severity
+    payload["fleet_trend"] = trend
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
 

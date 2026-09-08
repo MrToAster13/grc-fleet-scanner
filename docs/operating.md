@@ -203,8 +203,8 @@ is where it is. Act on the gaps:
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
 
-**Other report sections:** executive summary (posture, biggest risks, and the
-run-over-run drift sentence), severity breakdown, and top failing controls with
+**Other report sections:** executive summary (posture + biggest risks), fleet trend
+(pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
 an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only; authoritative
 references live in the raw ARF evidence).
 
