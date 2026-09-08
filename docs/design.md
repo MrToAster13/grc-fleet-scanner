@@ -27,7 +27,7 @@ authoritative and audit-defensible.
   The run host must be Linux because the entire launcher layer (`install.sh`, `bin/*`,
   `grc-target-setup`) is bash, not just the Python core.
 - **Network line-of-sight.** The run host must reach the target CIDRs and SSH to the
-  in-scope hosts (directly or via a configured bastion).
+  in-scope hosts.
 
 ## 3. Pipeline
 
@@ -39,7 +39,7 @@ discover (nmap) → classify → reach (SSH) → detect (oscap/SSG) → scan (os
 2. **Discover**: cautious `nmap` sweep over in-scope CIDRs → live hosts, OS fingerprint,
    open ports, banners. Exclusions honored. Every action logged.
 3. **Classify**: Ubuntu vs non-Ubuntu (conservative hint); match each to a credential group.
-4. **Reach**: SSH (agent keys, host keys verified against `known_hosts`, bastion-aware),
+4. **Reach**: SSH (agent keys, host keys verified against `known_hosts`),
    `sudo` for root-only checks.
 5. **Detect**: confirm exact Ubuntu version; verify `oscap` + matching SSG content; a
    pre-flight `oscap info` confirms the resolved profile exists before scanning.
@@ -106,7 +106,7 @@ coverage is never mistaken for a clean result:
 | Framework | CIS Ubuntu Benchmark |
 | Build vs wrap | **Wrap OpenSCAP** (SCAP Security Guide CIS profile); do not reimplement checks |
 | Missing scanner | Detect, flag, **do not install** on the audited host |
-| Auth + privilege | SSH keys via ssh-agent + `sudo`; verify host keys; bastion supported |
+| Auth + privilege | SSH keys via ssh-agent + `sudo`; verify host keys |
 | Output | HTML dashboard + JSON/CSV exports + retained raw evidence |
 | Cadence | On-demand CLI, persist immutable history, report drift; schedule externally |
 | Language | Python |
@@ -121,7 +121,7 @@ coverage is never mistaken for a clean result:
 | `config.py` / `profiles.py` | **Contract:** YAML schema + validation; SSG datastream/profile registry |
 | `discovery.py` | nmap orchestration + XML parse |
 | `classify.py` | Ubuntu hint + credential-group matching |
-| `remote.py` | SSH/bastion, host-key verification, sudo, SFTP; a clear failure taxonomy |
+| `remote.py` | SSH, host-key verification, sudo, SFTP; a clear failure taxonomy |
 | `detect.py` | Ubuntu version + oscap/SSG presence + profile resolution |
 | `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |

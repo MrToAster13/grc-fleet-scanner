@@ -35,7 +35,7 @@ a clean result; see the status table in §6.
   Debian/Kali/Ubuntu refuse a bare `pip install` into the system Python (PEP 668,
   `externally-managed-environment`), so the venv is **required, not optional**: do *not*
   use `--break-system-packages`. Full rationale in [validation.md](validation.md) §0.
-- Network line-of-sight to the targets, and SSH reachability (directly or via a bastion)
+- Network line-of-sight to the targets, and SSH reachability
 - Your SSH key loaded in `ssh-agent`
 
 **Target hosts** (to be deep-scanned) must be **Ubuntu** with:
@@ -106,7 +106,7 @@ Confirm the host list and scope look right, then run for real:
 grc-run                                 # or: python -m grc_auditor run -c config.yaml
 grc-report                              # open the latest run's HTML report
 ```
-The audit commands (`grc-run`, `grc-dry`, `grc-deep`) read `./config.yaml` and pass any extra
+The audit commands (`grc-run`, `grc-dry`) read `./config.yaml` and pass any extra
 flags straight through; they're thin wrappers around `python -m grc_auditor ...`, which works
 identically if you'd rather call it directly.
 
@@ -137,7 +137,6 @@ python -m grc_auditor history -o ./grc-output
 | `--concurrency N` | override parallel SSH/scan workers |
 | `--low-confidence-threshold PCT` | flag a score LOW CONFIDENCE below this % of the benchmark producing a verdict (default 90) |
 | `--os-detect` | enable nmap OS detection (`-O`; needs root on the run host) |
-| `--deep` | high-assurance mode (see below) |
 | `-v, --verbose` | debug-level console logging |
 
 ### Exit codes
@@ -148,36 +147,6 @@ python -m grc_auditor history -o ./grc-output
 | `1` | Discovery or RMF failure. |
 | `2` | Config scaffold-or-refusal: either `run` just wrote a starter `config.yaml` because none existed, or the config failed to load (e.g. the authorization guard refused an empty scope). Both cases currently share this code; see `ELI-143`. |
 | `3` | Zero-scanned: the run completed and wrote a report, but no host reached `scanned` -- every host landed in a coverage gap (`no_credentials`, `unreachable`, `scanner_absent`, etc.), or discovery found nothing. Not raised for `--dry-run` (which never scans by design) or for a fleet that is entirely `non_ubuntu` (never scan candidates in the first place). The console summary and the report's top banner explain which. |
-
-### High-assurance mode (`--deep`)
-
-For a maximum-coverage, maximum-confidence audit when you don't care about being
-aggressive. `--deep` is a preset that turns three dials to max in one switch:
-
-- **CIS Level 2**, fleet-wide: overrides the config level *and* any per-group
-  `cis_level`, so every host is audited against the stricter L2 server baseline.
-- **`oscap --fetch-remote-resources`**: checks whose OVAL/CVE content lives
-  off-box are actually evaluated instead of returning `notchecked`, so the
-  assessment covers more of the benchmark (higher `assessment_confidence`).
-- **Aggressive discovery**: `-T4` timing (aggressive but accuracy-preserving;
-  `-T5` can drop hosts) plus OS detection.
-
-Two things to know before using it:
-
-- **The target reaches out to the network.** `--fetch-remote-resources` makes the
-  *scanned host* fetch remote content mid-scan. In an air-gapped or egress-locked
-  environment those checks still won't run; that's expected, not a bug.
-- **It changes `config_hash`.** `--deep` genuinely changes what runs, so its
-  effect lands in `effective-config.json` and the hash: a deep run and a normal
-  run of the same config file do **not** share provenance. That's deliberate:
-  they scanned different baselines.
-
-```bash
-python -m grc_auditor run -c config.yaml --deep
-```
-
-Equivalent config (if you want it as the standing posture instead of a flag):
-set `cis_level: 2` and `fetch_remote_resources: true`.
 
 ---
 
@@ -200,9 +169,9 @@ low_confidence_threshold: 90 # flag a host LOW CONFIDENCE below this % of checks
 treat_unknown_linux_as_ubuntu: false  # default false; if true, probe unknown-Linux hosts
                              #   as Ubuntu candidates (SSH detect stays authoritative)
 fetch_remote_resources: false # default false; if true, oscap fetches off-box OVAL/CVE
-                             #   content (higher coverage; target reaches out). --deep forces on.
+                             #   content (higher coverage; target reaches out).
 os_detect: false             # default false; nmap -O OS detection (feeds the classify hint).
-                             #   Part of config_hash. Also settable via --os-detect / --deep.
+                             #   Part of config_hash. Also settable via --os-detect.
 # known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
 
 credential_groups:           # first matching group (top-down) wins
@@ -214,10 +183,6 @@ credential_groups:           # first matching group (top-down) wins
     ssh_port: 22
     sudo: true               # uses passwordless `sudo -n` for root-only checks
     cis_level: 2             # optional per-group override of global cis_level
-    bastion:                 # optional jump host
-      host: bastion.example.com
-      user: jump
-      key_path: "~/.ssh/bastion_ed25519"
 ```
 
 ---
@@ -238,8 +203,8 @@ is where it is. Act on the gaps:
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
 
-**Other report sections:** executive summary (posture + biggest risks), fleet trend
-(pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
+**Other report sections:** executive summary (posture, biggest risks, and the
+run-over-run drift sentence), severity breakdown, and top failing controls with
 an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only; authoritative
 references live in the raw ARF evidence).
 

@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action, but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (200-test suite), and validated end-to-end
+> ℹ️ **Status:** functional, tested offline (196-test suite), and validated end-to-end
 > against a real cloud Ubuntu 22.04 host: the happy path (a full CIS scan producing a real
 > score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, ...).
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
@@ -36,9 +36,7 @@ only reflects the checks that actually ran is flagged **low confidence**.
 
 - Active network discovery (nmap) with cautious defaults and large-scope chunking
 - Authenticated CIS scanning via OpenSCAP + the SCAP Security Guide (Ubuntu 18.04 to 24.04)
-- `--deep` high-assurance mode: forces CIS Level 2, `oscap --fetch-remote-resources`, and
-  aggressive discovery for maximum coverage/confidence (recorded in `config_hash`)
-- Strict SSH host-key verification, bastion support, agent-based keys + sudo
+- Strict SSH host-key verification, agent-based keys + sudo
 - HTML dashboard: executive summary, coverage map, severity breakdown, fleet trend,
   assessment-confidence flags, and a NIST 800-53 / ISO 27001 cross-walk
 - Machine-readable exports (JSON/CSV) + retained raw OpenSCAP evidence (ARF/HTML) per host
@@ -46,7 +44,7 @@ only reflects the checks that actually ran is flagged **low confidence**.
   authoritative per-rule references
 - Run-over-run **drift** history in SQLite
 - Never modifies the system under audit (missing scanner → flagged, never installed)
-- Single-word commands (`grc-run`, `grc-dry`, `grc-deep`, ...) with a self-bootstrapping
+- Single-word commands (`grc-run`, `grc-dry`, ...) with a self-bootstrapping
   virtualenv and run-host `nmap` auto-install; targets are prepped explicitly and separately
 
 ## Requirements
@@ -94,7 +92,7 @@ sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
 git clone https://github.com/MrToAster13/grc-fleet-scanner.git && cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest        # expect: 200 passed
+python -m pytest        # expect: 196 passed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
@@ -114,13 +112,12 @@ The first `grc-run` writes a starter `config.yaml` (from `config.example.yaml`, 
 **empty** scope) and exits: it refuses to run until you set an authorized range, and an
 empty scope stays refused. That's the authorization guard, on purpose.
 
-The commands (`grc-run`, `grc-dry`, and `grc-deep` read `./config.yaml`; extra flags pass straight through to the tool):
+The commands `grc-run` and `grc-dry` read `./config.yaml`; extra flags pass straight through to the tool:
 
 | Command | Does |
 |---|---|
 | `grc-run` | full fleet audit |
 | `grc-dry` | discover + classify only: no SSH, no scan |
-| `grc-deep` | high-assurance audit (CIS L2 + remote-resource fetch + aggressive discovery) |
 | `grc-history` | list prior runs |
 | `grc-report` | open the latest run's HTML report (or print its path when headless) |
 | `grc-rmf` | export a NIST 800-53 control rollup (SSP evidence) from a run's ARF |
@@ -160,7 +157,7 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (200 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` (196 tests) before submitting; keep the
 offline `python smoketest.py` working.
 
 A pre-commit hook runs the suite for you and blocks a commit if it fails. Enable it once

@@ -164,7 +164,7 @@ def test_cmd_run_dry_run_never_alarms_even_when_the_only_host_would_gate(
     args = SimpleNamespace(
         config=str(cfg_path), cidr=None, exclude=None, output=None, cis_level=None,
         concurrency=None, low_confidence_threshold=None, os_detect=False,
-        deep=False, dry_run=True, verbose=False,
+        dry_run=True, verbose=False,
     )
     rc = cmd_run(args)
     out = capsys.readouterr().out
