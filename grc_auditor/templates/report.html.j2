@@ -56,11 +56,32 @@
   .spark { font-size:20px; letter-spacing:2px; line-height:1; color:var(--ok); }
   .hostlist { color:var(--muted); font-size:12px; }
   .nowrap { white-space:nowrap; }
+  .zero-scanned-banner { background:#3a1a1a; border:2px solid var(--bad); border-radius:10px;
+                         padding:14px 16px; margin-bottom:18px; }
+  .zero-scanned-banner .title { font-size:17px; font-weight:700; color:#ffb4ab; }
+  .zero-scanned-banner .sub { color:#ffb4ab; margin-top:4px; }
 </style>
 </head>
 <body>
 
 <h1>GRC Fleet Audit: CIS Ubuntu Benchmark</h1>
+{% if run.zero_scanned(dry_run=dry_run) %}
+<div class="zero-scanned-banner">
+  <div class="title">&#9888; ZERO HOSTS SCANNED: this report contains no findings</div>
+  {% if run.hosts %}
+  <div class="sub">No host reached <code>scanned</code> this run: hosts landed
+    in gap buckets such as <code>no_credentials</code>,
+    <code>unreachable</code>, or <code>scanner_absent</code> instead. A
+    clean-looking report below does not mean a clean fleet: it means nothing
+    was assessed. See the coverage gaps in the executive summary and host
+    table.</div>
+  {% else %}
+  <div class="sub">No hosts were discovered in this run's scope, so nothing
+    could be scanned. Check the scope/CIDRs in <code>config.yaml</code> and
+    that the targets were reachable to discovery.</div>
+  {% endif %}
+</div>
+{% endif %}
 <div class="sub">
   Run <code>{{ summary.run_id }}</code> ·
   started {{ summary.started_at }}{% if summary.finished_at %} · finished {{ summary.finished_at }}{% endif %}<br>

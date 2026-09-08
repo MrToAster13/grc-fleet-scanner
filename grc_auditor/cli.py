@@ -271,15 +271,31 @@ def cmd_run(args) -> int:
 
         # Stage 8: report (drift needs the store, after this run is saved)
         paths = write_reports(run, store, run_dir,
-                              low_confidence_threshold=cfg.low_confidence_threshold)
+                              low_confidence_threshold=cfg.low_confidence_threshold,
+                              dry_run=args.dry_run)
     finally:
         store.close()
 
-    _print_summary(run, paths)
-    return 0
+    _print_summary(run, paths, dry_run=args.dry_run)
+    return _exit_code_for_run(run, dry_run=args.dry_run)
 
 
-def _print_summary(run: RunRecord, paths: dict) -> None:
+# Exit code reserved for a run that completed but scanned zero hosts. 0, 1,
+# and 2 are already spoken for elsewhere in this module (success; discovery/
+# rmf failure; config scaffold-or-refusal), and ELI-143 already flags 2 as
+# overloaded -- so this signal gets its own unused code rather than
+# overloading a taken one further.
+EXIT_ZERO_SCANNED = 3
+
+
+def _exit_code_for_run(run: RunRecord, *, dry_run: bool = False) -> int:
+    """The single home for the run's exit code, so the console summary, the
+    report banner, and the process exit status all read the same
+    `zero_scanned` predicate and can't disagree with each other."""
+    return EXIT_ZERO_SCANNED if run.zero_scanned(dry_run=dry_run) else 0
+
+
+def _print_summary(run: RunRecord, paths: dict, *, dry_run: bool = False) -> None:
     counts = run.counts_by_status()
     pr = run.fleet_pass_rate()
     pr_str = f"{pr}%" if pr is not None else "n/a"
@@ -291,6 +307,15 @@ def _print_summary(run: RunRecord, paths: dict) -> None:
     print(f"  Fleet pass rate  : {pr_str}")
     print(f"  Report           : {paths['html']}")
     print(f"  JSON / CSV       : {paths['json']}")
+    if run.zero_scanned(dry_run=dry_run):
+        print()
+        print("  *** ZERO HOSTS SCANNED -- this report has no findings. ***")
+        if not run.hosts:
+            print("      No hosts were discovered in this run's scope. See the "
+                  "banner at the top of the report for detail.")
+        else:
+            print("      No host reached `scanned` this run -- see the coverage "
+                  "gaps above and the banner at the top of the report for why.")
 
 
 def cmd_history(args) -> int:

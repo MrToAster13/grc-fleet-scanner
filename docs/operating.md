@@ -140,6 +140,15 @@ python -m grc_auditor history -o ./grc-output
 | `--deep` | high-assurance mode (see below) |
 | `-v, --verbose` | debug-level console logging |
 
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success: at least one host reached `scanned` (or this was a `--dry-run`). |
+| `1` | Discovery or RMF failure. |
+| `2` | Config scaffold-or-refusal: either `run` just wrote a starter `config.yaml` because none existed, or the config failed to load (e.g. the authorization guard refused an empty scope). Both cases currently share this code; see `ELI-143`. |
+| `3` | Zero-scanned: the run completed and wrote a report, but no host reached `scanned` -- every host landed in a coverage gap (`no_credentials`, `unreachable`, `scanner_absent`, etc.), or discovery found nothing. Not raised for `--dry-run` (which never scans by design) or for a fleet that is entirely `non_ubuntu` (never scan candidates in the first place). The console summary and the report's top banner explain which. |
+
 ### High-assurance mode (`--deep`)
 
 For a maximum-coverage, maximum-confidence audit when you don't care about being

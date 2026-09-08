@@ -11,6 +11,8 @@
 # It (idempotently):
 #   * installs the oscap scanner (openscap-scanner, or libopenscap8 on 22.04),
 #   * installs the matching SCAP Security Guide datastream for this release,
+#     after checking the downloaded archive against ComplianceAsCode's own
+#     published sha512 checksum, refusing to install on any mismatch,
 #   * optionally creates a passwordless-sudo scan account (--scan-user NAME) and
 #     authorizes an SSH public key for it (--pubkey 'ssh-ed25519 AAAA... you').
 # Verifies the result at the end. Mirrors docs/validation.md §1 (fire-tested on
@@ -33,6 +35,33 @@ usage() {
     sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
+
+# verify_sha512sum FILE SUMFILE
+# Checks FILE's sha512 digest against the digest recorded in SUMFILE (the
+# `sha512sum`-format line ComplianceAsCode publishes as a release asset
+# alongside each archive: "<hex digest>  <filename>"). Dies on any mismatch,
+# and on a missing or empty checksum file, so a corrupted or tampered
+# download can never reach the unzip step. This is the one function the
+# shell test harness (tests/shell/) exercises directly.
+verify_sha512sum() {
+    local file="$1" sumfile="$2" expected actual
+    command -v sha512sum >/dev/null 2>&1 || die "sha512sum not found -- cannot verify content, refusing to install unverified content."
+    [ -s "$sumfile" ] || die "checksum file $sumfile is missing or empty -- refusing to install unverified content."
+    expected="$(awk '{print $1; exit}' "$sumfile")"
+    [ -n "$expected" ] || die "checksum file $sumfile has no digest -- refusing to install unverified content."
+    actual="$(sha512sum "$file" | awk '{print $1}')"
+    [ "$expected" = "$actual" ] || die "checksum mismatch for $file (expected $expected, got $actual) -- refusing to install unverified content."
+    echo "checksum verified: $actual"
+}
+
+# The shell test harness sources this file with GRC_TARGET_SETUP_TEST=1 to
+# reach verify_sha512sum() above without running the installer body below.
+# Logged to stderr so a leaked/inherited env var makes a real provisioning
+# run visibly do nothing, rather than silently reporting nothing wrong.
+if [ "${GRC_TARGET_SETUP_TEST:-0}" = "1" ]; then
+    echo "grc-target-setup: GRC_TARGET_SETUP_TEST=1 set -- test mode, skipping the installer." >&2
+    return 0 2>/dev/null || exit 0
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,11 +126,20 @@ else
     LATEST="$(curl -fsSL https://api.github.com/repos/ComplianceAsCode/content/releases/latest \
               | grep -oP '"tag_name":\s*"\K[^"]+' || true)"
     [ -n "$LATEST" ] || die "could not resolve the latest release (network/proxy?). Install $SSG_FILE into $SSG_DIR manually."
+    ASSET="scap-security-guide-${LATEST#v}.zip"
     echo "downloading scap-security-guide $LATEST ..."
-    curl -fsSL -o "$tmp/ssg.zip" \
-        "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/scap-security-guide-${LATEST#v}.zip" \
+    curl -fsSL -o "$tmp/$ASSET" \
+        "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/${ASSET}" \
         || die "download failed for release $LATEST."
-    unzip -oq "$tmp/ssg.zip" -d "$tmp" || die "could not unzip the SSG archive."
+    # ComplianceAsCode publishes a matching <asset>.sha512 file on every
+    # release (verified against v0.1.78 through v0.1.82; no GPG signature
+    # exists for this asset). Refuse to unzip anything that doesn't match it.
+    echo "downloading published checksum for $ASSET ..."
+    curl -fsSL -o "$tmp/$ASSET.sha512" \
+        "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/${ASSET}.sha512" \
+        || die "checksum download failed for release $LATEST -- refusing to install unverified content."
+    verify_sha512sum "$tmp/$ASSET" "$tmp/$ASSET.sha512"
+    unzip -oq "$tmp/$ASSET" -d "$tmp" || die "could not unzip the SSG archive."
     found="$(find "$tmp" -name "$SSG_FILE" | head -1 || true)"
     [ -n "$found" ] || die "release $LATEST has no $SSG_FILE -- Ubuntu $VER may be unsupported by this SSG release."
     $SUDO mkdir -p "$SSG_DIR"

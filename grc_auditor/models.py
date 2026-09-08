@@ -264,6 +264,36 @@ class RunRecord:
     def scanned_hosts(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status is HostStatus.SCANNED and h.scan]
 
+    def zero_scanned(self, *, dry_run: bool = False) -> bool:
+        """True when this run should be flagged as having scanned nothing.
+
+        `no_credentials`, `unreachable`, and `scanner_absent` (among other
+        coverage gaps) can each absorb every host in a run silently -- the
+        run still completes and a report still gets written. This is the
+        single home for that "nothing was scanned" predicate, shared by the
+        console summary, the report banner, and the exit code, so the three
+        surfaces can't drift apart.
+
+        Two cases are deliberately excluded, because scanning nothing is
+        their contract, not a gap:
+
+        * ``dry_run=True`` -- ``--dry-run`` discovers and classifies only and
+          never scans by design. It must never trip this alarm.
+        * a fleet that is entirely ``non_ubuntu`` -- those hosts were never
+          scan candidates in the first place, so scanning none of them is not
+          the same failure as every credential or SSH path being wrong.
+
+        A run that discovered zero hosts at all still alarms: the operator
+        expected to scan something.
+        """
+        if dry_run:
+            return False
+        if self.scanned_hosts():
+            return False
+        if not self.hosts:
+            return True
+        return any(h.status is not HostStatus.NON_UBUNTU for h in self.hosts)
+
     def coverage_gaps(self) -> list[HostRecord]:
         return [h for h in self.hosts if h.status.is_coverage_gap]
 

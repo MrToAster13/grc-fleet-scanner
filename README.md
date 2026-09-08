@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action, but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (148-test suite), and validated end-to-end
+> ℹ️ **Status:** functional, tested offline (200-test suite), and validated end-to-end
 > against a real cloud Ubuntu 22.04 host: the happy path (a full CIS scan producing a real
 > score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, ...).
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
@@ -73,6 +73,10 @@ cd grc-fleet-scanner
 grc-setup           # builds the virtualenv + deps, and installs nmap on this host
 ```
 
+If you accept `install.sh`'s offer to add `~/.local/bin` to your PATH, run the `export` line
+it prints before `grc-setup`: the PATH change is not live in the current shell until then. A
+new shell picks it up on its own.
+
 `install.sh` copies the single-word launchers into `~/.local/bin` and records where the repo
 lives (it offers to add `~/.local/bin` to your PATH if it isn't already). `grc-setup` then
 builds the `.venv`, installs the Python dependencies, and makes sure `nmap` is present:
@@ -90,7 +94,7 @@ sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
 git clone https://github.com/MrToAster13/grc-fleet-scanner.git && cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest        # expect: 148 passed
+python -m pytest        # expect: 200 passed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
@@ -156,7 +160,7 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (148 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` (200 tests) before submitting; keep the
 offline `python smoketest.py` working.
 
 A pre-commit hook runs the suite for you and blocks a commit if it fails. Enable it once
