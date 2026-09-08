@@ -42,7 +42,7 @@ python -m pip install pytest
 | `test_deps.py` | `deps.detect_package_manager` priority order, `wrapped_command` root/sudo/interactive matrix, `manual_command` text, `ensure_nmap` install flow (already present, install success, refresh-failure tolerated, no manager, install failure, no-tty `sudo -n`, binary still absent after install, sudo itself missing), `discovery.discover` wiring into `ensure_nmap` and its `DiscoveryError` surfacing |
 | `test_classify.py` | `classify.classify`: Ubuntu+group -> DISCOVERED, non-Ubuntu -> NON_UBUNTU, Ubuntu no SSH -> UNREACHABLE, Ubuntu no group -> NO_CREDENTIALS |
 | `test_config.py` | `config.load_config` validation, `credential_group_for` (CIDR + default fallthrough), `apply_overrides`, `hash()` stability |
-| `test_remote.py` | `remote.RemoteHost.run_argv` shell-quotes every token, `_bastion_error` classification: a host-key mismatch on the bastion stays `HostKeyMismatch` rather than flattening to `BastionError`, other bastion failures stay `BastionError` |
+| `test_remote.py` | `remote.RemoteHost.run_argv` shell-quotes every token; connect-error classification into the `RemoteError` taxonomy |
 | `test_detect.py` | `detect.detect` status-mapping decision table over a `FakeRemoteHost`: non-Ubuntu, unsupported version, os-release with no ID is SCAN_ERROR not NON_UBUNTU, sudo password required and missing oscap/profile map to SCANNER_ABSENT/UNSUPPORTED_VERSION, happy-path plan, a sudo:false group yields a no-sudo plan |
 | `test_profiles.py` | `datastream_for_version`, `datastream_path`, `profile_id`, `supported_versions` |
 | `test_scan.py` | `scan.parse_xccdf_results` against namespaced XCCDF fixtures (counts, score, failed-rule ids/severities/titles; missing score) |

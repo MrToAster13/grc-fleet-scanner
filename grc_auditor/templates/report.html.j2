@@ -52,8 +52,6 @@
   .sevbar > span { display:block; height:100%; }
   .sev-fill-high{background:var(--bad)} .sev-fill-medium{background:var(--warn)}
   .sev-fill-low{background:#3a6ea5} .sev-fill-unknown{background:#56606e}
-  /* sparkline */
-  .spark { font-size:20px; letter-spacing:2px; line-height:1; color:var(--ok); }
   .hostlist { color:var(--muted); font-size:12px; }
   .nowrap { white-space:nowrap; }
   .zero-scanned-banner { background:#3a1a1a; border:2px solid var(--bad); border-radius:10px;
@@ -157,35 +155,6 @@
   {% endfor %}
 </table>
 <p class="sub">Coverage gaps are reported explicitly so partial coverage is never mistaken for a clean result.</p>
-
-<h2>Fleet trend (last {{ trend.points|length }} run{{ '' if trend.points|length==1 else 's' }})</h2>
-{% if trend.first_run %}
-  <div class="card">
-    <span class="muted">Not enough scored runs yet to plot a trend.</span>
-    {% if summary.fleet_pass_rate is not none %}
-      Baseline fleet pass rate: <strong>{{ summary.fleet_pass_rate }}%</strong>.
-    {% endif %}
-  </div>
-{% else %}
-  <div class="card">
-    {% if trend.spark %}<div class="spark">{{ trend.spark }}</div>{% endif %}
-    <div class="sub" style="margin-top:6px">
-      Pass rate range across window:
-      {% if trend.min is not none %}{{ trend.min }}% to {{ trend.max }}%{% else %}n/a{% endif %}
-    </div>
-    <table>
-      <tr><th>Run</th><th>When</th><th>Scanned</th><th>Pass rate</th></tr>
-      {% for p in trend.points %}
-      <tr>
-        <td><code>{{ p.run_id }}</code>{% if p.is_current %} <span class="pill s-scanned">current</span>{% endif %}</td>
-        <td class="muted">{{ p.label }}</td>
-        <td>{{ p.scanned }}</td>
-        <td>{% if p.pass_rate is not none %}{{ p.pass_rate }}%{% else %}<span class="muted">n/a</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </table>
-  </div>
-{% endif %}
 
 <h2>Failing controls by severity</h2>
 {% if severity.total_findings %}

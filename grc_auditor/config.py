@@ -28,14 +28,6 @@ class ConfigError(Exception):
 
 
 @dataclass
-class BastionConfig:
-    host: str
-    user: str
-    port: int = 22
-    key_path: Optional[str] = None
-
-
-@dataclass
 class CredentialGroup:
     """How to reach and authenticate to a set of hosts."""
 
@@ -47,7 +39,6 @@ class CredentialGroup:
     ssh_port: int = 22
     sudo: bool = True                        # use 'sudo -n' for root-only checks
     cis_level: Optional[int] = None          # per-group override of the global level
-    bastion: Optional[BastionConfig] = None
 
     def matches(self, ip: str) -> bool:
         # Catch-all tokens match any address -- including IPv6, which the literal
@@ -91,13 +82,13 @@ class Config:
     # High-assurance coverage: pass `--fetch-remote-resources` to oscap so checks
     # whose OVAL/CVE content lives off-box are actually evaluated instead of coming
     # back notchecked. It makes the TARGET host reach out to the network mid-scan,
-    # so it is opt-in (config here, or forced by the `--deep` CLI flag). Off by
+    # so it is opt-in (set it here in config). Off by
     # default; it changes the scan's coverage, so it is part of the canonical hash.
     fetch_remote_resources: bool = False
     # nmap OS detection (-O). A run-behavior input: -O feeds os_guess, which the
     # classify stage uses as an Ubuntu hint, which changes which hosts get SSH'd
     # -- so it belongs in the canonical hash, not as a loose CLI-only arg. Set by
-    # config or the --os-detect / --deep flags.
+    # config or the --os-detect flag.
     os_detect: bool = False
     raw: dict = field(default_factory=dict)   # original parsed document
 
@@ -118,10 +109,6 @@ class Config:
             "name": g.name, "ssh_user": g.ssh_user, "targets": sorted(g.targets),
             "key_path": g.key_path, "use_agent": g.use_agent,
             "ssh_port": g.ssh_port, "sudo": g.sudo, "cis_level": g.cis_level,
-            "bastion": None if g.bastion is None else {
-                "host": g.bastion.host, "user": g.bastion.user,
-                "port": g.bastion.port, "key_path": g.bastion.key_path,
-            },
         }
 
     def canonical(self) -> dict:
@@ -278,17 +265,6 @@ def ip_in_networks(ip: str, networks) -> bool:
     return False
 
 
-def _parse_bastion(doc: Optional[dict]) -> Optional[BastionConfig]:
-    if not doc:
-        return None
-    return BastionConfig(
-        host=_require(doc, "host", "bastion"),
-        user=_require(doc, "user", "bastion"),
-        port=int(doc.get("port", 22)),
-        key_path=doc.get("key_path"),
-    )
-
-
 def _parse_credential_group(doc: dict) -> CredentialGroup:
     name = _require(doc, "name", "credential_groups[]")
     where = f"credential_group '{name}'"
@@ -307,7 +283,6 @@ def _parse_credential_group(doc: dict) -> CredentialGroup:
         ssh_port=int(doc.get("ssh_port", 22)),
         sudo=bool(doc.get("sudo", True)),
         cis_level=None if level is None else int(level),
-        bastion=_parse_bastion(doc.get("bastion")),
     )
 
 
@@ -362,19 +337,12 @@ def load_config(path: str) -> Config:
 
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
                     cis_level=None, ssh_concurrency=None,
-                    low_confidence_threshold=None, os_detect=None,
-                    deep=False) -> Config:
+                    low_confidence_threshold=None, os_detect=None) -> Config:
     """Apply CLI overrides onto a loaded Config (CLI wins over file).
 
     Every override runs through the SAME validators as the file path -- a --cidr
     override is no longer a way to slip a malformed or over-broad (blast-radius)
     range past the checks that load_config enforces.
-
-    ``deep`` is the high-assurance preset (--deep). It is applied LAST so it wins
-    over a weaker ``--cis-level``: it forces CIS Level 2 fleet-wide, enables
-    ``--fetch-remote-resources``, and switches discovery to aggressive-but-accurate
-    ``-T4`` timing. All of it lands in the resolved dataclass, so ``config_hash``
-    and ``effective-config.json`` record exactly what ran.
     """
     if cidrs:
         cfg.scope.cidrs = _validate_cidrs(list(cidrs), "--cidr")
@@ -392,15 +360,4 @@ def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
         cfg.low_confidence_threshold = _validate_threshold(low_confidence_threshold)
     if os_detect:
         cfg.os_detect = True
-    if deep:
-        cfg.cis_level = 2
-        # Force the fleet-wide baseline: clear any per-group level so every group
-        # inherits the forced L2 (a group pinned to L1 would otherwise scan L1).
-        for g in cfg.credential_groups:
-            g.cis_level = None
-        cfg.fetch_remote_resources = True
-        cfg.os_detect = True
-        # -T4 is aggressive but accuracy-preserving; -T5 ("insane") can drop hosts
-        # and would LOWER discovery certainty, the opposite of this mode's intent.
-        cfg.scope.nmap_timing = "-T4"
     return cfg

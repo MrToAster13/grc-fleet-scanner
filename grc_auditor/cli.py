@@ -177,7 +177,7 @@ def cmd_run(args) -> int:
             cfg, cidrs=args.cidr, exclude=args.exclude, output_dir=args.output,
             cis_level=args.cis_level, ssh_concurrency=args.concurrency,
             low_confidence_threshold=args.low_confidence_threshold,
-            os_detect=args.os_detect, deep=args.deep,
+            os_detect=args.os_detect,
         )
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
@@ -196,11 +196,6 @@ def cmd_run(args) -> int:
     log.info("grc-auditor %s | run %s", __version__, run_id)
     log.info("AUTHORIZATION: scanning scope %s - operator asserts authorization",
              ", ".join(cfg.scope.cidrs))
-    if args.deep:
-        log.info("HIGH-ASSURANCE mode (--deep): CIS Level 2, oscap "
-                 "--fetch-remote-resources, aggressive discovery (-T4 + OS detect) "
-                 "-- maximum coverage; the target reaches out to the network")
-
     run = RunRecord(run_id=run_id, started_at=_utcnow(),
                     scope=list(cfg.scope.cidrs), config_hash=cfg.hash())
 
@@ -405,11 +400,6 @@ def build_parser() -> argparse.ArgumentParser:
                         "benchmark producing a verdict (default 90)")
     r.add_argument("--os-detect", action="store_true",
                    help="enable nmap OS detection (-O, needs root on run host)")
-    r.add_argument("--deep", action="store_true",
-                   help="high-assurance mode: force CIS Level 2, oscap "
-                        "--fetch-remote-resources, and aggressive discovery "
-                        "(-T4 + OS detect) for maximum coverage. Aggressive: the "
-                        "target reaches out to the network. Changes config_hash.")
     r.add_argument("--dry-run", action="store_true",
                    help="discover + classify only; no SSH, no scanning")
     r.add_argument("-v", "--verbose", action="store_true")
