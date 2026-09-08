@@ -33,6 +33,11 @@ def test_previous_run_id_skips_unfinished_baseline(tmp_path):
         )
         store.begin_run(crashed)                        # finished_at stays NULL
         assert store.previous_run_id("20260103T000000Z") == "20260101T000000Z"
+        # The crashed run must not chart on the fleet trend either -- both posture
+        # displays agree on what counts as a completed run.
+        trend_ids = [p["run_id"] for p in store.fleet_pass_rate_history(n=8)]
+        assert "20260102T000000Z" not in trend_ids
+        assert "20260101T000000Z" in trend_ids
     finally:
         store.close()
 

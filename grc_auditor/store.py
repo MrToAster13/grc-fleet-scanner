@@ -245,3 +245,57 @@ class Store:
                 )
             run.hosts.append(host)
         return run
+
+    # -- read: multi-run trend (read-only; schema unchanged) ---------------
+    def fleet_pass_rate_history(self, n: int = 10) -> list[dict]:
+        """Fleet pass-rate per run for the most recent ``n`` runs.
+
+        Aggregates the persisted per-host passed/failed/error counts across the
+        SCANNED hosts of each run and derives the same fleet pass rate the
+        report shows (``100 * passed / (passed+failed+error)``). Runs with no
+        scanned hosts yield ``pass_rate=None`` and ``scanned=0`` so the report
+        can still place them on the timeline honestly.
+
+        Returned oldest-first (chronological) so it can be charted left-to-right.
+        Each item::
+
+            {"run_id", "started_at", "scanned", "passed", "evaluated",
+             "pass_rate"}
+        """
+        if n <= 0:
+            return []
+        # Only FINISHED runs belong on the trend, matching previous_run_id: a run
+        # that crashed mid-fleet (finished_at NULL) holds a partial host set and
+        # would chart a spurious dip/spike that the drift baseline deliberately
+        # ignores -- the two posture displays must agree on what counts as a run.
+        run_rows = self._conn.execute(
+            "SELECT run_id, started_at FROM runs WHERE finished_at IS NOT NULL "
+            "ORDER BY run_id DESC LIMIT ?",
+            (n,),
+        ).fetchall()
+        out: list[dict] = []
+        for rr in run_rows:
+            agg = self._conn.execute(
+                "SELECT COUNT(*) AS scanned, "
+                "COALESCE(SUM(passed),0) AS passed, "
+                "COALESCE(SUM(failed),0) AS failed, "
+                "COALESCE(SUM(error),0)  AS error "
+                "FROM hosts WHERE run_id = ? AND status = ?",
+                (rr["run_id"], HostStatus.SCANNED.value),
+            ).fetchone()
+            # COUNT(*) and COALESCE(SUM(...),0) guarantee these are non-NULL ints.
+            evaluated = agg["passed"] + agg["failed"] + agg["error"]
+            pass_rate = (
+                round(100.0 * agg["passed"] / evaluated, 1)
+                if evaluated > 0 else None
+            )
+            out.append({
+                "run_id": rr["run_id"],
+                "started_at": rr["started_at"],
+                "scanned": agg["scanned"],
+                "passed": agg["passed"],
+                "evaluated": evaluated,
+                "pass_rate": pass_rate,
+            })
+        out.reverse()  # oldest-first for charting
+        return out
