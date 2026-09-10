@@ -121,6 +121,27 @@ out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
 status=$?
 check "plain path string dies" 1 "$status" "$out" "does not look like an SSH public key"
 
+# 9. CRLF-terminated key (Windows-edited key file or copy/paste): the
+#    trailing \r must be stripped before the base64 check runs on any awk,
+#    not just gawk, or the verdict depends on which awk is stock (mawk on
+#    Ubuntu leaves \r on the last field and fails base64 -d).
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" $'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJcTiTVdbLQxAaeWv5A6zBhV6h/nMGa+7T39V6EE0Bta scan@runhost\r' 2>&1)"
+status=$?
+check "CRLF-terminated valid key passes" 0 "$status" "$out"
+
+# 10. a two-line value (e.g. a key file with a stray blank line, or two
+#     keys concatenated): must be rejected outright, not silently
+#     truncated to whichever fields awk happens to read from line one.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" $'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJcTiTVdbLQxAaeWv5A6zBhV6h/nMGa+7T39V6EE0Bta scan@runhost\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAother second@runhost' 2>&1)"
+status=$?
+check "two-line value dies" 1 "$status" "$out" "more than one line"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
