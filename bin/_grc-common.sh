@@ -26,11 +26,12 @@ grc_base_python() {
     else return 1; fi
 }
 
-# Echo the interpreter inside a venv (POSIX bin/ or Windows Scripts/), or return
-# non-zero if it has none yet. One place owns the bin-vs-Scripts convention.
+# Echo the interpreter inside a venv (POSIX bin/), or return non-zero if it
+# has none yet. The launcher layer (install.sh, bin/*, grc-target-setup) is
+# bash and requires a Linux run host (docs/design.md SS2), so there is no
+# Windows `Scripts/python.exe` layout to account for here.
 grc_venv_python() {
-    if   [ -x "$1/bin/python" ];         then echo "$1/bin/python"
-    elif [ -x "$1/Scripts/python.exe" ]; then echo "$1/Scripts/python.exe"
+    if [ -x "$1/bin/python" ]; then echo "$1/bin/python"
     else return 1; fi
 }
 

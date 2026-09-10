@@ -75,10 +75,10 @@ def test_starter_config_is_refused_by_the_authorization_guard(tmp_path):
     assert "empty" in str(ei.value).lower()
 
 
-def test_scaffold_writes_starter_and_returns_two(tmp_path, capsys):
+def test_scaffold_writes_starter_and_returns_scaffolded_code(tmp_path, capsys):
     dest = tmp_path / "config.yaml"
     rc = _scaffold_config(str(dest))
-    assert rc == 2
+    assert rc == cli_mod.EXIT_CONFIG_SCAFFOLDED
     assert dest.exists()
     assert yaml.safe_load(dest.read_text(encoding="utf-8"))["scope"]["cidrs"] == []
     assert "starter" in capsys.readouterr().out.lower()
@@ -87,7 +87,9 @@ def test_scaffold_writes_starter_and_returns_two(tmp_path, capsys):
 def test_cmd_run_scaffolds_when_config_missing(tmp_path, capsys):
     dest = tmp_path / "config.yaml"
     rc = cmd_run(SimpleNamespace(config=str(dest)))
-    assert rc == 2                       # nothing scanned; operator must edit first
+    # nothing scanned; operator must edit first. Distinct from a genuine
+    # ConfigError (ELI-143) -- this is "we just wrote you a config".
+    assert rc == cli_mod.EXIT_CONFIG_SCAFFOLDED
     assert dest.exists()
     # A blind re-run of the scaffolded config is still refused.
     with pytest.raises(ConfigError):
@@ -119,12 +121,18 @@ def test_exit_code_is_zero_when_at_least_one_host_scanned():
 
 
 def test_exit_code_does_not_collide_with_config_scaffold_or_discovery_codes():
-    # ELI-143 already flags 2 as overloaded between "scaffold written" and a
-    # real ConfigError; discovery failure returns 1. The zero-scanned signal
-    # must not reuse either.
+    # ELI-143: "scaffold written" (EXIT_CONFIG_SCAFFOLDED) and a real
+    # ConfigError (EXIT_CONFIG_ERROR) now have distinct codes; discovery
+    # failure returns 1. The zero-scanned signal must not reuse any of them.
     hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
     rc = _exit_code_for_run(_run(hosts))
-    assert rc not in (0, 1, 2)
+    assert rc not in (0, 1, cli_mod.EXIT_CONFIG_ERROR, cli_mod.EXIT_CONFIG_SCAFFOLDED)
+
+
+def test_config_scaffolded_and_config_error_codes_are_distinct():
+    # The whole point of ELI-143: a caller/CI step must be able to tell "we
+    # just created your config for you" apart from "your config is broken".
+    assert cli_mod.EXIT_CONFIG_SCAFFOLDED != cli_mod.EXIT_CONFIG_ERROR
 
 
 def test_print_summary_warns_loudly_when_zero_scanned(capsys):
