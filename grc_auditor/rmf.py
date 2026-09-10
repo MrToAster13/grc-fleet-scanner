@@ -6,9 +6,7 @@ implementation status, so an ISSO can fill the DSS SecCtrl tab from real
 evidence instead of by hand.
 
 The source of truth is the datastream's OWN per-rule 800-53 references embedded
-in the ARF (authoritative), NOT the indicative family cross-walk in
-`crosswalk.py`. `crosswalk.py` is for orienting the HTML report; this is for
-control-by-control evidence you can defend.
+in the ARF (authoritative). This is control-by-control evidence you can defend.
 
 Honesty, stated in the output (never hidden):
   * Ubuntu SSG content typically maps rules to 800-53 **Rev 4**; a DoD SSP
