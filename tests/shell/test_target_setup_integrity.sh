@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # test_target_setup_integrity.sh: shell-level coverage for verify_sha512sum()
-# in grc-target-setup (ELI-137, the SCAP-content-integrity fix).
+# and validate_pubkey() in grc-target-setup (ELI-137 SCAP-content-integrity
+# fix; validate_pubkey added under ELI-144).
 #
 # Why this lives outside the pytest suite: grc-target-setup is bash that
 # scp's alone onto a target host and runs installer steps (apt, sudoers,
 # real root paths) the Python test suite has no seam to exercise, and no
-# target host to run against. verify_sha512sum() is the one piece of new
-# logic the fix adds, and it is a pure function: given a file and a
-# sha512sum-format checksum file, it either confirms the digest or dies.
-# That's testable in isolation without a target, a network, or root.
+# target host to run against. verify_sha512sum() and validate_pubkey() are
+# both pure functions -- given their inputs, they either succeed or die --
+# so they're testable in isolation without a target, a network, or root.
 #
 # Sourcing grc-target-setup with GRC_TARGET_SETUP_TEST=1 set stops the file
 # right after verify_sha512sum() is defined (see the guard in the script)
@@ -84,6 +84,42 @@ out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
 ' _ "$SCRIPT" "$work/good.bin" "$work/does-not-exist.sha512" 2>&1)"
 status=$?
 check "missing checksum file dies" 1 "$status" "$out" "missing or empty"
+
+# --- validate_pubkey() ------------------------------------------------- #
+
+# 5. a real-shaped ed25519 key: succeeds silently (no output on success).
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJcTiTVdbLQxAaeWv5A6zBhV6h/nMGa+7T39V6EE0Bta scan@runhost" 2>&1)"
+status=$?
+check "valid ed25519 pubkey passes" 0 "$status" "$out"
+
+# 6. an unrecognized key type: dies with a clear message.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" "ssh-made-up-type AAAAC3NzaC1lZDI1NTE5AAAA" 2>&1)"
+status=$?
+check "unrecognized key type dies" 1 "$status" "$out" "unrecognized key type"
+
+# 7. non-base64 data field: dies with a clear message.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" "ssh-ed25519 not!valid!base64!!" 2>&1)"
+status=$?
+check "invalid base64 data dies" 1 "$status" "$out" "not valid base64"
+
+# 8. a plain filesystem path mistakenly passed as the key itself (the
+#    concern the ticket names directly): dies with a clear message rather
+#    than silently landing in authorized_keys.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_pubkey "$2"
+' _ "$SCRIPT" "/home/user/.ssh/id_ed25519.pub" 2>&1)"
+status=$?
+check "plain path string dies" 1 "$status" "$out" "does not look like an SSH public key"
 
 echo
 echo "$pass passed, $fail failed"
