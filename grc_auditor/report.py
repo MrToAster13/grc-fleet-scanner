@@ -27,7 +27,6 @@ except ImportError as exc:  # pragma: no cover - dependency guard
         "Jinja2 is required. Install dependencies: pip install -r requirements.txt"
     ) from exc
 
-from . import crosswalk
 from .logging_setup import get_logger
 from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, HostStatus, RunRecord
 from .store import Store
@@ -183,20 +182,36 @@ def compute_drift(run: RunRecord, store: Store) -> Drift:
     )
 
 
+def _rule_stem(rule_id: str) -> str:
+    """Reduce a full SSG rule id to its bare stem.
+
+    ``xccdf_org.ssgproject.content_rule_sshd_disable_root_login``
+        -> ``sshd_disable_root_login``
+
+    Tolerates ids that are already stems or use a different marker.
+    """
+    if not rule_id:
+        return ""
+    rid = rule_id.strip()
+    marker = "content_rule_"
+    if marker in rid:
+        rid = rid.split(marker, 1)[1]
+    elif rid.startswith("xccdf_"):
+        rid = rid.rsplit(".", 1)[-1]
+    return rid
+
+
 def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
     """Fleet-wide failing controls, severity-weighted and host-linked.
 
     Aggregates each failing rule across scanned hosts, then sorts by
     **severity first, then host-count** so the most dangerous, most widespread
-    gaps surface at the top. Each row also carries the list of failing host IPs
-    and an indicative framework cross-walk (NIST 800-53 / ISO 27001) from
-    :mod:`grc_auditor.crosswalk`.
+    gaps surface at the top. Each row also carries the list of failing host IPs.
 
     Each item::
 
         {"rule_id", "count", "title", "severity", "severity_rank",
-         "hosts": [ip, ...], "stem", "nist": [...], "iso": [...],
-         "mapped": bool}
+         "hosts": [ip, ...], "stem"}
     """
     counter: Counter = Counter()
     titles: dict[str, str] = {}
@@ -217,18 +232,14 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
     rows: list[dict] = []
     for rid, n in counter.items():
         sev = severities.get(rid, "unknown")
-        cw = crosswalk.map_rule_verbose(rid)
         rows.append({
             "rule_id": rid,
-            "stem": crosswalk.rule_stem(rid),
+            "stem": _rule_stem(rid),
             "count": n,
             "title": titles.get(rid, ""),
             "severity": sev,
             "severity_rank": _sev_rank(sev),
             "hosts": sorted(hosts_by_rule.get(rid, [])),
-            "nist": cw["nist"],
-            "iso": cw["iso"],
-            "mapped": cw["mapped"],
         })
 
     # Sort: severity desc, then host-count desc, then rule id for stability.
@@ -516,7 +527,6 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     html = template.render(
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
-        crosswalk_label=crosswalk.CROSSWALK_LABEL,
         low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
         dry_run=dry_run,
     )
@@ -559,14 +569,11 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     findings_csv = os.path.join(run_dir, "findings.csv")
     with open(findings_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["ip", "rule_id", "result", "severity", "title",
-                    "nist_800_53", "iso_27001"])
+        w.writerow(["ip", "rule_id", "result", "severity", "title"])
         for h in run.scanned_hosts():
             for fr in h.scan.failed_rules:
-                cw = crosswalk.map_rule(fr.rule_id)
                 w.writerow([_csv_safe(h.ip), _csv_safe(fr.rule_id), fr.result,
-                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or ""),
-                            ";".join(cw["nist"]), ";".join(cw["iso"])])
+                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or "")])
 
     paths = {
         "html": html_path, "json": json_path,

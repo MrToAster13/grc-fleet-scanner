@@ -214,7 +214,7 @@ fix classification first (the cloud-target note in §4).
 
 **Confirm artifacts under `vm-output/runs/<run_id>/`:**
 - [ ] `report.html`: host shows `scanned`, a CIS score, pass/fail counts, failing controls
-- [ ] `report.json`, `hosts.csv`, `findings.csv` (findings.csv has NIST/ISO columns)
+- [ ] `report.json`, `hosts.csv`, `findings.csv`
 - [ ] `manifest.json`: SHA-256 of every artifact; `effective-config.json`: the resolved config
 - [ ] `audit.log`: the AUTHORIZATION line + every action
 - [ ] `<VM_IP>/results.xml`, `arf.xml`, `report.html`, `oscap.stdout.txt`, `oscap.stderr.txt`

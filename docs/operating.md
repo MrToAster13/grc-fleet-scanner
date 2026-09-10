@@ -204,9 +204,9 @@ is where it is. Act on the gaps:
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
 
 **Other report sections:** executive summary (posture + biggest risks), fleet trend
-(pass-rate sparkline over recent runs), severity breakdown, and top failing controls with
-an indicative **NIST 800-53 / ISO 27001 cross-walk** (orientation only; authoritative
-references live in the raw ARF evidence).
+(pass-rate sparkline over recent runs), severity breakdown, and top failing controls.
+For authoritative NIST 800-53 references, run the `rmf` command: it reads each rule's
+own reference embedded in the raw ARF evidence.
 
 **Assessment confidence (read this before trusting a score).** Each scanned host shows a
 confidence % = how much of the benchmark actually produced a verdict. A low-privilege scan
