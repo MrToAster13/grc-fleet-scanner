@@ -63,6 +63,16 @@ verify_sha512sum() {
 # authorized_keys and failing sshd only later, off-host, at scan time.
 validate_pubkey() {
     local key="$1" type data
+    # Strip CR (CRLF-terminated input from a Windows-edited key file or
+    # copy/paste) and one trailing LF before the multi-line check, so a
+    # cleanly-terminated single key isn't mistaken for two lines; a LF
+    # still embedded after that means the value genuinely spans more than
+    # one line and must be rejected rather than silently truncated by awk.
+    key="${key//$'\r'/}"
+    key="${key%$'\n'}"
+    case "$key" in
+        *$'\n'*) die "--pubkey does not look like an SSH public key: value spans more than one line. Pass a single 'type data [comment]' line." ;;
+    esac
     type="$(awk '{print $1}' <<<"$key")"
     data="$(awk '{print $2}' <<<"$key")"
     case "$type" in
