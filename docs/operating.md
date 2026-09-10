@@ -145,8 +145,9 @@ python -m grc_auditor history -o ./grc-output
 |---|---|
 | `0` | Success: at least one host reached `scanned` (or this was a `--dry-run`). |
 | `1` | Discovery or RMF failure. |
-| `2` | Config scaffold-or-refusal: either `run` just wrote a starter `config.yaml` because none existed, or the config failed to load (e.g. the authorization guard refused an empty scope). Both cases currently share this code; see `ELI-143`. |
+| `2` | Genuine config error: `config.yaml` exists but failed to load or validate (e.g. the authorization guard refused an empty scope). Something is actually wrong; fix the file and re-run. |
 | `3` | Zero-scanned: the run completed and wrote a report, but no host reached `scanned` -- every host landed in a coverage gap (`no_credentials`, `unreachable`, `scanner_absent`, etc.), or discovery found nothing. Not raised for `--dry-run` (which never scans by design) or for a fleet that is entirely `non_ubuntu` (never scan candidates in the first place). The console summary and the report's top banner explain which. |
+| `4` | Config scaffolded: no `config.yaml` existed, so `run` just wrote a starter one and stopped. Nothing ran and nothing is broken; edit `scope.cidrs` and re-run. Distinct from `2` (`ELI-143`): a caller/CI step can now tell "we created your config for you" apart from "your config is broken". |
 
 ---
 

@@ -29,6 +29,24 @@ from .report import write_reports
 from .scan import scan_host
 from .store import Store
 
+# Exit codes for `run`. Kept together so the contract in docs/operating.md
+# stays a one-to-one mirror of this block, not something that has to be
+# reverse-engineered from scattered `return N` statements.
+#
+# 0 = success (at least one host `scanned`, or this was --dry-run)
+# 1 = discovery failure
+# 2 = genuine ConfigError: the config exists but failed to load/validate
+#     (e.g. the authorization guard refused an empty scope)
+# 4 = config scaffolded: no config existed, so `run` wrote a starter one and
+#     stopped -- nothing ran, and there is nothing wrong to fix beyond filling
+#     in scope.cidrs. Distinct from 2 (ELI-143): a scaffold is an expected
+#     first-run outcome, a ConfigError is a real failure; a caller/CI step
+#     needs to tell them apart.
+# 3 = zero-scanned: the run completed and wrote a report, but no host reached
+#     `scanned` (see EXIT_ZERO_SCANNED below).
+EXIT_CONFIG_ERROR = 2
+EXIT_CONFIG_SCAFFOLDED = 4
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -139,14 +157,17 @@ def _starter_config_text(example: str) -> str:
 
 def _scaffold_config(dest: str) -> int:
     """Write a starter config to ``dest`` and exit asking for an authorized
-    scope. Returns exit code 2 either way (nothing ran) -- so a scheduled job
-    that finds no config stops cleanly instead of scanning a template scope."""
+    scope. Returns EXIT_CONFIG_SCAFFOLDED either way (nothing ran) -- so a
+    scheduled job that finds no config stops cleanly instead of scanning a
+    template scope. Distinct from EXIT_CONFIG_ERROR (ELI-143): this path
+    means "we just created your config for you", not "your config is
+    broken"."""
     example = _example_config_path()
     if example is None:
         print(f"config error: {dest} not found, and no config.example.yaml was "
               f"available to scaffold one from. Create {dest} with an authorized "
               f"scope first.", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG_SCAFFOLDED
     try:
         parent = os.path.dirname(dest)
         if parent:
@@ -158,14 +179,14 @@ def _scaffold_config(dest: str) -> int:
     except OSError as exc:
         print(f"config error: could not scaffold {dest} from {example}: {exc}",
               file=sys.stderr)
-        return 2
+        return EXIT_CONFIG_SCAFFOLDED
     print(f"No config found -- wrote a starter to {dest} (from "
           f"{os.path.basename(example)}).")
     print(f"  Next: set scope.cidrs in {dest} to the range you are AUTHORIZED to "
           f"scan, then re-run.")
     print("  It stays empty until you do, and an empty scope is refused -- the "
           "authorization guard, on purpose.")
-    return 2
+    return EXIT_CONFIG_SCAFFOLDED
 
 
 def cmd_run(args) -> int:
@@ -181,7 +202,7 @@ def cmd_run(args) -> int:
         )
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG_ERROR
 
     # Restrict permissions on everything this run creates (dirs 0700, files 0600).
     # The evidence/logs/report encode the fleet's full internal posture + scope; on
@@ -276,10 +297,10 @@ def cmd_run(args) -> int:
 
 
 # Exit code reserved for a run that completed but scanned zero hosts. 0, 1,
-# and 2 are already spoken for elsewhere in this module (success; discovery/
-# rmf failure; config scaffold-or-refusal), and ELI-143 already flags 2 as
-# overloaded -- so this signal gets its own unused code rather than
-# overloading a taken one further.
+# 2, and 4 are already spoken for elsewhere in this module (success; discovery
+# failure; genuine ConfigError; config scaffolded -- see the exit-code block
+# near the top of this file) -- so this signal gets its own code rather than
+# overloading a taken one.
 EXIT_ZERO_SCANNED = 3
 
 
