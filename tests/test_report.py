@@ -7,7 +7,7 @@ import os
 
 from grc_auditor.models import HostRecord, HostStatus, RuleResult, RunRecord, ScanResult
 from grc_auditor.report import (
-    Drift, compute_drift, executive_summary, low_confidence_hosts,
+    Drift, compute_drift, executive_summary, fleet_trend, low_confidence_hosts,
     top_failing_controls, write_reports,
 )
 from grc_auditor.store import Store
@@ -31,10 +31,10 @@ def _scanned_host(ip, passed, failed, score, failed_rules=None):
     return host
 
 
-def _run(run_id, started_at, hosts):
+def _run(run_id, started_at, hosts, config_hash="hash"):
     return RunRecord(
         run_id=run_id, started_at=started_at, finished_at=started_at,
-        scope=["10.0.10.0/24"], config_hash="hash", hosts=hosts,
+        scope=["10.0.10.0/24"], config_hash=config_hash, hosts=hosts,
     )
 
 
@@ -106,6 +106,68 @@ def test_compute_drift_new_host_has_no_prev_score(tmp_path):
         store.close()
 
 
+def test_compute_drift_matching_config_hash_produces_delta(tmp_path):
+    # Two runs auditing the SAME scope/config (matching config_hash) are a
+    # valid comparison: a delta must be produced.
+    store = Store(str(tmp_path))
+    try:
+        prev = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
+                    [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                    config_hash="scope-a")
+        store.save_run(prev)
+
+        curr = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    config_hash="scope-a")
+        store.save_run(curr)
+
+        drift = compute_drift(curr, store)
+        assert drift.prev_run_id == "20260601T000000Z"
+        assert drift.fleet_delta == 5.0
+        assert drift.scope_changed is False
+    finally:
+        store.close()
+
+
+def test_compute_drift_differing_config_hash_produces_no_delta(tmp_path):
+    # A prior run against a DIFFERENT scope/config (a narrowed CIDR, a
+    # grc-dry pass, any other config change) must never be used as a
+    # baseline, even though it is chronologically the immediately-prior run.
+    store = Store(str(tmp_path))
+    try:
+        narrowed = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
+                        [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                        config_hash="narrowed-cidr")
+        store.save_run(narrowed)
+
+        full = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    config_hash="full-scope")
+        store.save_run(full)
+
+        drift = compute_drift(full, store)
+        assert drift.prev_run_id is None
+        assert drift.fleet_delta is None
+        assert drift.per_host == []
+        # A prior run DOES exist in history -- just not a comparable one.
+        assert drift.scope_changed is True
+    finally:
+        store.close()
+
+
+def test_executive_summary_labels_scope_change_when_no_comparable_run():
+    # Rendered-sentence coverage for the scope-changed case: the report must
+    # say plainly that an earlier run exists but wasn't used, not silently
+    # fall back to "first recorded run" (which would misstate the history).
+    drift = Drift(prev_run_id=None, prev_pass_rate=None,
+                  curr_pass_rate=90.0, per_host=[], scope_changed=True)
+    trend = executive_summary(RunRecord(run_id="r", started_at="t"),
+                              drift, top=[], sev=_EMPTY_SEV)["trend"]
+    assert "different scope" in trend
+    assert "not used as a drift baseline" in trend
+    assert "first recorded run" not in trend
+
+
 _EMPTY_SEV = {"by_severity": {}, "order": [], "total_rules": 0, "total_findings": 0}
 
 
@@ -137,6 +199,33 @@ def test_trend_sentence_distinguishes_first_run_from_an_unscored_run():
     # A real delta still reads as improved / regressed.
     assert "improved" in _trend_sentence("prev", 60.0, 68.6)
     assert "regressed" in _trend_sentence("prev", 70.0, 68.6)
+
+
+# --- fleet_trend ------------------------------------------------------------ #
+
+def test_fleet_trend_excludes_runs_with_differing_config_hash(tmp_path):
+    # The trend line is the same "blindness" the ticket describes for drift:
+    # a run against a different scope/config must not chart alongside this
+    # run's history, or a scope change reads as a compliance swing.
+    store = Store(str(tmp_path))
+    try:
+        narrowed = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
+                        [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                        config_hash="narrowed-cidr")
+        store.save_run(narrowed)
+
+        full = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    config_hash="full-scope")
+        store.save_run(full)
+
+        trend = fleet_trend(full, store)
+        ids = [p["run_id"] for p in trend["points"]]
+        assert "20260601T000000Z" not in ids
+        assert "20260627T000000Z" in ids
+        assert trend["first_run"] is True
+    finally:
+        store.close()
 
 
 # --- top_failing_controls -------------------------------------------------- #
