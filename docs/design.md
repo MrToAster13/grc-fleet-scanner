@@ -47,8 +47,8 @@ discover (nmap) → classify → reach (SSH) → detect (oscap/SSG) → scan (os
    stdout/stderr.
 7. **Persist**: timestamped, immutable result set in SQLite + raw artifacts on disk.
 8. **Report**: HTML dashboard (coverage map, executive summary, severity breakdown, fleet
-   trend, top failing controls with a NIST/ISO cross-walk, **assessment confidence**) +
-   JSON/CSV exports + retained raw OpenSCAP evidence.
+   trend, top failing controls, **assessment confidence**) + JSON/CSV exports + retained
+   raw OpenSCAP evidence.
 
 ## 4. Coverage model
 
@@ -125,7 +125,7 @@ coverage is never mistaken for a clean result:
 | `detect.py` | Ubuntu version + oscap/SSG presence + profile resolution |
 | `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |
-| `report.py` / `crosswalk.py` | HTML dashboard + JSON/CSV + drift + indicative NIST/ISO cross-walk |
+| `report.py` | HTML dashboard + JSON/CSV + drift |
 | `cli.py` | orchestration, argparse, bounded concurrency |
 
 The three frozen contracts (the config schema, the per-host result model, and the SQLite
