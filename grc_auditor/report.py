@@ -7,7 +7,9 @@ Produces, for one run:
   * hosts.csv    - per-host summary
   * findings.csv - per-failed-control rows
 
-Drift compares this run to the immediately prior run in the history store.
+Drift compares this run to the nearest prior run in the history store that
+audited the same scope/configuration (matching config_hash); see
+compute_drift().
 """
 
 from __future__ import annotations
@@ -148,6 +150,14 @@ class Drift:
     prev_pass_rate: Optional[float]
     curr_pass_rate: Optional[float]
     per_host: list[HostDrift]
+    # True when a prior finished, non-dry-run run exists in history but was
+    # rejected as a baseline solely because its config_hash differs from this
+    # run's (a narrowed CIDR, a changed credential group, any scope/config
+    # change). Distinguishes "first recorded run" (nothing comparable has
+    # ever run) from "history exists but the scope changed", so the rendered
+    # sentence can say which, rather than reporting both as a flat absence of
+    # trend. See docs/design.md "Drift baselines and scope".
+    scope_changed: bool = False
 
     @property
     def fleet_delta(self) -> Optional[float]:
@@ -157,9 +167,28 @@ class Drift:
 
 
 def compute_drift(run: RunRecord, store: Store) -> Drift:
-    prev_id = store.previous_run_id(run.run_id)
+    """Drift vs. the nearest run that actually audited the same scope/config.
+
+    A candidate baseline must be a finished, non-dry-run run whose
+    ``config_hash`` matches this run's exactly (see
+    ``Store.previous_run_id``). ``config_hash`` already encodes scope
+    (CIDRs/exclude), credential groups, CIS level and every other
+    behavior-affecting config field, so an exact match means the two runs
+    audited the same thing -- a `grc-dry` pass, or a run against a narrowed
+    CIDR, can never become the baseline for a full/differently-scoped run.
+    When no such run exists, this returns a driftless result rather than
+    falling back to the nearest run regardless of scope: absence of trend is
+    a legitimate result, a fabricated one is not.
+    """
+    prev_id = store.previous_run_id(run.run_id, config_hash=run.config_hash)
     if prev_id is None:
-        return Drift(None, None, run.fleet_pass_rate(), [])
+        # Distinguish "nothing to compare against, ever" from "something
+        # exists but doesn't match this run's scope/config" purely for the
+        # rendered message -- config_hash=None here means "ignore scope",
+        # so a hit means real history exists, just not a comparable one.
+        scope_changed = store.previous_run_id(run.run_id) is not None
+        return Drift(None, None, run.fleet_pass_rate(), [],
+                    scope_changed=scope_changed)
 
     prev = store.load_run(prev_id)
     prev_scores = {
@@ -179,6 +208,7 @@ def compute_drift(run: RunRecord, store: Store) -> Drift:
         prev_pass_rate=prev.fleet_pass_rate() if prev else None,
         curr_pass_rate=run.fleet_pass_rate(),
         per_host=per_host,
+        scope_changed=False,
     )
 
 
@@ -289,9 +319,13 @@ def controls_by_severity(run: RunRecord) -> dict:
 def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
     """Fleet pass-rate trend across the last ``n`` runs (incl. this one).
 
-    Pulls history from :meth:`Store.fleet_pass_rate_history`. Gracefully reports
-    a single-point "first run" when there is no prior history. The current run
-    is reconciled in from the live ``run`` object so the latest point reflects
+    Pulls history from :meth:`Store.fleet_pass_rate_history`, scoped to runs
+    sharing this run's ``config_hash`` -- a run against a narrowed CIDR, a
+    changed credential group, or any other scope/config change never lands on
+    the same trend line as this run, for the same reason it's never a drift
+    baseline (see ``compute_drift``). Gracefully reports a single-point "first
+    run" when there is no comparable prior history. The current run is
+    reconciled in from the live ``run`` object so the latest point reflects
     this in-progress run even before/independent of persistence.
 
     Returns::
@@ -300,7 +334,7 @@ def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
          "first_run": bool, "min": float|None, "max": float|None,
          "spark": "▁▂▅█..."}
     """
-    history = store.fleet_pass_rate_history(n) if store else []
+    history = store.fleet_pass_rate_history(n, config_hash=run.config_hash) if store else []
 
     # Ensure the current run is represented and authoritative for its own point.
     curr_rate = run.fleet_pass_rate()
@@ -400,7 +434,11 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     # "first recorded run", which would misstate the audit history.
     delta = drift.fleet_delta
     if delta is None:
-        if drift.prev_run_id is None:
+        if drift.prev_run_id is None and drift.scope_changed:
+            trend = ("No comparable prior run: an earlier run exists but "
+                     "audited a different scope/configuration, so it is not "
+                     "used as a drift baseline.")
+        elif drift.prev_run_id is None:
             trend = "No prior run to compare against (first recorded run)."
         elif drift.curr_pass_rate is None:
             trend = ("No hosts scored this run, so posture can't be compared "
