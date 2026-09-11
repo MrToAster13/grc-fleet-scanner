@@ -66,6 +66,13 @@ coverage is never mistaken for a clean result:
 | `host_key_mismatch` | SSH host key ≠ pinned key: a **security finding** |
 | `scan_error` | Scan attempted but errored, or completed with too little coverage to certify (below the hard confidence floor) |
 
+**Fleet pass rate, one definition.** "Fleet pass rate" is always `100 * passed /
+(passed + failed + error)` summed across `SCANNED` hosts only (`ScanResult.total_evaluated`
+is that denominator). `not_applicable`, `not_checked`, and `other` never enter either side of
+the ratio. `models.RunRecord.fleet_pass_rate()` and `store.Store.fleet_pass_rate_history()`
+both implement this same formula and every report surface (executive summary, fleet trend,
+JSON/CSV exports) reads one of the two; do not add a third computation elsewhere.
+
 ## 5. Design principles
 
 - **Audit integrity over coverage.** Never modify the system under assessment. Partial

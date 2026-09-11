@@ -228,6 +228,48 @@ def test_fleet_trend_excludes_runs_with_differing_config_hash(tmp_path):
         store.close()
 
 
+# --- fleet pass rate: single definition (ELI-144) --------------------------- #
+
+def test_fleet_pass_rate_matches_store_history_for_same_run(tmp_path):
+    """models.RunRecord.fleet_pass_rate() and store.fleet_pass_rate_history()
+    must always agree: both are documented (docs/design.md) as the one fleet
+    pass rate definition, 100 * passed / (passed + failed + error) across
+    SCANNED hosts. This pins that agreement so a future edit to either one
+    can't quietly reintroduce a second, disagreeing denominator."""
+    store = Store(str(tmp_path))
+    try:
+        run = _run("20260701T000000Z", "2026-07-01T00:00:00+00:00", [
+            _scanned_host("10.0.10.21", 180, 20, 90.0),
+            _scanned_host("10.0.10.22", 45, 5, 90.0),
+        ])
+        store.save_run(run)
+
+        model_rate = run.fleet_pass_rate()
+        history = store.fleet_pass_rate_history(n=1)
+
+        assert len(history) == 1
+        assert history[0]["run_id"] == run.run_id
+        assert history[0]["pass_rate"] == model_rate
+        assert model_rate == 90.0  # (180+45) / (180+20+45+5) = 225/250
+    finally:
+        store.close()
+
+
+def test_fleet_pass_rate_none_when_nothing_scanned(tmp_path):
+    """Both call sites must agree on the 'no evaluated checks' case too:
+    None, never a fabricated 0.0 or 100.0."""
+    store = Store(str(tmp_path))
+    try:
+        run = _run("20260701T000000Z", "2026-07-01T00:00:00+00:00", [])
+        store.save_run(run)
+
+        assert run.fleet_pass_rate() is None
+        history = store.fleet_pass_rate_history(n=1)
+        assert history[0]["pass_rate"] is None
+    finally:
+        store.close()
+
+
 # --- top_failing_controls -------------------------------------------------- #
 
 def test_top_failing_controls_aggregates_across_hosts():
