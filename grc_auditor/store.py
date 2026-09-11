@@ -181,16 +181,58 @@ class Store:
         )
         return [dict(r) for r in cur.fetchall()]
 
-    def previous_run_id(self, before_run_id: str) -> Optional[str]:
-        # Only a FINISHED run is a valid drift baseline. A run that crashed
-        # mid-fleet has finished_at NULL and only a partial set of hosts
-        # persisted; comparing against it would compute deltas versus a
-        # truncated baseline and report a spurious improvement/regression.
-        cur = self._conn.execute(
+    # A finished run holds a host row still in HostStatus.DISCOVERED ("alive,
+    # not yet processed") ONLY when it was a ``--dry-run`` pass: a real run's
+    # candidates are always persisted post-processing with a terminal status
+    # (scanned/no_credentials/unreachable/...), set by `_process_host` before
+    # `save_host` is ever called for them. A dry run skips that processing
+    # entirely and persists candidates exactly as discovery/classify left
+    # them. This is a structural signature, not a stored flag: it needs no
+    # schema change and can't drift out of sync with the pipeline that
+    # produces it. See docs/design.md "Drift baselines and scope" for the
+    # decision this backs: a dry run is never a valid drift/trend baseline,
+    # because it performed no scan and carries no compliance evidence -- its
+    # fleet "pass rate" is always None, so comparing against it either wrongly
+    # blocks a real comparable prior run (if picked) or is silently a no-op
+    # (if not), and the report gives no signal that a baseline was skipped.
+    _DRY_RUN_SIGNATURE = (
+        "EXISTS (SELECT 1 FROM hosts WHERE hosts.run_id = runs.run_id "
+        "AND hosts.status = ?)"
+    )
+
+    def previous_run_id(self, before_run_id: str,
+                        config_hash: Optional[str] = None) -> Optional[str]:
+        """The most recent finished run comparable to ``before_run_id``.
+
+        "Comparable" means all of:
+          * finished (a crashed mid-fleet run has ``finished_at`` NULL and only
+            a partial host set; comparing against it would compute deltas
+            versus a truncated baseline and report a spurious
+            improvement/regression);
+          * not a dry-run pass (see ``_DRY_RUN_SIGNATURE`` above);
+          * when ``config_hash`` is given, an EXACT match on the stored
+            ``config_hash``. ``config_hash`` encodes scope (CIDRs/exclude),
+            credential groups, CIS level, and every other behavior-affecting
+            setting (see ``Config.canonical``), so two runs sharing it audited
+            the same thing. A narrowed CIDR, a different credential group, or
+            any other scope/config change produces a different hash and is
+            correctly treated as not comparable -- never silently diffed
+            against as if it were a compliance-posture change.
+
+        Pass ``config_hash=None`` to intentionally skip that filter (used only
+        to detect "some prior run exists, just not a matching one" for
+        reporting purposes -- never to select an actual baseline).
+        """
+        query = (
             "SELECT run_id FROM runs WHERE run_id < ? AND finished_at IS NOT NULL "
-            "ORDER BY run_id DESC LIMIT 1",
-            (before_run_id,),
+            f"AND NOT {self._DRY_RUN_SIGNATURE}"
         )
+        params: list = [before_run_id, HostStatus.DISCOVERED.value]
+        if config_hash is not None:
+            query += " AND config_hash = ?"
+            params.append(config_hash)
+        query += " ORDER BY run_id DESC LIMIT 1"
+        cur = self._conn.execute(query, params)
         row = cur.fetchone()
         return row["run_id"] if row else None
 
@@ -247,14 +289,24 @@ class Store:
         return run
 
     # -- read: multi-run trend (read-only; schema unchanged) ---------------
-    def fleet_pass_rate_history(self, n: int = 10) -> list[dict]:
-        """Fleet pass-rate per run for the most recent ``n`` runs.
+    def fleet_pass_rate_history(self, n: int = 10,
+                               config_hash: Optional[str] = None) -> list[dict]:
+        """Fleet pass-rate per run for the most recent ``n`` COMPARABLE runs.
 
         Aggregates the persisted per-host passed/failed/error counts across the
         SCANNED hosts of each run and derives the same fleet pass rate the
         report shows (``100 * passed / (passed+failed+error)``). Runs with no
         scanned hosts yield ``pass_rate=None`` and ``scanned=0`` so the report
         can still place them on the timeline honestly.
+
+        Only FINISHED, non-dry-run runs are eligible, matching
+        ``previous_run_id`` -- the two posture displays must agree on what
+        counts as a run (see ``_DRY_RUN_SIGNATURE``). When ``config_hash`` is
+        given, only runs sharing that exact ``config_hash`` are eligible too:
+        a trend line that silently mixes runs against different scopes/configs
+        would chart a scope change as a compliance swing, the same failure
+        mode drift was fixed for. Pass ``config_hash=None`` to intentionally
+        see the unfiltered history (not used by the report).
 
         Returned oldest-first (chronological) so it can be charted left-to-right.
         Each item::
@@ -264,15 +316,17 @@ class Store:
         """
         if n <= 0:
             return []
-        # Only FINISHED runs belong on the trend, matching previous_run_id: a run
-        # that crashed mid-fleet (finished_at NULL) holds a partial host set and
-        # would chart a spurious dip/spike that the drift baseline deliberately
-        # ignores -- the two posture displays must agree on what counts as a run.
-        run_rows = self._conn.execute(
+        query = (
             "SELECT run_id, started_at FROM runs WHERE finished_at IS NOT NULL "
-            "ORDER BY run_id DESC LIMIT ?",
-            (n,),
-        ).fetchall()
+            f"AND NOT {self._DRY_RUN_SIGNATURE}"
+        )
+        params: list = [HostStatus.DISCOVERED.value]
+        if config_hash is not None:
+            query += " AND config_hash = ?"
+            params.append(config_hash)
+        query += " ORDER BY run_id DESC LIMIT ?"
+        params.append(n)
+        run_rows = self._conn.execute(query, params).fetchall()
         out: list[dict] = []
         for rr in run_rows:
             agg = self._conn.execute(

@@ -139,7 +139,46 @@ schema) are stable seams that let the modules evolve independently.
 - Pulling inventory from CMDB / Ansible / cloud APIs (active scan is the v1 source).
 - Vault / short-lived credential issuance (agent-based keys for v1).
 
-## 9. Known deferred enhancements
+## 9. Drift baselines and scope
+
+`compute_drift` and the fleet trend line only ever compare a run against a
+prior run that audited the **same scope and configuration**, matched via the
+persisted `config_hash` (it already encodes CIDRs/exclude, credential groups,
+CIS level, and every other behavior-affecting setting via `Config.canonical`).
+A narrowed CIDR, a different credential group, or any other config change
+produces a different hash and is never silently diffed against as if it were
+a compliance-posture change. When no comparable prior run exists, the report
+says so plainly (distinguishing "first recorded run" from "an earlier run
+exists but audited a different scope") instead of falling back to the nearest
+run regardless of scope. Absence of a trend is a legitimate result.
+
+**A `grc-dry` pass is never a valid drift or trend baseline, full stop.**
+`dry_run` is deliberately excluded from `Config.canonical`/`config_hash` (a
+dry run and a full run of the identical config hash identically), so
+`config_hash` matching alone cannot tell them apart. A dry run performs no
+scan and carries no compliance evidence; comparing against it, or charting it
+on the trend line, would either silently skip a real comparable baseline or
+report on a run that never assessed anything. Rather than adding a
+`dry_run` column to the frozen `runs` schema, dry runs are detected
+structurally: a dry run persists its candidate hosts while they are still in
+`HostStatus.DISCOVERED` ("alive, not yet processed"), because it never runs
+the classify -> reach -> detect -> scan pipeline on them. A real run always
+advances every candidate to a terminal status before persisting it. So among
+finished runs, any run holding a host row still `discovered` is provably a
+dry run, with no schema change and no risk of drifting out of sync with the
+pipeline that produces the signature. Both `Store.previous_run_id` and
+`Store.fleet_pass_rate_history` exclude this signature unconditionally.
+
+`fleet_pass_rate_history` (and the `fleet_trend`/sparkline it feeds) had the
+identical scope blindness as drift: it charted the last N finished runs with
+no config_hash filter, so a scope change read as a compliance swing on the
+trend line too. It is fixed the same way, in the same pass: an optional
+`config_hash` parameter filters the history to runs sharing this run's
+config_hash (plus the same dry-run exclusion above). It is scope-comparable
+now; there is no remaining reason to consider removing `fleet_trend`
+outright.
+
+## 10. Known deferred enhancements
 
 Surfaced during development, intentionally not built yet:
 
@@ -149,7 +188,7 @@ Surfaced during development, intentionally not built yet:
 | `ScanResult.stdout_path` / `stderr_path` fields | `oscap.stdout.txt` / `oscap.stderr.txt` are written as evidence but their paths aren't recorded on the contract. |
 | `findings` table denormalization (`ip` / `run_id`) | Would enable rule-level cross-run trend; not needed by current features. |
 
-## 10. Status & validation
+## 11. Status & validation
 
 Offline behavior is covered by a 200-test pytest suite. The live SSH→`oscap` scan leg has
 now been validated end-to-end against a real cloud Ubuntu 22.04 host: both the happy path
