@@ -62,10 +62,14 @@ parser returns `score=None` without erroring.
 
 `grc-target-setup` is bash, not Python, and runs installer steps (apt,
 sudoers, real root paths) on a target host this suite has no seam or target
-to exercise. `tests/shell/test_target_setup_integrity.sh` covers the one
-pure function it exposes, `verify_sha512sum()`, in isolation: matching
-digest, tampered content, and an empty or missing checksum file all resolve
-correctly. Run it directly, it is not part of `python -m pytest`:
+to exercise. `tests/shell/test_target_setup_integrity.sh` covers the pure
+functions it exposes, in isolation: `verify_sha512sum()` (matching digest,
+tampered content, and an empty or missing checksum file all resolve
+correctly) and `validate_pubkey()` (a well-formed key passes; an
+unrecognized key type, non-base64 key data, and a plain path string
+mistakenly passed as `--pubkey` all die with a clear message instead of
+landing in `authorized_keys` unchecked). Run it directly, it is not part of
+`python -m pytest`:
 
 ```bash
 bash tests/shell/test_target_setup_integrity.sh
