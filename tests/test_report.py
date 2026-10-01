@@ -396,6 +396,22 @@ def test_incomplete_posture_renders_bad_badge_and_border(tmp_path):
     assert ".exec.incomplete" in html        # border colour rule exists
 
 
+def test_fleet_pass_rate_card_label_says_what_it_measures(tmp_path):
+    # ELI-341 item 8 / ELI-144: the label must name the measure, not just
+    # restate "fleet pass rate" with no definition.
+    store = Store(str(tmp_path))
+    try:
+        run = _fleet(scanned=2, gaps=40, non_ubuntu=8)
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        html = open(write_reports(run, store, run_dir)["html"],
+                    encoding="utf-8").read()
+    finally:
+        store.close()
+    assert "Pass rate (checks on scanned hosts)" in html
+    assert "Fleet pass rate" not in html
+
+
 # --- top_failing_controls -------------------------------------------------- #
 
 def test_top_failing_controls_aggregates_across_hosts():
