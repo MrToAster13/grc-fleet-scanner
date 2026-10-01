@@ -139,6 +139,114 @@ def test_trend_sentence_distinguishes_first_run_from_an_unscored_run():
     assert "regressed" in _trend_sentence("prev", 70.0, 68.6)
 
 
+# --- executive_summary posture vs coverage (ELI-166) ----------------------- #
+
+
+_NO_DRIFT = Drift(prev_run_id=None, prev_pass_rate=None, curr_pass_rate=None,
+                  per_host=[])
+
+
+def _status_host(ip, status):
+    host = HostRecord(ip=ip, hostname=ip.replace(".", "-"), open_ports=[22])
+    host.status = status
+    return host
+
+
+def _fleet(scanned, gaps, non_ubuntu=0, passed=200, failed=0):
+    """`scanned` hosts passing `passed`/`failed`, plus gap and non_ubuntu hosts."""
+    hosts = [_scanned_host("10.0.1.%d" % i, passed, failed, 100.0)
+             for i in range(scanned)]
+    hosts += [_status_host("10.0.2.%d" % i, HostStatus.NO_CREDENTIALS)
+              for i in range(gaps)]
+    hosts += [_status_host("10.0.3.%d" % i, HostStatus.NON_UBUNTU)
+              for i in range(non_ubuntu)]
+    return _run("r", "t", hosts)
+
+
+def _posture(run):
+    return executive_summary(run, _NO_DRIFT, top=[], sev=_EMPTY_SEV)
+
+
+def test_perfect_pass_rate_over_tiny_scanned_share_is_not_strong():
+    # The audit reproduction: 50 hosts, 2 scanned and passing everything,
+    # 40 coverage gaps, 8 non_ubuntu. Pass rate is 100% but 95% of the scan
+    # candidates were never assessed, so posture must not read as clean.
+    run = _fleet(scanned=2, gaps=40, non_ubuntu=8)
+    es = _posture(run)
+    assert es["fleet_pass_rate"] == 100.0
+    assert es["posture"] == "incomplete"
+    assert "strong" not in es["headline"]
+    assert "4.8%" in es["headline"]          # 2 of 42 scan candidates
+    # The coverage sentence keeps len(run.hosts) as its denominator.
+    assert es["coverage"].startswith("2 of 50 discovered hosts assessed (4.0%)")
+
+
+def test_high_pass_rate_with_partial_coverage_is_capped_at_moderate():
+    # 8 of 10 candidates scanned (80%): enough to rate, not enough for strong.
+    es = _posture(_fleet(scanned=8, gaps=2))
+    assert es["posture"] == "moderate"
+    assert "80.0%" in es["headline"]
+
+
+def test_threshold_boundaries():
+    # Exactly 90% of candidates scanned with a high pass rate reads strong.
+    assert _posture(_fleet(scanned=9, gaps=1))["posture"] == "strong"
+    # Exactly 50% is enough to rate (moderate cap), just under is not.
+    assert _posture(_fleet(scanned=1, gaps=1))["posture"] == "moderate"
+    assert _posture(_fleet(scanned=49, gaps=51))["posture"] == "incomplete"
+    # Full coverage keeps the old headline unchanged.
+    full = _posture(_fleet(scanned=3, gaps=0))
+    assert full["posture"] == "strong"
+    assert full["headline"] == (
+        "Fleet compliance is strong, with only isolated gaps to close.")
+
+
+def test_non_ubuntu_inventory_does_not_count_against_coverage():
+    # 9 of 10 scan candidates scanned; 40 non_ubuntu hosts are out of scope.
+    assert _posture(_fleet(scanned=9, gaps=1, non_ubuntu=40))["posture"] == "strong"
+
+
+def test_small_fleet_one_gap_blocks_strong():
+    # 2 candidates, 1 scanned: 50% -> rated but capped. 3 of 4 -> 75% capped.
+    assert _posture(_fleet(scanned=1, gaps=1))["posture"] == "moderate"
+    assert _posture(_fleet(scanned=3, gaps=1))["posture"] == "moderate"
+
+
+def test_weak_pass_rate_stays_weak_at_low_coverage():
+    # Low coverage never softens a weak verdict into "incomplete".
+    es = _posture(_fleet(scanned=1, gaps=20, passed=100, failed=100))
+    assert es["fleet_pass_rate"] == 50.0
+    assert es["posture"] == "weak"
+
+
+def test_moderate_pass_rate_at_low_coverage_is_incomplete():
+    es = _posture(_fleet(scanned=1, gaps=9, passed=160, failed=40))
+    assert es["fleet_pass_rate"] == 80.0
+    assert es["posture"] == "incomplete"
+
+
+def test_all_non_ubuntu_fleet_is_no_data_not_incomplete():
+    # No scan candidates at all: nothing was scanned, so the existing no-data
+    # branch owns it. The coverage gate never fires on an empty candidate set.
+    es = _posture(_fleet(scanned=0, gaps=0, non_ubuntu=5))
+    assert es["posture"] == "no-data"
+
+
+def test_incomplete_posture_renders_bad_badge_and_border(tmp_path):
+    store = Store(str(tmp_path))
+    try:
+        run = _fleet(scanned=2, gaps=40, non_ubuntu=8)
+        store.save_run(run)
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        html = open(write_reports(run, store, run_dir)["html"],
+                    encoding="utf-8").read()
+    finally:
+        store.close()
+    assert '<strong class="bad">INCOMPLETE</strong>' in html
+    assert '<div class="card exec incomplete">' in html
+    assert ".exec.incomplete" in html        # border colour rule exists
+
+
 # --- top_failing_controls -------------------------------------------------- #
 
 def test_top_failing_controls_aggregates_across_hosts():
