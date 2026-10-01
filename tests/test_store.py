@@ -196,6 +196,72 @@ def test_previous_run_id_and_history_exclude_dry_run_signature(tmp_path):
         store.close()
 
 
+def test_dry_run_with_zero_candidates_is_excluded_from_baseline(tmp_path):
+    # A dry run that discovered zero candidate hosts leaves NO leftover
+    # DISCOVERED host row: the old structural signature
+    # (test_previous_run_id_and_history_exclude_dry_run_signature above) has
+    # nothing to key off of and would wrongly treat this as a real,
+    # comparable run. The explicit `dry_run` marker (ELI-341) must still
+    # exclude it even with an empty host list.
+    store = Store(str(tmp_path))
+    try:
+        dry = _make_run(
+            "20260601T000000Z", "2026-06-01T00:00:00+00:00", [],
+        )
+        dry.dry_run = True
+        dry.config_hash = "shared-hash"
+        store.save_run(dry)
+
+        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                         [fabricate_scanned_host()])
+        full.config_hash = "shared-hash"
+        store.save_run(full)
+
+        assert store.previous_run_id("20260627T000000Z",
+                                     config_hash="shared-hash") is None
+        assert store.previous_run_id("20260627T000000Z") is None
+
+        history_ids = [p["run_id"] for p in
+                       store.fleet_pass_rate_history(n=8, config_hash="shared-hash")]
+        assert "20260601T000000Z" not in history_ids
+
+        # Round-trips back out with the marker intact.
+        loaded = store.load_run("20260601T000000Z")
+        assert loaded.dry_run is True
+    finally:
+        store.close()
+
+
+def test_run_without_dry_run_marker_still_loads_and_infers_structurally(tmp_path):
+    # Backward compatibility: a run persisted before the `dry_run` column
+    # existed has no marker (NULL in the column, None on the loaded
+    # RunRecord) and must still load, and still classify correctly via the
+    # structural DISCOVERED-leftover signature.
+    store = Store(str(tmp_path))
+    try:
+        dry = _make_run(
+            "20260601T000000Z", "2026-06-01T00:00:00+00:00",
+            [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
+        )
+        # dry.dry_run defaults to None -- as if persisted before the marker.
+        dry.config_hash = "shared-hash"
+        store.save_run(dry)
+
+        loaded = store.load_run("20260601T000000Z")
+        assert loaded.dry_run is None
+        assert loaded.hosts[0].status is HostStatus.DISCOVERED
+
+        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                         [fabricate_scanned_host()])
+        full.config_hash = "shared-hash"
+        store.save_run(full)
+
+        assert store.previous_run_id("20260627T000000Z",
+                                     config_hash="shared-hash") is None
+    finally:
+        store.close()
+
+
 def test_list_runs_ordering_newest_first(tmp_path):
     store = Store(str(tmp_path))
     try:
