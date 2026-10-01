@@ -351,6 +351,30 @@ def _sparkline(values: list) -> str:
     return "".join(out)
 
 
+# Fleet-level coverage gates on the executive posture (ELI-166). The share is
+# scanned hosts over scan candidates (every host except NON_UBUNTU inventory).
+# Below MIN_COVERAGE_FOR_POSTURE the posture is "incomplete": the pass rate
+# describes less than half the in-scope fleet, mirroring the per-host 50% hard
+# confidence floor. "strong" additionally needs STRONG_COVERAGE_THRESHOLD.
+# See docs/design.md section 4.
+MIN_COVERAGE_FOR_POSTURE = 50.0
+STRONG_COVERAGE_THRESHOLD = 90.0
+
+
+def assessed_share(run: RunRecord) -> Optional[float]:
+    """Percent of scan candidates (non-NON_UBUNTU hosts) that reached SCANNED.
+
+    None when the run has no scan candidates at all. Hosts still DISCOVERED
+    count as unassessed, so an unfinished run can never inflate the share.
+    This is deliberately not the coverage sentence's denominator
+    (``len(run.hosts)``): out-of-scope inventory must not drag posture down.
+    """
+    candidates = [h for h in run.hosts if h.status is not HostStatus.NON_UBUNTU]
+    if not candidates:
+        return None
+    return round(100.0 * len(run.scanned_hosts()) / len(candidates), 1)
+
+
 def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
                       low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> dict:
     """A plain-language posture block for non-technical readers.
@@ -363,6 +387,7 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     gaps = run.coverage_gaps()
     total = len(run.hosts)
     rate = run.fleet_pass_rate()
+    share = assessed_share(run)
 
     if not scanned:
         posture = "no-data"
@@ -373,15 +398,34 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     elif rate is None:
         posture = "no-data"
         headline = "Hosts were scanned but produced no evaluable results."
-    elif rate >= 90:
-        posture = "strong"
-        headline = "Fleet compliance is strong, with only isolated gaps to close."
-    elif rate >= 75:
-        posture = "moderate"
-        headline = "Fleet compliance is moderate; several controls need attention."
-    else:
+    elif rate < 75:
+        # Weak is already a non-clean verdict; low coverage can only make the
+        # real picture worse, so it does not soften it.
         posture = "weak"
         headline = "Fleet compliance is weak; broad remediation is required."
+    elif share is not None and share < MIN_COVERAGE_FOR_POSTURE:
+        # The scanned-host pass rate says nothing reliable about a fleet that
+        # was mostly never reached. Mirrors HARD_CONFIDENCE_FLOOR per host.
+        posture = "incomplete"
+        headline = (
+            "Only %.1f%% of scan candidates were assessed, too little of the "
+            "fleet to rate its compliance. Close the coverage gaps below "
+            "before relying on the pass rate." % share
+        )
+    elif rate >= 90 and (share is None or share >= STRONG_COVERAGE_THRESHOLD):
+        posture = "strong"
+        headline = "Fleet compliance is strong, with only isolated gaps to close."
+    elif rate >= 90:
+        # High pass rate, but too many candidates unassessed to call it strong.
+        posture = "moderate"
+        headline = (
+            "Assessed hosts score well, but only %.1f%% of scan candidates "
+            "were assessed; posture is capped at moderate until coverage "
+            "gaps are closed." % share
+        )
+    else:
+        posture = "moderate"
+        headline = "Fleet compliance is moderate; several controls need attention."
 
     # Trend sentence. fleet_delta is None both when there is genuinely no prior
     # run AND when a delta can't be computed because this run (or the prior one)
