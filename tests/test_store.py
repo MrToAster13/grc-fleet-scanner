@@ -114,6 +114,88 @@ def test_previous_run_id_returns_earlier_run(tmp_path):
         store.close()
 
 
+def test_previous_run_id_matches_on_config_hash(tmp_path):
+    # Two runs sharing config_hash (same scope/config) ARE a comparable pair.
+    store = Store(str(tmp_path))
+    try:
+        earlier = _make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
+                            [fabricate_scanned_host()])
+        earlier.config_hash = "same-scope"
+        store.save_run(earlier)
+
+        later = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                          [fabricate_scanned_host()])
+        later.config_hash = "same-scope"
+        store.save_run(later)
+
+        assert store.previous_run_id("20260627T000000Z",
+                                     config_hash="same-scope") == "20260601T000000Z"
+    finally:
+        store.close()
+
+
+def test_previous_run_id_rejects_differing_config_hash(tmp_path):
+    # A prior run against a DIFFERENT scope/config (different config_hash) must
+    # never be picked as the baseline -- that's the bug this ticket fixes.
+    store = Store(str(tmp_path))
+    try:
+        narrowed = _make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
+                             [fabricate_scanned_host()])
+        narrowed.config_hash = "narrowed-cidr"
+        store.save_run(narrowed)
+
+        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                         [fabricate_scanned_host()])
+        full.config_hash = "full-scope"
+        store.save_run(full)
+
+        # No comparable baseline: the only prior run has a different config_hash.
+        assert store.previous_run_id("20260627T000000Z",
+                                     config_hash="full-scope") is None
+        # Without a config_hash filter, the (non-comparable) run is still visible
+        # -- used only to detect "history exists but scope changed", never as a
+        # baseline.
+        assert store.previous_run_id("20260627T000000Z") == "20260601T000000Z"
+    finally:
+        store.close()
+
+
+def test_previous_run_id_and_history_exclude_dry_run_signature(tmp_path):
+    # A dry run (--dry-run) persists its candidate hosts still in DISCOVERED
+    # status -- never processed to a terminal status. Even though it shares the
+    # SAME config_hash as a later full run (dry_run isn't part of the hash), it
+    # must never be picked as a drift baseline or charted on the trend line:
+    # it performed no scan and carries no compliance evidence.
+    store = Store(str(tmp_path))
+    try:
+        dry = _make_run(
+            "20260601T000000Z", "2026-06-01T00:00:00+00:00",
+            [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
+        )
+        dry.config_hash = "shared-hash"
+        store.save_run(dry)
+
+        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
+                         [fabricate_scanned_host()])
+        full.config_hash = "shared-hash"
+        store.save_run(full)
+
+        assert store.previous_run_id("20260627T000000Z",
+                                     config_hash="shared-hash") is None
+        # Also excluded from the unfiltered "does any history exist" lookup --
+        # a dry run is not comparable history at all, scope-matched or not.
+        assert store.previous_run_id("20260627T000000Z") is None
+
+        history_ids = [p["run_id"] for p in
+                       store.fleet_pass_rate_history(n=8, config_hash="shared-hash")]
+        assert "20260601T000000Z" not in history_ids
+        history_ids_unfiltered = [p["run_id"] for p in
+                                  store.fleet_pass_rate_history(n=8)]
+        assert "20260601T000000Z" not in history_ids_unfiltered
+    finally:
+        store.close()
+
+
 def test_list_runs_ordering_newest_first(tmp_path):
     store = Store(str(tmp_path))
     try:

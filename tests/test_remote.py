@@ -16,8 +16,8 @@ import pytest
 import grc_auditor.remote as remote_mod
 from grc_auditor.config import CredentialGroup
 from grc_auditor.remote import (
-    BastionError, CommandResult, ConnectionFailed, HostKeyMismatch,
-    RemoteError, RemoteHost, _bastion_error, _classify_connect_error,
+    CommandResult, ConnectionFailed, HostKeyMismatch,
+    RemoteError, RemoteHost, _classify_connect_error,
 )
 
 
@@ -56,28 +56,6 @@ class _FakeKey:
 
     def get_base64(self) -> str:
         return base64.b64encode(self._blob).decode("ascii")
-
-
-def test_bastion_host_key_mismatch_preserves_security_signal():
-    # A key mismatch on the jump host is a possible MITM -- it must surface as a
-    # HostKeyMismatch (which cli routes to HOST_KEY_MISMATCH), not be flattened
-    # into a generic BastionError that demotes it to UNREACHABLE.
-    exc = paramiko.BadHostKeyException(
-        "bastion.example.com", _FakeKey(blob=b"got"), _FakeKey(blob=b"want")
-    )
-    err = _bastion_error(exc, "bastion jump@bastion.example.com:22")
-
-    assert isinstance(err, HostKeyMismatch)
-    assert not isinstance(err, BastionError)   # type not flattened
-    assert "bastion" in str(err).lower()
-
-
-def test_bastion_non_key_failure_is_a_bastion_error():
-    err = _bastion_error(socket.timeout("timed out"),
-                         "bastion jump@bastion.example.com:22")
-
-    assert isinstance(err, BastionError)
-    assert not isinstance(err, HostKeyMismatch)
 
 
 # --------------------------------------------------------------------------- #

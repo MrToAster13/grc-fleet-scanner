@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# grc-deep: high-assurance audit: CIS Level 2 + oscap --fetch-remote-resources
-# + aggressive discovery. Aggressive by design (the target reaches out to the
-# network); changes config_hash. See the operating guide.
-here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-. "$here/_grc-common.sh"
-grc_setup
-grc_run_tool run --deep "$@"

@@ -41,8 +41,8 @@ usage() {
 # `sha512sum`-format line ComplianceAsCode publishes as a release asset
 # alongside each archive: "<hex digest>  <filename>"). Dies on any mismatch,
 # and on a missing or empty checksum file, so a corrupted or tampered
-# download can never reach the unzip step. This is the one function the
-# shell test harness (tests/shell/) exercises directly.
+# download can never reach the unzip step. This is one of the pure functions
+# the shell test harness (tests/shell/) exercises directly.
 verify_sha512sum() {
     local file="$1" sumfile="$2" expected actual
     command -v sha512sum >/dev/null 2>&1 || die "sha512sum not found -- cannot verify content, refusing to install unverified content."
@@ -54,8 +54,39 @@ verify_sha512sum() {
     echo "checksum verified: $actual"
 }
 
+# validate_pubkey KEY
+# Rejects anything that is not a recognizable single-line SSH public key
+# before it is ever written to authorized_keys: an unrecognized key type,
+# a missing base64 data field, or a data field that isn't valid base64 (a
+# path, a private key, or plain garbage passed to --pubkey/--pubkey-file by
+# mistake) all die with a clear message instead of silently landing in
+# authorized_keys and failing sshd only later, off-host, at scan time.
+validate_pubkey() {
+    local key="$1" type data
+    # Strip CR (CRLF-terminated input from a Windows-edited key file or
+    # copy/paste) and one trailing LF before the multi-line check, so a
+    # cleanly-terminated single key isn't mistaken for two lines; a LF
+    # still embedded after that means the value genuinely spans more than
+    # one line and must be rejected rather than silently truncated by awk.
+    key="${key//$'\r'/}"
+    key="${key%$'\n'}"
+    case "$key" in
+        *$'\n'*) die "--pubkey does not look like an SSH public key: value spans more than one line. Pass a single 'type data [comment]' line." ;;
+    esac
+    type="$(awk '{print $1}' <<<"$key")"
+    data="$(awk '{print $2}' <<<"$key")"
+    case "$type" in
+        ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)
+            ;;
+        *) die "--pubkey does not look like an SSH public key: unrecognized key type '${type:-<empty>}'. Expected 'ssh-ed25519 AAAA... [comment]' (or ssh-rsa/ecdsa-sha2-*)." ;;
+    esac
+    [ -n "$data" ] || die "--pubkey does not look like an SSH public key: no base64 data field after the key type."
+    printf '%s' "$data" | base64 -d >/dev/null 2>&1 || die "--pubkey does not look like an SSH public key: the data field is not valid base64."
+}
+
 # The shell test harness sources this file with GRC_TARGET_SETUP_TEST=1 to
-# reach verify_sha512sum() above without running the installer body below.
+# reach verify_sha512sum()/validate_pubkey() above without running the
+# installer body below.
 # Logged to stderr so a leaked/inherited env var makes a real provisioning
 # run visibly do nothing, rather than silently reporting nothing wrong.
 if [ "${GRC_TARGET_SETUP_TEST:-0}" = "1" ]; then
@@ -66,7 +97,7 @@ fi
 while [ $# -gt 0 ]; do
     case "$1" in
         --scan-user)   SCAN_USER="${2:?--scan-user needs a name}"; shift 2 ;;
-        --pubkey)      PUBKEY="${2:?--pubkey needs a key string}"; shift 2 ;;
+        --pubkey)      PUBKEY="${2:?--pubkey needs a key string}"; validate_pubkey "$PUBKEY"; shift 2 ;;
         --pubkey-file) PUBKEY_FILE="${2:?--pubkey-file needs a path}"; shift 2 ;;
         --ssg-dir)     SSG_DIR="${2:?--ssg-dir needs a path}"; shift 2 ;;
         --force)       FORCE=1; shift ;;
@@ -169,6 +200,7 @@ if [ -n "$SCAN_USER" ]; then
     if [ -n "$PUBKEY_FILE" ]; then
         [ -r "$PUBKEY_FILE" ] || die "--pubkey-file not readable: $PUBKEY_FILE"
         PUBKEY="$(cat "$PUBKEY_FILE")"
+        validate_pubkey "$PUBKEY"
     fi
     if [ -n "$PUBKEY" ]; then
         home="$(getent passwd "$SCAN_USER" | cut -d: -f6)"

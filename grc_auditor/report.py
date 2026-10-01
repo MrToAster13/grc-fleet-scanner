@@ -7,7 +7,9 @@ Produces, for one run:
   * hosts.csv    - per-host summary
   * findings.csv - per-failed-control rows
 
-Drift compares this run to the immediately prior run in the history store.
+Drift compares this run to the nearest prior run in the history store that
+audited the same scope/configuration (matching config_hash); see
+compute_drift().
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ except ImportError as exc:  # pragma: no cover - dependency guard
         "Jinja2 is required. Install dependencies: pip install -r requirements.txt"
     ) from exc
 
-from . import crosswalk
 from .logging_setup import get_logger
 from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, HostStatus, RunRecord
 from .store import Store
@@ -149,6 +150,14 @@ class Drift:
     prev_pass_rate: Optional[float]
     curr_pass_rate: Optional[float]
     per_host: list[HostDrift]
+    # True when a prior finished, non-dry-run run exists in history but was
+    # rejected as a baseline solely because its config_hash differs from this
+    # run's (a narrowed CIDR, a changed credential group, any scope/config
+    # change). Distinguishes "first recorded run" (nothing comparable has
+    # ever run) from "history exists but the scope changed", so the rendered
+    # sentence can say which, rather than reporting both as a flat absence of
+    # trend. See docs/design.md "Drift baselines and scope".
+    scope_changed: bool = False
 
     @property
     def fleet_delta(self) -> Optional[float]:
@@ -158,9 +167,28 @@ class Drift:
 
 
 def compute_drift(run: RunRecord, store: Store) -> Drift:
-    prev_id = store.previous_run_id(run.run_id)
+    """Drift vs. the nearest run that actually audited the same scope/config.
+
+    A candidate baseline must be a finished, non-dry-run run whose
+    ``config_hash`` matches this run's exactly (see
+    ``Store.previous_run_id``). ``config_hash`` already encodes scope
+    (CIDRs/exclude), credential groups, CIS level and every other
+    behavior-affecting config field, so an exact match means the two runs
+    audited the same thing -- a `grc-dry` pass, or a run against a narrowed
+    CIDR, can never become the baseline for a full/differently-scoped run.
+    When no such run exists, this returns a driftless result rather than
+    falling back to the nearest run regardless of scope: absence of trend is
+    a legitimate result, a fabricated one is not.
+    """
+    prev_id = store.previous_run_id(run.run_id, config_hash=run.config_hash)
     if prev_id is None:
-        return Drift(None, None, run.fleet_pass_rate(), [])
+        # Distinguish "nothing to compare against, ever" from "something
+        # exists but doesn't match this run's scope/config" purely for the
+        # rendered message -- config_hash=None here means "ignore scope",
+        # so a hit means real history exists, just not a comparable one.
+        scope_changed = store.previous_run_id(run.run_id) is not None
+        return Drift(None, None, run.fleet_pass_rate(), [],
+                    scope_changed=scope_changed)
 
     prev = store.load_run(prev_id)
     prev_scores = {
@@ -180,7 +208,27 @@ def compute_drift(run: RunRecord, store: Store) -> Drift:
         prev_pass_rate=prev.fleet_pass_rate() if prev else None,
         curr_pass_rate=run.fleet_pass_rate(),
         per_host=per_host,
+        scope_changed=False,
     )
+
+
+def _rule_stem(rule_id: str) -> str:
+    """Reduce a full SSG rule id to its bare stem.
+
+    ``xccdf_org.ssgproject.content_rule_sshd_disable_root_login``
+        -> ``sshd_disable_root_login``
+
+    Tolerates ids that are already stems or use a different marker.
+    """
+    if not rule_id:
+        return ""
+    rid = rule_id.strip()
+    marker = "content_rule_"
+    if marker in rid:
+        rid = rid.split(marker, 1)[1]
+    elif rid.startswith("xccdf_"):
+        rid = rid.rsplit(".", 1)[-1]
+    return rid
 
 
 def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
@@ -188,15 +236,12 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
 
     Aggregates each failing rule across scanned hosts, then sorts by
     **severity first, then host-count** so the most dangerous, most widespread
-    gaps surface at the top. Each row also carries the list of failing host IPs
-    and an indicative framework cross-walk (NIST 800-53 / ISO 27001) from
-    :mod:`grc_auditor.crosswalk`.
+    gaps surface at the top. Each row also carries the list of failing host IPs.
 
     Each item::
 
         {"rule_id", "count", "title", "severity", "severity_rank",
-         "hosts": [ip, ...], "stem", "nist": [...], "iso": [...],
-         "mapped": bool}
+         "hosts": [ip, ...], "stem"}
     """
     counter: Counter = Counter()
     titles: dict[str, str] = {}
@@ -217,18 +262,14 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
     rows: list[dict] = []
     for rid, n in counter.items():
         sev = severities.get(rid, "unknown")
-        cw = crosswalk.map_rule_verbose(rid)
         rows.append({
             "rule_id": rid,
-            "stem": crosswalk.rule_stem(rid),
+            "stem": _rule_stem(rid),
             "count": n,
             "title": titles.get(rid, ""),
             "severity": sev,
             "severity_rank": _sev_rank(sev),
             "hosts": sorted(hosts_by_rule.get(rid, [])),
-            "nist": cw["nist"],
-            "iso": cw["iso"],
-            "mapped": cw["mapped"],
         })
 
     # Sort: severity desc, then host-count desc, then rule id for stability.
@@ -278,9 +319,13 @@ def controls_by_severity(run: RunRecord) -> dict:
 def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
     """Fleet pass-rate trend across the last ``n`` runs (incl. this one).
 
-    Pulls history from :meth:`Store.fleet_pass_rate_history`. Gracefully reports
-    a single-point "first run" when there is no prior history. The current run
-    is reconciled in from the live ``run`` object so the latest point reflects
+    Pulls history from :meth:`Store.fleet_pass_rate_history`, scoped to runs
+    sharing this run's ``config_hash`` -- a run against a narrowed CIDR, a
+    changed credential group, or any other scope/config change never lands on
+    the same trend line as this run, for the same reason it's never a drift
+    baseline (see ``compute_drift``). Gracefully reports a single-point "first
+    run" when there is no comparable prior history. The current run is
+    reconciled in from the live ``run`` object so the latest point reflects
     this in-progress run even before/independent of persistence.
 
     Returns::
@@ -289,7 +334,7 @@ def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
          "first_run": bool, "min": float|None, "max": float|None,
          "spark": "▁▂▅█..."}
     """
-    history = store.fleet_pass_rate_history(n) if store else []
+    history = store.fleet_pass_rate_history(n, config_hash=run.config_hash) if store else []
 
     # Ensure the current run is represented and authoritative for its own point.
     curr_rate = run.fleet_pass_rate()
@@ -433,7 +478,11 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     # "first recorded run", which would misstate the audit history.
     delta = drift.fleet_delta
     if delta is None:
-        if drift.prev_run_id is None:
+        if drift.prev_run_id is None and drift.scope_changed:
+            trend = ("No comparable prior run: an earlier run exists but "
+                     "audited a different scope/configuration, so it is not "
+                     "used as a drift baseline.")
+        elif drift.prev_run_id is None:
             trend = "No prior run to compare against (first recorded run)."
         elif drift.curr_pass_rate is None:
             trend = ("No hosts scored this run, so posture can't be compared "
@@ -560,7 +609,6 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     html = template.render(
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
-        crosswalk_label=crosswalk.CROSSWALK_LABEL,
         low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
         dry_run=dry_run,
     )
@@ -603,14 +651,11 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     findings_csv = os.path.join(run_dir, "findings.csv")
     with open(findings_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["ip", "rule_id", "result", "severity", "title",
-                    "nist_800_53", "iso_27001"])
+        w.writerow(["ip", "rule_id", "result", "severity", "title"])
         for h in run.scanned_hosts():
             for fr in h.scan.failed_rules:
-                cw = crosswalk.map_rule(fr.rule_id)
                 w.writerow([_csv_safe(h.ip), _csv_safe(fr.rule_id), fr.result,
-                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or ""),
-                            ";".join(cw["nist"]), ";".join(cw["iso"])])
+                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or "")])
 
     paths = {
         "html": html_path, "json": json_path,

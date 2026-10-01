@@ -1,8 +1,7 @@
-"""Stage 4: SSH/bastion connection layer.
+"""Stage 4: SSH connection layer.
 
 A thin context manager over Paramiko that:
   * verifies host keys against known_hosts (RejectPolicy - never auto-accept)
-  * optionally tunnels through a bastion (ProxyJump-style direct-tcpip channel)
   * authenticates via ssh-agent and/or an explicit key (no passwords)
   * runs commands, optionally via passwordless ``sudo -n``
   * retrieves files via SFTP (used to pull raw scan evidence back)
@@ -24,8 +23,6 @@ Failure taxonomy (all subclass :class:`RemoteError`):
                                       all (RejectPolicy rejection). Resolve via
                                       the bootstrap workflow below, not by
                                       relaxing the policy.
-  * :class:`BastionError`           - the failure was reaching/authenticating to
-                                      the BASTION, not the target behind it.
 
 ------------------------------------------------------------------------------
 HOST-KEY BOOTSTRAP WORKFLOW (operational prerequisite, read before first scan)
@@ -36,19 +33,14 @@ to hosts whose identity we have already vouched for - but it means an operator
 must pre-populate ``known_hosts`` for the fleet *before* the first scan, or every
 host comes back ``unreachable`` with an "unknown host key" detail.
 
-Recommended one-time bootstrap, performed from the SAME run host (and, if a
-bastion is used, from the bastion's vantage point so tunnelled fingerprints
-match) over a trusted/maintenance window:
+Recommended one-time bootstrap, performed from the SAME run host over a
+trusted/maintenance window:
 
   1. Collect keys for the in-scope hosts into the configured known_hosts file
      (``config.known_hosts``; defaults to the system files + ``~/.ssh/known_hosts``)::
 
          ssh-keyscan -t ed25519,rsa -f authorized_targets.txt \\
              >> /path/to/fleet_known_hosts
-
-     For hosts only reachable through the bastion, run ssh-keyscan FROM the
-     bastion (or ``ssh -J bastion host true`` and accept once there) so the
-     fingerprint paramiko sees through the tunnel matches what is pinned.
 
   2. VERIFY each fingerprint out-of-band (provisioning record, console, config
      management) before trusting the file. ssh-keyscan is trust-on-first-use;
@@ -85,7 +77,7 @@ log = get_logger()
 
 
 class RemoteError(Exception):
-    """Any SSH/bastion connection or remote-operation failure.
+    """Any SSH connection or remote-operation failure.
 
     Callers map this to :class:`HostStatus.UNREACHABLE`. The subclasses below
     refine *why* it failed; all subclass this so existing ``except RemoteError``
@@ -122,10 +114,6 @@ class UnknownHostKey(RemoteError):
     Resolve by pre-populating known_hosts (see the module docstring's bootstrap
     workflow), never by relaxing the verification policy.
     """
-
-
-class BastionError(RemoteError):
-    """The failure was reaching/authenticating to the BASTION, not the target."""
 
 
 @dataclass
@@ -198,7 +186,7 @@ def _classify_connect_error(exc: Exception, target: str) -> RemoteError:
     """Translate a paramiko/OS connect exception into a precise RemoteError.
 
     ``target`` is a human label for the endpoint that failed (e.g. the target
-    IP, or ``bastion <host>``) so the resulting message is actionable. Ordering
+    IP) so the resulting message is actionable. Ordering
     matters: BadHostKeyException is a subclass of SSHException, so it is checked
     first.
     """
@@ -241,22 +229,6 @@ def _classify_connect_error(exc: Exception, target: str) -> RemoteError:
     return RemoteError(f"SSH connect to {target} failed: {exc}")
 
 
-def _bastion_error(exc: Exception, bastion_label: str) -> RemoteError:
-    """Translate a bastion-side connect failure into a RemoteError.
-
-    A host-key MISMATCH on the bastion is still a hard security signal (possible
-    MITM on the jump host), so its :class:`HostKeyMismatch` type is PRESERVED --
-    flattening it into a generic :class:`BastionError` would let the caller demote
-    a MITM indicator to plain unreachability. Every other bastion-side failure is
-    wrapped as :class:`BastionError` so callers can still tell bastion-side from
-    target-side problems. The classified message already names the bastion.
-    """
-    base = _classify_connect_error(exc, bastion_label)
-    if isinstance(base, HostKeyMismatch):
-        return base
-    return BastionError(str(base))
-
-
 def _is_unknown_host_key(exc: "paramiko.SSHException") -> bool:
     """Distinguish RejectPolicy's 'unknown server' SSHException from others."""
     msg = str(exc).lower()
@@ -277,7 +249,7 @@ def _fingerprint(key) -> str:
 
 
 class RemoteHost:
-    """Connect to a single host (optionally via bastion) for the duration of a scan."""
+    """Connect to a single host for the duration of a scan."""
 
     def __init__(self, ip: str, group: CredentialGroup,
                  known_hosts: Optional[str], connect_timeout: int = 20):
@@ -286,7 +258,6 @@ class RemoteHost:
         self.known_hosts = known_hosts
         self.connect_timeout = connect_timeout
         self._client: Optional[paramiko.SSHClient] = None
-        self._bastion: Optional[paramiko.SSHClient] = None
 
     # -- lifecycle ---------------------------------------------------------
     def __enter__(self) -> "RemoteHost":
@@ -297,12 +268,7 @@ class RemoteHost:
         self.close()
 
     def connect(self):
-        sock = None
         g = self.group
-
-        if g.bastion is not None:
-            sock = self._open_bastion_channel()
-
         self._client = paramiko.SSHClient()
         _load_host_keys(self._client, self.known_hosts)
         try:
@@ -310,63 +276,21 @@ class RemoteHost:
                 hostname=self.ip, port=g.ssh_port, username=g.ssh_user,
                 key_filename=os.path.expanduser(g.key_path) if g.key_path else None,
                 allow_agent=g.use_agent, look_for_keys=g.use_agent,
-                sock=sock, timeout=self.connect_timeout,
+                timeout=self.connect_timeout,
             )
         except Exception as exc:
-            # Tear everything down - in particular the bastion, which we own and
-            # which would otherwise leak when the target connection fails.
             self.close()
             raise _classify_connect_error(exc, self.ip) from exc
         log.debug("remote: connected to %s as %s", self.ip, g.ssh_user)
 
-    def _open_bastion_channel(self):
-        """Connect the bastion and open a direct-tcpip channel to the target.
-
-        On ANY bastion-side failure the bastion client is torn down and a
-        :class:`BastionError` is raised, so a half-open bastion never leaks and
-        the caller can tell bastion-side from target-side failures.
-        """
-        b = self.group.bastion
-        log.debug("remote: opening bastion %s@%s for %s", b.user, b.host, self.ip)
-        self._bastion = paramiko.SSHClient()
-        _load_host_keys(self._bastion, self.known_hosts)
-        bastion_label = f"bastion {b.user}@{b.host}:{b.port}"
-        try:
-            self._bastion.connect(
-                hostname=b.host, port=b.port, username=b.user,
-                key_filename=os.path.expanduser(b.key_path) if b.key_path else None,
-                allow_agent=True, look_for_keys=True, timeout=self.connect_timeout,
-            )
-        except Exception as exc:
-            self.close()
-            raise _bastion_error(exc, bastion_label) from exc
-
-        try:
-            transport = self._bastion.get_transport()
-            if transport is None:  # pragma: no cover - defensive
-                raise paramiko.SSHException("bastion transport unavailable")
-            return transport.open_channel(
-                "direct-tcpip", (self.ip, self.group.ssh_port), ("127.0.0.1", 0)
-            )
-        except Exception as exc:
-            # Could authenticate to the bastion but could not open the forwarding
-            # channel to the target (e.g. bastion ACL blocks it, target down from
-            # the bastion's vantage point). Still a bastion-side problem.
-            self.close()
-            raise BastionError(
-                f"{bastion_label}: could not open forwarding channel to "
-                f"{self.ip}:{self.group.ssh_port}: {exc}"
-            ) from exc
-
     def close(self):
-        for c in (self._client, self._bastion):
+        for c in (self._client,):
             if c is not None:
                 try:
                     c.close()
                 except Exception:  # pragma: no cover - best effort
                     pass
         self._client = None
-        self._bastion = None
 
     # -- operations --------------------------------------------------------
     def run(self, command: str, *, sudo: bool = False,
