@@ -83,6 +83,13 @@ release, everything lives under **Unreleased**.
   LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **Executive posture now accounts for fleet coverage.** Posture used to come from the
+  scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
+  "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over
+  scan candidates, i.e. every host except `non_ubuntu`). Below 50% a non-weak pass rate
+  reports the new `incomplete` posture (red badge); "strong" also needs at least 90%.
+  A weak pass rate stays `weak` at any coverage. Fully covered fleets read exactly as
+  before. Thresholds and reasoning are in `docs/design.md` §4 (ELI-166).
 - **`unknown` verdicts no longer read as trustworthy coverage (never-false-pass).** The prior
   confidence fix excluded the whole `other` bucket from the denominator, but the parser dumps
   XCCDF `unknown` (a check that ran but reached no verdict: OVAL probe error) into `other`
