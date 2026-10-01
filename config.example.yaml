@@ -32,10 +32,10 @@ low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer t
                                # --fetch-remote-resources so checks whose OVAL/CVE content
                                # lives off-box are evaluated (higher coverage/confidence)
                                # instead of returning notchecked. Aggressive: the TARGET host
-                               # reaches out to the network mid-scan. The `--deep` CLI flag
+                               # reaches out to the network mid-scan. This
                                # forces this on (along with CIS L2 + -T4 discovery).
 # os_detect: false            # default false. nmap -O OS detection; feeds the classify Ubuntu
-                               # hint, so it is part of config_hash. Also set by --os-detect/--deep.
+                               # hint, so it is part of config_hash. Also set by --os-detect.
 # known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
 
 # ---------------------------------------------------------------------------
@@ -51,10 +51,6 @@ credential_groups:
     use_agent: true
     sudo: true                             # uses passwordless `sudo -n` for root checks
     cis_level: 2                           # per-group override of the global level
-    bastion:
-      host: bastion.example.com
-      user: jump
-      key_path: "~/.ssh/bastion_ed25519"
 
   - name: lab
     targets: ["default"]                   # everything not matched above

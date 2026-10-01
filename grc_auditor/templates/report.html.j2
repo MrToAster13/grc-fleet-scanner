@@ -45,8 +45,6 @@
   /* severity tags + bars */
   .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px;
          margin:1px 3px 1px 0; background:#2a313c; color:var(--muted); }
-  .tag-nist{ background:#102a3a; color:#7fc7ff; }
-  .tag-iso{ background:#16331f; color:#7fd69a; }
   .sev-high{color:var(--bad);font-weight:600} .sev-medium{color:var(--warn)} .sev-low{color:var(--muted)}
   .sevbar { display:flex; height:18px; border-radius:4px; overflow:hidden; background:var(--line); margin:8px 0; }
   .sevbar > span { display:block; height:100%; }
@@ -217,10 +215,10 @@
 {% endif %}
 
 <h2>Top failing controls (fleet-wide)</h2>
-<p class="sub">Sorted by severity, then by number of hosts affected. Cross-walk column is {{ crosswalk_label }}.</p>
+<p class="sub">Sorted by severity, then by number of hosts affected.</p>
 {% if top %}
 <table>
-  <tr><th>Control</th><th>Severity</th><th>Hosts failing</th><th>Title</th><th>Framework cross-walk</th></tr>
+  <tr><th>Control</th><th>Severity</th><th>Hosts failing</th><th>Title</th></tr>
   {% for c in top %}
   <tr>
     <td><code>{{ c.stem }}</code></td>
@@ -230,20 +228,9 @@
       {% if c.hosts %}<div class="hostlist">{% for ip in c.hosts %}<code>{{ ip }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
     </td>
     <td>{{ c.title }}</td>
-    <td>
-      {% if c.mapped %}
-        {% for fam in c.nist %}<span class="tag tag-nist" title="NIST 800-53 Rev5: {{ fam.name }}">{{ fam.code }}</span>{% endfor %}
-        {% for ctl in c.iso %}<span class="tag tag-iso" title="ISO 27001:2022: {{ ctl.name }}">{{ ctl.code }}</span>{% endfor %}
-      {% else %}<span class="muted">unmapped</span>{% endif %}
-    </td>
   </tr>
   {% endfor %}
 </table>
-<p class="sub">
-  Tags: <span class="tag tag-nist">NIST 800-53 Rev5 family</span>
-  <span class="tag tag-iso">ISO 27001:2022 control</span>.
-  Indicative orientation only &mdash; authoritative per-rule references live in the OpenSCAP ARF evidence.
-</p>
 {% else %}
 <p class="muted">No failing controls recorded (or no hosts scanned).</p>
 {% endif %}

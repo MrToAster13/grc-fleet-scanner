@@ -89,8 +89,8 @@ def _build_oscap_argv(plan: ScanPlan, r_results: str, r_arf: str,
     High-assurance mode adds ``--fetch-remote-resources`` so checks whose OVAL/CVE
     content lives off-box are actually evaluated (higher coverage/confidence)
     rather than returning notchecked. It makes the TARGET reach out to the
-    network, which is why it is opt-in (config ``fetch_remote_resources`` /
-    ``--deep``). The flag is placed before the datastream positional so it applies
+    network, which is why it is opt-in (config ``fetch_remote_resources``).
+    The flag is placed before the datastream positional so it applies
     to the whole evaluation.
     """
     argv = ["oscap", "xccdf", "eval", "--profile", plan.profile_id]
