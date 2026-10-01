@@ -77,6 +77,29 @@ def test_missing_scope_key_raises(tmp_path):
         load_config(_write(tmp_path, "credential_groups: []\n"))
 
 
+def test_bastion_key_raises_config_error_naming_the_workaround(tmp_path):
+    # Bastion support was cut (ELI-142). An old config carrying a bastion:
+    # block must fail loudly, not get silently ignored and dial the host
+    # directly (ELI-341).
+    yaml_text = """
+        scope:
+          cidrs:
+            - 10.0.10.0/24
+        credential_groups:
+          - name: prod
+            ssh_user: grc-scan
+            targets: ["default"]
+            bastion:
+              host: bastion.example.com
+              user: jump
+              key_path: "~/.ssh/bastion_ed25519"
+    """
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write(tmp_path, yaml_text))
+    assert "bastion" in str(ei.value).lower()
+    assert "ssh -l" in str(ei.value).lower()
+
+
 def test_invalid_cidr_raises(tmp_path):
     yaml_text = """
         scope:
