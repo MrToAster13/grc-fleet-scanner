@@ -224,7 +224,8 @@ def cmd_run(args) -> int:
     log.info("AUTHORIZATION: scanning scope %s - operator asserts authorization",
              ", ".join(cfg.scope.cidrs))
     run = RunRecord(run_id=run_id, started_at=_utcnow(),
-                    scope=list(cfg.scope.cidrs), config_hash=cfg.hash())
+                    scope=list(cfg.scope.cidrs), config_hash=cfg.hash(),
+                    dry_run=bool(args.dry_run))
 
     # Seal the effective (override-applied) configuration as run provenance; the
     # manifest hashes it too, and config_hash is derived from the same canonical
