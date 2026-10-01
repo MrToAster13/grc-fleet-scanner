@@ -2,7 +2,7 @@
 
 **Written:** 2026-09-05 19:16:02
 **Status:** 2 of 5 audits reported. Code review, docs-vs-reality, and test/hygiene still running.
-**Repo:** `C:\Users\Elijah\grc-fleet-scanner`
+**Repo:** the repo root
 
 ## Corrected measurements (supersede the handoff)
 
@@ -291,7 +291,7 @@ not. That rule exists only in the personal global `~/.claude/CLAUDE.md`, not in 
 contributor guide. The repo's docs use `run-host`, `end-to-end`, and similar freely, and none of
 that violates AGENTS.md as written.
 
-**Open decision for Elijah:** em-dash counts in the docs are `operating.md` 41,
+**Open decision for the owner:** em-dash counts in the docs are `operating.md` 41,
 `validation.md` 38, `CHANGELOG.md` 36, `design.md` 20, `README.md` 11. AGENTS.md only says "go
 easy on em-dash asides... a pattern is a tell", so by its own test the docs are in tension with
 it. The personal global rule bans them outright. Either loosen AGENTS.md to match the house

@@ -6,30 +6,19 @@
 
 **Written:** 2026-09-05 19:09:11
 **Status:** in-progress. Five background audits were in flight when this was written
-**Repo:** `C:\Users\Elijah\grc-fleet-scanner` (public: https://github.com/MrToAster13/grc-fleet-scanner)
-**Linear project:** GRC Tool, `3a8ccd4d-2f85-4f2b-84e6-6db2b87e386c`, team Elijah-zion (`ELI`)
+**Repo:** https://github.com/MrToAster13/grc-fleet-scanner
+**Linear project:** GRC Tool (private tracker)
 
 ## Goal
 
-Elijah says the tool is "too clunky" and wants to know how to cut it to an MVP. Scope then
+The owner says the tool is "too clunky" and wants to know how to cut it to an MVP. Scope then
 grew to: many adversarial audits, general cleanup of both Linear and the code, and tracking
 the result as GitHub issues/PRs **and** Linear tickets.
 
 ## Important correction carried into this session
 
-Elijah first asked about "the DFIR tool." There is no DFIR tool. Verified exhaustively:
-
-- All 12 GitHub repos under `MrToAster13` (owner + collaborator + org affiliations).
-- All 16 Linear projects under team Elijah-zion. Only "DFIR" hits are five **Job applications**
-  tickets, e.g. ELI-107 "Rewrite DFIR Analyst into the Arial template."
-- Local filesystem sweep of `C:\Users\Elijah`.
-
-`C:\Users\Elijah\GhostTrace` is 907 MB of **evidence only** (`Logs-DC`, `Logs-Client02`,
-`Logs-Client03`; each has Application/Powershell/Security/Sysmon `.evtx` plus a `$MFT`). No
-code, no git repo, no README, no Linear project. Those log files are off limits per the
-`evidence-files-off-limits` memory. Never open or quote them.
-
-Elijah then confirmed the real target is **grc-fleet-scanner**. Do not re-litigate this.
+The first request named a "DFIR tool." No such repo or project exists. The target was
+confirmed as **grc-fleet-scanner**. Do not re-litigate this.
 
 ## Verified facts about the repo (checked, not assumed)
 
@@ -68,7 +57,7 @@ Eight coverage buckets in `grc_auditor/models.py:49-56`: `non_ubuntu`, `no_crede
 
 The tool cannot emit a single number until a long chain of external preconditions is met:
 
-1. A **Linux** run host. Elijah's daily driver is Windows 11 / PowerShell, so WSL2 is required.
+1. A **Linux** run host. The owner's daily driver is Windows 11 / PowerShell, so WSL2 is required.
 2. `install.sh` + `~/.local/bin` on PATH + `grc-setup` to build the venv and install nmap.
 3. A `config.yaml` with an authorized CIDR scope. First `grc-run` scaffolds it and **exits by
    design**, easy to misread as a crash.
@@ -91,7 +80,7 @@ score" is the candidate MVP.
 The GRC Tool project contains exactly **one** issue.
 
 - **ELI-6** "GRC scanner having issues running at all", In Progress since 2026-07-08,
-  priority Low, label `Bug`, assignee Elijah.
+  priority Low, label `Bug`, assigned to the owner.
   Description: "might just need to download the open____ scanner, idk. Gotta be easy to use it,
   make the commands be run my a single word?"
   One comment (2026-08-04): the single-word commands, nmap auto-install, config scaffold and
@@ -146,11 +135,11 @@ authoritative record.
 2. Build the HTML report to `%TEMP%\grc-fleet-scanner-<topic>-<timestamp>.html` per the global
    CLAUDE.md rule: Tailwind + Mermaid from CDN, before/after visuals per claim, cards over
    paragraphs. Follow
-   `C:\Users\Elijah\.claude\skills\improve-codebase-architecture\HTML-REPORT.md` for the
+   `~/.claude\skills\improve-codebase-architecture\HTML-REPORT.md` for the
    scaffold and the required vocabulary (module, interface, depth, seam, adapter, leverage,
    locality, never "component", "service", "wrapper", "boundary"). Open it with `start` and
    give the absolute path.
-3. Present the MVP carve as a **design/mockup first and wait for explicit approval**. Elijah
+3. Present the MVP carve as a **design/mockup first and wait for explicit approval**. The owner
    frequently reverts unrequested changes. Do not start deleting modules.
 4. Only after approval: file GitHub issues and open PRs, and mirror them as Linear tickets.
 
@@ -166,41 +155,39 @@ authoritative record.
   details from the cloud validation run got committed. Resolve that before pushing anything.
 - Windows/PowerShell only: no bash line-continuations, no heredocs, no here-strings in
   PowerShell blocks. Keep commit messages single-line. Bake absolute `cd` paths into every
-  command block, Elijah does not track the working directory.
+  command block, the owner does not track the working directory.
 - Writing rules are enforced in this repo by `AGENTS.md`: no em-dashes, no AI-tell words
   (robust, seamless, crucial, leverage), no hyphenated compounds. The same rules apply to
   issue and ticket text.
 - The pre-commit hook runs the full suite; enable with
   `git config core.hooksPath .githooks`. Report pass/fail counts explicitly before committing.
-- A 907 MB evidence folder sits at `C:\Users\Elijah\GhostTrace` and is unrelated to this work.
-  Do not touch it.
 
 ## Suggested skills
 
-- `/improve-codebase-architecture`, installed at `C:\Users\Elijah\.claude\skills\` but **not**
+- `/improve-codebase-architecture`, installed at `~/.claude\skills\` but **not**
   in the loaded skill list, so read its `SKILL.md` and `HTML-REPORT.md` from disk and follow
   them manually. It is the source of the required HTML report format.
 - `/codebase-design`, for the module/interface/depth/seam vocabulary the report must use.
 - `/code-review`, for the standards-and-spec review pass once changes exist to review.
 - `/linear-update`, for the draft-review-approve write to ELI-6 and any new tickets.
-- `/grilling`, to stress-test the MVP carve with Elijah before cutting anything.
+- `/grilling`, to stress-test the MVP carve with the owner before cutting anything.
 - `/pre-push`, before any push: simplify, review, security, test, commit as gated stages.
 
 ## Relevant files
 
-- `C:\Users\Elijah\grc-fleet-scanner\README.md`
-- `C:\Users\Elijah\grc-fleet-scanner\AGENTS.md`
-- `C:\Users\Elijah\grc-fleet-scanner\config.example.yaml`
-- `C:\Users\Elijah\grc-fleet-scanner\docs\design.md`
-- `C:\Users\Elijah\grc-fleet-scanner\docs\operating.md`
-- `C:\Users\Elijah\grc-fleet-scanner\docs\validation.md`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\cli.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\config.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\models.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\discovery.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\remote.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\report.py`
-- `C:\Users\Elijah\grc-fleet-scanner\grc_auditor\store.py`
-- `C:\Users\Elijah\grc-fleet-scanner\bin\_grc-common.sh`
-- `C:\Users\Elijah\grc-fleet-scanner\install.sh`
-- `C:\Users\Elijah\.claude\skills\improve-codebase-architecture\HTML-REPORT.md`
+- `README.md`
+- `AGENTS.md`
+- `config.example.yaml`
+- `docs\design.md`
+- `docs\operating.md`
+- `docs\validation.md`
+- `grc_auditor\cli.py`
+- `grc_auditor\config.py`
+- `grc_auditor\models.py`
+- `grc_auditor\discovery.py`
+- `grc_auditor\remote.py`
+- `grc_auditor\report.py`
+- `grc_auditor\store.py`
+- `bin\_grc-common.sh`
+- `install.sh`
+- `~/.claude\skills\improve-codebase-architecture\HTML-REPORT.md`
