@@ -5,6 +5,27 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+- **MVP carve (ELI-142): `--deep`, bastion, and the CIS-NIST/ISO crosswalk are cut.**
+  `--deep`, `fetch_remote_resources`'s one-flag preset, and `bin/grc-deep` are gone; set
+  `cis_level: 2` and `fetch_remote_resources: true` directly in config instead.
+  `credential_groups[].bastion` is removed; jump through a bastion with a local SSH port
+  forward (`ssh -L ...`) and point the group at the forwarded port (a config with a leftover
+  `bastion:` key now raises a `ConfigError` naming this, rather than silently scanning the
+  target directly). `crosswalk.py` and its non-exhaustive CIS to NIST 800-53 / ISO 27001
+  mapping are removed from the report and CSV export (`rmf.py`'s ARF-authoritative NIST 800-53
+  rollup, `control-rollup.csv`, is unaffected and is the one to use for SSP evidence).
+  `fleet_trend` (drift sparkline, cut candidate 5 in the carve) was kept on purpose: design.md
+  requires it, so it stayed in scope rather than being cut.
+  This changes `config_hash` for every existing config (fewer canonical fields to hash), so
+  the first run after upgrading has no drift baseline to compare against; that is expected,
+  not a bug.
+  The scaffold-success exit code also changed, from **2** (pre-carve: scaffolding and a
+  genuine `ConfigError` were indistinguishable) to **4** (`EXIT_CONFIG_SCAFFOLDED`), so a
+  caller can tell "we just wrote you a config" apart from a real failure. The scaffold
+  *failure* paths (no `config.example.yaml` to scaffold from, or an OSError while writing it)
+  stay at exit **2**: nothing was written, so that is a genuine `ConfigError`, not a scaffold.
+
 ### Added
 - **Zero-scanned signal.** A run that completes and writes a report while scanning
   zero hosts (every host landed in a coverage gap, or discovery found nothing) is
@@ -17,7 +38,7 @@ release, everything lives under **Unreleased**.
 - **Single-word commands + one-command install.** `./install.sh` copies prefixed launchers
   into `~/.local/bin` (no root; offers to fix PATH) and records the repo location; each
   launcher self-bootstraps the virtualenv + deps on first use, so the workflow is now
-  `install.sh` → `grc-setup` → `grc-run`. The audit commands (`grc-run`, `grc-dry`, `grc-deep`)
+  `install.sh` → `grc-setup` → `grc-run`. The audit commands (`grc-run`, `grc-dry`)
   read `./config.yaml` and pass extra flags straight through to `python -m grc_auditor ...`, which
   is unchanged and still works directly; `grc-history`, `grc-report`, `grc-rmf`, `grc-demo`,
   `grc-setup`, and `grc-provision` each map to their own subcommand or task.
@@ -38,14 +59,6 @@ release, everything lives under **Unreleased**.
   if it's missing, `run` writes a starter from `config.example.yaml` with an **empty** scope and
   exits asking for an authorized range. A blind re-run stays refused by the existing empty-scope
   authorization guard, so the scaffold can never quietly scan the example's sample range.
-- **`--deep` high-assurance scan mode.** One flag turns every coverage dial to max: forces
-  **CIS Level 2** fleet-wide (overriding the config level and any per-group `cis_level`), runs
-  `oscap --fetch-remote-resources` so checks whose OVAL/CVE content lives off-box are evaluated
-  instead of returning `notchecked`, and switches discovery to aggressive-but-accurate `-T4`
-  timing plus OS detection. It's aggressive by design: the target reaches out to the network
-  mid-scan, and it changes `config_hash` (the effective config records exactly what ran, so a
-  deep run and a normal run don't share provenance). Also available as standing config:
-  `fetch_remote_resources: true` (+ `cis_level: 2`).
 - **`rmf` subcommand: NIST 800-53 control rollup for SSP evidence.** Reads a run's retained
   OpenSCAP ARF and aggregates each rule's pass/fail by the 800-53 control it maps to, using
   the datastream's OWN authoritative per-rule references (not the indicative family
@@ -72,8 +85,9 @@ release, everything lives under **Unreleased**.
   that upgrades an existing `history.db` in place).
 - **`HostStatus.HOST_KEY_MISMATCH`**: a changed SSH host key is reported as a security
   finding (possible MITM / unverified re-provisioning), not plain "unreachable".
-- Report sections: executive summary, fleet trend sparkline, severity breakdown, and a
-  **non-exhaustive, orientation-only CIS→NIST 800-53 / ISO 27001 cross-walk**.
+- Report sections: executive summary, fleet trend sparkline, and severity breakdown. (An
+  earlier non-exhaustive, orientation-only CIS to NIST 800-53 / ISO 27001 cross-walk was cut
+  in the ELI-142 carve; `rmf`'s ARF-authoritative NIST 800-53 rollup supersedes it.)
 - **Opt-in unknown-Linux promotion** (`treat_unknown_linux_as_ubuntu`, default off):
   hosts that look like some non-specific Linux (no Ubuntu marker, but not clearly
   non-Linux) can be promoted to Ubuntu *candidates* so the authoritative SSH detect
@@ -181,9 +195,6 @@ release, everything lives under **Unreleased**.
   columns existed reloads with those counts as `None` ("unknown"), so its confidence reads
   honestly as unknown instead of a fabricated 0 that would inflate an old low-privilege
   scan toward a false-clean reading.
-- **Bastion host-key mismatch keeps its security signal.** A key mismatch on the *jump
-  host* (possible MITM) is now reported as `host_key_mismatch`, not flattened into a
-  generic bastion error and demoted to plain `unreachable`.
 - **Collision-resistant run ids.** A run id is now a sortable UTC timestamp plus a short
   random suffix, so two runs started in the same second can no longer share an id and
   overwrite or be confused with each other's on-disk evidence. `begin_run` is also
