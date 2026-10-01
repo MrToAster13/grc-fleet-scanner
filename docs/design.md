@@ -73,6 +73,55 @@ the ratio. `models.RunRecord.fleet_pass_rate()` and `store.Store.fleet_pass_rate
 both implement this same formula and every report surface (executive summary, fleet trend,
 JSON/CSV exports) reads one of the two; do not add a third computation elsewhere.
 
+### Fleet coverage and the executive posture
+
+The executive summary's posture (`strong`, `moderate`, `weak`) is driven by the fleet pass
+rate, and that rate only covers hosts that reached `scanned`. On its own it would call a
+50-host fleet "strong" when 2 hosts were scanned and passed, even though 40 Ubuntu hosts
+were never assessed. So posture also reads the **assessed share**: scanned hosts divided by
+scan candidates, where a candidate is every host except `non_ubuntu`. The rules, in order:
+
+| Condition | Posture |
+|---|---|
+| Nothing scanned, or no evaluable results | `no-data` (unchanged) |
+| Pass rate below 75% | `weak`, at any coverage |
+| Assessed share below **50%** | `incomplete` |
+| Pass rate 90% or more and assessed share **90%** or more | `strong` |
+| Anything else that would have been `strong` or `moderate` | `moderate` |
+
+Why these numbers:
+
+- **50% floor.** Below it, most of the in-scope fleet is unknown and the pass rate describes
+  the minority that happened to be reachable. That sample is biased: the hosts we could not
+  reach (missing credentials, broken SSH, no scanner) are usually the least maintained. This
+  mirrors the per-host hard confidence floor of 50%: a fleet assessed less than halfway
+  cannot be rated, just as a host whose benchmark ran less than halfway cannot be certified.
+  `incomplete` renders with the red badge, so it never reads as clean.
+- **90% for strong.** It matches the default `low_confidence_threshold` (90%), which already
+  sets the bar for trusting a single host's score. A fleet earns "strong" on the same terms:
+  at most one host in ten unassessed.
+- **Weak stays weak.** Missing hosts can only hide more failures, so low coverage never
+  softens a weak verdict into `incomplete`.
+
+Edges:
+
+- **All `non_ubuntu`.** No scan candidates, nothing scanned: `no-data`. The coverage gate
+  never fires on an empty candidate set, so there is no division by zero and no invented
+  share.
+- **`non_ubuntu` hosts never lower the share.** They are out-of-scope inventory, the same
+  reason `coverage_gaps()` excludes them. The coverage sentence under the headline still
+  divides by every discovered host, as before.
+- **Small fleets.** The rule is a plain percentage, so one gap weighs more in a small fleet:
+  with 2 candidates and 1 scanned the share is 50% (rated, capped at `moderate`); with 3 of
+  4 scanned it is 75% (`moderate`). A small fleet reaches `strong` only when every
+  candidate is scanned (any fleet under 10 candidates needs all of them). This is
+  deliberate: a single unassessed host in a 4-host fleet is a quarter of the estate.
+
+These are proposed values (ELI-166), pending Elijah's confirmation. They live as
+`MIN_COVERAGE_FOR_POSTURE` and `STRONG_COVERAGE_THRESHOLD` in `grc_auditor/report.py` and
+are not operator-tunable, for the same reason the per-host floor is not: a config knob
+would let a run be dressed up as clean.
+
 ## 5. Design principles
 
 - **Audit integrity over coverage.** Never modify the system under assessment. Partial
@@ -85,6 +134,8 @@ JSON/CSV exports) reads one of the two; do not add a third computation elsewhere
   `scan_error`, never a clean pass. Above that floor, **assessment confidence** (the % of
   the benchmark that produced a verdict) still flags a high score that only reflects the few
   checks that actually ran (typically a low-privilege scan) via the operator-tunable badge.
+  The same rule applies one level up: the fleet posture can't read `strong` unless 90% of
+  scan candidates were assessed, and is `incomplete` below 50% (see section 4).
 - **Authoritative check logic.** Compliance verdicts come from OpenSCAP, not hand-rolled
   checks, to keep evidence defensible.
 - **Evidence is sealed at rest; the scanner on the target is trusted.** Each run writes a
