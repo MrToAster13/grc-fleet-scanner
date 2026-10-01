@@ -36,8 +36,10 @@ from .store import Store
 # 0 = success (at least one host `scanned`, or this was --dry-run)
 # 1 = discovery failure
 # 2 = genuine ConfigError: the config exists but failed to load/validate
-#     (e.g. the authorization guard refused an empty scope)
-# 4 = config scaffolded: no config existed, so `run` wrote a starter one and
+#     (e.g. the authorization guard refused an empty scope), or the config
+#     didn't exist and scaffolding it also failed (no config.example.yaml
+#     to scaffold from, or an OSError while writing the starter) (ELI-341).
+# 4 = config scaffolded: no config existed, `run` wrote a starter one, and
 #     stopped -- nothing ran, and there is nothing wrong to fix beyond filling
 #     in scope.cidrs. Distinct from 2 (ELI-143): a scaffold is an expected
 #     first-run outcome, a ConfigError is a real failure; a caller/CI step
@@ -157,17 +159,21 @@ def _starter_config_text(example: str) -> str:
 
 def _scaffold_config(dest: str) -> int:
     """Write a starter config to ``dest`` and exit asking for an authorized
-    scope. Returns EXIT_CONFIG_SCAFFOLDED either way (nothing ran) -- so a
-    scheduled job that finds no config stops cleanly instead of scanning a
-    template scope. Distinct from EXIT_CONFIG_ERROR (ELI-143): this path
-    means "we just created your config for you", not "your config is
-    broken"."""
+    scope. Returns EXIT_CONFIG_SCAFFOLDED when it actually writes a starter
+    (nothing ran) -- so a scheduled job that finds no config stops cleanly
+    instead of scanning a template scope. Distinct from EXIT_CONFIG_ERROR
+    (ELI-143): that path means "we just created your config for you", not
+    "your config is broken". The two failure paths below -- no
+    config.example.yaml to scaffold from, or an OSError while writing the
+    scaffold -- are themselves genuine ConfigErrors (nothing was written,
+    the operator's config state is unchanged and broken), so they return
+    EXIT_CONFIG_ERROR, not EXIT_CONFIG_SCAFFOLDED (ELI-341)."""
     example = _example_config_path()
     if example is None:
         print(f"config error: {dest} not found, and no config.example.yaml was "
               f"available to scaffold one from. Create {dest} with an authorized "
               f"scope first.", file=sys.stderr)
-        return EXIT_CONFIG_SCAFFOLDED
+        return EXIT_CONFIG_ERROR
     try:
         parent = os.path.dirname(dest)
         if parent:
@@ -179,7 +185,7 @@ def _scaffold_config(dest: str) -> int:
     except OSError as exc:
         print(f"config error: could not scaffold {dest} from {example}: {exc}",
               file=sys.stderr)
-        return EXIT_CONFIG_SCAFFOLDED
+        return EXIT_CONFIG_ERROR
     print(f"No config found -- wrote a starter to {dest} (from "
           f"{os.path.basename(example)}).")
     print(f"  Next: set scope.cidrs in {dest} to the range you are AUTHORIZED to "
