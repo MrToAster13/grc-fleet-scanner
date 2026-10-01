@@ -308,6 +308,10 @@ def test_perfect_pass_rate_over_tiny_scanned_share_is_not_strong():
     assert es["posture"] == "incomplete"
     assert "strong" not in es["headline"]
     assert "4.8%" in es["headline"]          # 2 of 42 scan candidates
+    # The headline names its own numerator/denominator and the exclusion, so
+    # a reader can see why this differs from the coverage sentence below.
+    assert "2 of 42" in es["headline"]
+    assert "8 non-Ubuntu" in es["headline"]
     # The coverage sentence keeps len(run.hosts) as its denominator.
     assert es["coverage"].startswith("2 of 50 discovered hosts assessed (4.0%)")
 
@@ -317,6 +321,20 @@ def test_high_pass_rate_with_partial_coverage_is_capped_at_moderate():
     es = _posture(_fleet(scanned=8, gaps=2))
     assert es["posture"] == "moderate"
     assert "80.0%" in es["headline"]
+    # No non_ubuntu hosts in this fleet, so candidates == discovered hosts:
+    # there is nothing to reconcile, and the headline stays terse.
+    assert "excluded" not in es["headline"]
+
+
+def test_moderate_headline_names_the_non_ubuntu_exclusion():
+    # 8 of 10 scan candidates scanned, plus 5 non_ubuntu hosts out of scope:
+    # the headline should spell out the candidate math it is quoting a
+    # percentage of, so it reads consistently with the coverage sentence.
+    es = _posture(_fleet(scanned=8, gaps=2, non_ubuntu=5))
+    assert es["posture"] == "moderate"
+    assert "80.0%" in es["headline"]
+    assert "8 of 10" in es["headline"]
+    assert "5 non-Ubuntu hosts excluded" in es["headline"]
 
 
 def test_threshold_boundaries():

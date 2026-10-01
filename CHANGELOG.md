@@ -90,6 +90,19 @@ release, everything lives under **Unreleased**.
   reports the new `incomplete` posture (red badge); "strong" also needs at least 90%.
   A weak pass rate stays `weak` at any coverage. Fully covered fleets read exactly as
   before. Thresholds and reasoning are in `docs/design.md` §4 (ELI-166).
+- **Executive headline names its own coverage math.** The `incomplete`/`moderate`
+  headlines quote a percentage of scan candidates (excluding `non_ubuntu`), while the
+  coverage sentence just below quotes a percentage of all discovered hosts; the two
+  figures can legitimately differ, but nothing on the page said why. The headline now
+  spells out the numerator, denominator, and excluded-host count (e.g. "4.8% of scan
+  candidates (2 of 42; 8 non-Ubuntu hosts excluded)") whenever that count is nonzero,
+  so a reader can reconcile it against the coverage sentence. Both denominators are
+  unchanged (ELI-340).
+- **Dropped an unreachable `share is None` fallback** in the `strong` posture check.
+  `assessed_share` can only return `None` when a run has no scan candidates at all, but
+  that branch is only reached once a host has already been scanned, which means the
+  candidate set (and therefore `share`) is never empty there. Removed instead of adding
+  a test for a path that cannot occur (ELI-340).
 - **`unknown` verdicts no longer read as trustworthy coverage (never-false-pass).** The prior
   confidence fix excluded the whole `other` bucket from the denominator, but the parser dumps
   XCCDF `unknown` (a check that ran but reached no verdict: OVAL probe error) into `other`
