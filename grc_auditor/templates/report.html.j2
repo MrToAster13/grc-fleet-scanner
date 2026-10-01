@@ -123,7 +123,7 @@
   <div class="card"><div class="muted">Scanned</div><div class="big ok">{{ summary.scanned }}</div></div>
   <div class="card"><div class="muted">Coverage gaps</div><div class="big warn">{{ summary.coverage_gaps }}</div></div>
   <div class="card">
-    <div class="muted">Fleet pass rate</div>
+    <div class="muted">Pass rate (checks on scanned hosts)</div>
     <div class="big">{% if summary.fleet_pass_rate is not none %}{{ summary.fleet_pass_rate }}%{% else %}<span class="muted">n/a</span>{% endif %}</div>
     {% if summary.fleet_delta is not none %}
       <div class="{{ 'delta-up' if summary.fleet_delta >= 0 else 'delta-down' }}">
