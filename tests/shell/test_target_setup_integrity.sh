@@ -142,6 +142,23 @@ out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
 status=$?
 check "two-line value dies" 1 "$status" "$out" "more than one line"
 
+# 11. normalize_pubkey() strips the CR from the bytes that actually get
+#     written to authorized_keys (not just from validate_pubkey()'s local
+#     copy): a CRLF key with no comment must come out CR-free.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    normalize_pubkey "$2"
+' _ "$SCRIPT" $'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJcTiTVdbLQxAaeWv5A6zBhV6h/nMGa+7T39V6EE0Bta\r')"
+status=$?
+if [ "$status" -eq 0 ] && ! printf '%s' "$out" | grep -qF $'\r'; then
+    echo "PASS: normalize_pubkey strips CR from the bytes written to authorized_keys"
+    pass=$((pass + 1))
+else
+    echo "FAIL: normalize_pubkey left a CR in the bytes written to authorized_keys"
+    echo "  output: $out"
+    fail=$((fail + 1))
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

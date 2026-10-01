@@ -40,6 +40,17 @@ done
 echo "grc install: installed ${#commands[@]} commands to $DEST:"
 printf '  %s\n' "${commands[@]}"
 
+# Remove launchers for commands cut in a later release (ELI-142: --deep). A
+# re-run of install.sh on an existing install would otherwise leave a stale
+# grc-deep behind forever, since it's no longer in ./bin to overwrite it.
+removed_commands=(grc-deep)
+for name in "${removed_commands[@]}"; do
+    if [ -e "$DEST/$name" ]; then
+        rm -f "$DEST/$name"
+        echo "grc install: removed $DEST/$name (command no longer exists)"
+    fi
+done
+
 # PATH check + offer to add DEST to the shell rc. A child process can never
 # change the parent shell's environment, so accepting the offer still leaves
 # this terminal without the new commands until the operator runs the export

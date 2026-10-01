@@ -114,7 +114,7 @@ def test_adequately_covered_scan_is_scanned():
     assert host.status is HostStatus.SCANNED
 
 
-def test_build_oscap_argv_adds_fetch_remote_resources_only_when_deep():
+def test_build_oscap_argv_adds_fetch_remote_resources_only_when_configured():
     from grc_auditor.scan import _build_oscap_argv
     base = ScanPlan(datastream_path="/ds.xml", profile_id="p", cis_level=2,
                     ubuntu_version="22.04")
