@@ -7,7 +7,7 @@ Guidance for AI agents working in this repo. Writing style: load the `unslop` sk
 - Tests: `python -m pytest -q` (tests in `tests/`, config in `pyproject.toml`).
 - Shell integrity check: `bash tests/shell/test_target_setup_integrity.sh`.
 - CI runs both on every PR (`.github/workflows/tests.yml`). Run both before you push.
-- Layout: `grc_auditor/` package, `bin/` entry points, `grc-target-setup/` target scripts, `docs/` design and validation notes.
+- Layout: `grc_auditor/` package, `bin/` entry points, `grc-target-setup` target setup script, `docs/` design and validation notes.
 
 ## Organization
 - One topic per file, named `lowercase-with-hyphens.md`. Put new content next to similar content. Update the README index on add or rename. Link instead of duplicating.
