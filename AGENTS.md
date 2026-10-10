@@ -1,38 +1,24 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repo. It holds documentation and
-writing, kept well-organized. The goal is clear, human-sounding writing,
-not AI slop.
+Guidance for AI agents working in this repo. Writing style: load the `unslop` skill and follow it. No other style rules.
 
-## Subagents
-
-- Every subagent runs on Sonnet (`claude-sonnet-5`, i.e. `model: sonnet` on the Agent tool). This is a rule, not a default. It applies to nested subagents too: an agent that spawns its own helpers passes Sonnet down.
-- State the model at the call site, even when the agent's file already sets it in frontmatter. An unstated model inherits the orchestrator's, which is how a twenty-unit fan-out quietly becomes forty Opus agents.
-- The only exception is an explicitly named model for that run. A weak result from a subagent is a briefing problem: fix the prompt, don't raise the model.
-
-## Writing
-- Plain, direct, specific. Cut filler, hype, and throat-clearing. Start with the point.
-- Vary sentence length: mix short, punchy lines with longer ones. Uniform rhythm reads as machine-written.
-- Take a position and say it plainly. Don't hedge ("it's important to note," "generally speaking") or trail off into "it depends."
-- Use concrete nouns over inflated adjectives: "a framework," not "a robust, comprehensive framework."
-- Show with a real example instead of describing in the abstract.
-- Go easy on rule-of-three lists. One is fine; a pattern is a tell.
-- Never use em-dashes (the `—` character). Rewrite with a comma, colon, period, or parentheses instead.
-- Avoid AI-tell words: delve, leverage, robust, seamless, crucial, tapestry, testament, elevate, underscore, boasts, realm, "navigate the landscape."
-- Markdown only, one `#` H1 per file. Wrap commands, paths, and code in backticks.
+## Setup and checks
+- Install: `pip install -r requirements.txt` (CI matrix: Python 3.8, 3.11, 3.13).
+- Tests: `python -m pytest -q` (tests in `tests/`, config in `pyproject.toml`).
+- Shell integrity check: `bash tests/shell/test_target_setup_integrity.sh`.
+- CI runs both on every PR (`.github/workflows/tests.yml`). Run both before you push.
+- Layout: `grc_auditor/` package, `bin/` entry points, `grc-target-setup/` target scripts, `docs/` design and validation notes.
 
 ## Organization
-- One topic per file. Name files `lowercase-with-hyphens.md`.
-- Put new content next to similar content; match the existing folder structure.
-- Update the README index when you add or rename a file.
-- Link to other docs instead of duplicating them.
+- One topic per file, named `lowercase-with-hyphens.md`. Put new content next to similar content. Update the README index on add or rename. Link instead of duplicating.
 
 ## Boundaries
-- Never commit secrets, keys, tokens, or private data.
-- Only document what is real and verifiable. Never invent facts, sources, or results.
-- Don't delete or restructure existing files unless asked.
-- Ask before adding new top-level folders or dependencies.
+- Never commit secrets, keys, tokens or private data.
+- Only document what is real and verifiable. Never invent facts, sources or results.
+- Do not delete or restructure existing files unless asked. Ask before adding top-level folders or dependencies.
+
+## Subagents
+- Use subagents freely. Split independent work across parallel subagents and hand off research, review and large reads. State the model at the call site.
 
 ## Commits
-- Small, focused commits, one logical change each.
-- Present tense, e.g. `add ssh brute-force writeup`.
+- Small commits, one logical change each, present tense (`add ssh brute-force writeup`).
