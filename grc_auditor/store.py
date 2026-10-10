@@ -85,6 +85,9 @@ class Store:
     # Columns added after the original schema. Forward-safe migration so an
     # existing history.db gains them without being recreated.
     _HOST_COLUMNS_ADDED = {"not_checked": "INTEGER", "other": "INTEGER"}
+    # dry_run (ELI-341): explicit marker, nullable so a pre-existing runs row
+    # loads as NULL ("unknown, infer structurally") rather than erroring.
+    _RUN_COLUMNS_ADDED = {"dry_run": "INTEGER"}
 
     def _ensure_columns(self):
         existing = {row["name"] for row in
@@ -92,6 +95,11 @@ class Store:
         for col, decl in self._HOST_COLUMNS_ADDED.items():
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE hosts ADD COLUMN {col} {decl}")
+        existing_run_cols = {row["name"] for row in
+                             self._conn.execute("PRAGMA table_info(runs)").fetchall()}
+        for col, decl in self._RUN_COLUMNS_ADDED.items():
+            if col not in existing_run_cols:
+                self._conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {decl}")
 
     def close(self):
         self._conn.close()
@@ -112,9 +120,10 @@ class Store:
         self._conn.execute("DELETE FROM hosts WHERE run_id = ?", (run.run_id,))
         self._conn.execute(
             "INSERT OR REPLACE INTO runs(run_id, started_at, finished_at, scope, "
-            "config_hash) VALUES (?,?,?,?,?)",
+            "config_hash, dry_run) VALUES (?,?,?,?,?,?)",
             (run.run_id, run.started_at, run.finished_at,
-             json.dumps(run.scope), run.config_hash),
+             json.dumps(run.scope), run.config_hash,
+             None if run.dry_run is None else int(run.dry_run)),
         )
         self._conn.commit()
 
@@ -181,23 +190,32 @@ class Store:
         )
         return [dict(r) for r in cur.fetchall()]
 
-    # A finished run holds a host row still in HostStatus.DISCOVERED ("alive,
-    # not yet processed") ONLY when it was a ``--dry-run`` pass: a real run's
-    # candidates are always persisted post-processing with a terminal status
+    # Whether a run was a dry run, for the drift/trend "comparable baseline"
+    # filters below. Prefers the explicit ``runs.dry_run`` marker (ELI-341)
+    # when it was recorded; a dry run that discovered zero candidate hosts
+    # leaves no leftover DISCOVERED host row, so the old structural signature
+    # alone would wrongly treat it as a real, comparable run. Falls back to
+    # that structural signature only for rows persisted before the marker
+    # existed (``runs.dry_run IS NULL``), so old history.db files keep
+    # loading and classifying exactly as before -- no backfill needed.
+    #
+    # Structural signature: a finished run holds a host row still in
+    # HostStatus.DISCOVERED ("alive, not yet processed") ONLY when it was a
+    # ``--dry-run`` pass with at least one candidate: a real run's candidates
+    # are always persisted post-processing with a terminal status
     # (scanned/no_credentials/unreachable/...), set by `_process_host` before
     # `save_host` is ever called for them. A dry run skips that processing
     # entirely and persists candidates exactly as discovery/classify left
-    # them. This is a structural signature, not a stored flag: it needs no
-    # schema change and can't drift out of sync with the pipeline that
-    # produces it. See docs/design.md "Drift baselines and scope" for the
-    # decision this backs: a dry run is never a valid drift/trend baseline,
-    # because it performed no scan and carries no compliance evidence -- its
-    # fleet "pass rate" is always None, so comparing against it either wrongly
+    # them. See docs/design.md "Drift baselines and scope" for the decision
+    # this backs: a dry run is never a valid drift/trend baseline, because it
+    # performed no scan and carries no compliance evidence -- its fleet
+    # "pass rate" is always None, so comparing against it either wrongly
     # blocks a real comparable prior run (if picked) or is silently a no-op
     # (if not), and the report gives no signal that a baseline was skipped.
     _DRY_RUN_SIGNATURE = (
-        "EXISTS (SELECT 1 FROM hosts WHERE hosts.run_id = runs.run_id "
-        "AND hosts.status = ?)"
+        "(CASE WHEN runs.dry_run IS NOT NULL THEN runs.dry_run = 1 "
+        "ELSE EXISTS (SELECT 1 FROM hosts WHERE hosts.run_id = runs.run_id "
+        "AND hosts.status = ?) END)"
     )
 
     def previous_run_id(self, before_run_id: str,
@@ -242,12 +260,14 @@ class Store:
         ).fetchone()
         if not run_row:
             return None
+        dry_run_val = run_row["dry_run"]
         run = RunRecord(
             run_id=run_row["run_id"],
             started_at=run_row["started_at"],
             finished_at=run_row["finished_at"],
             scope=json.loads(run_row["scope"] or "[]"),
             config_hash=run_row["config_hash"],
+            dry_run=None if dry_run_val is None else bool(dry_run_val),
         )
         host_rows = self._conn.execute(
             "SELECT * FROM hosts WHERE run_id = ? ORDER BY ip", (run_id,)

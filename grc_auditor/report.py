@@ -406,6 +406,11 @@ MIN_COVERAGE_FOR_POSTURE = 50.0
 STRONG_COVERAGE_THRESHOLD = 90.0
 
 
+def _scan_candidates(run: RunRecord) -> list:
+    """Hosts in scope for scanning: every host except NON_UBUNTU inventory."""
+    return [h for h in run.hosts if h.status is not HostStatus.NON_UBUNTU]
+
+
 def assessed_share(run: RunRecord) -> Optional[float]:
     """Percent of scan candidates (non-NON_UBUNTU hosts) that reached SCANNED.
 
@@ -414,7 +419,7 @@ def assessed_share(run: RunRecord) -> Optional[float]:
     This is deliberately not the coverage sentence's denominator
     (``len(run.hosts)``): out-of-scope inventory must not drag posture down.
     """
-    candidates = [h for h in run.hosts if h.status is not HostStatus.NON_UBUNTU]
+    candidates = _scan_candidates(run)
     if not candidates:
         return None
     return round(100.0 * len(run.scanned_hosts()) / len(candidates), 1)
@@ -433,6 +438,19 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     total = len(run.hosts)
     rate = run.fleet_pass_rate()
     share = assessed_share(run)
+    n_candidates = len(_scan_candidates(run))
+    n_excluded = total - n_candidates
+    # Only spell out the candidate math when it differs from the coverage
+    # sentence's "of discovered hosts" denominator below -- otherwise the two
+    # percentages already agree and the extra clause would be noise.
+    if n_excluded:
+        candidate_detail = (
+            " (%d of %d; %d non-Ubuntu host%s excluded)"
+            % (len(scanned), n_candidates, n_excluded,
+               "" if n_excluded == 1 else "s")
+        )
+    else:
+        candidate_detail = ""
 
     if not scanned:
         posture = "no-data"
@@ -453,11 +471,16 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
         # was mostly never reached. Mirrors HARD_CONFIDENCE_FLOOR per host.
         posture = "incomplete"
         headline = (
-            "Only %.1f%% of scan candidates were assessed, too little of the "
-            "fleet to rate its compliance. Close the coverage gaps below "
-            "before relying on the pass rate." % share
+            "Only %.1f%% of scan candidates were assessed%s, too little of "
+            "the fleet to rate its compliance. Close the coverage gaps below "
+            "before relying on the pass rate." % (share, candidate_detail)
         )
-    elif rate >= 90 and (share is None or share >= STRONG_COVERAGE_THRESHOLD):
+    elif rate >= 90 and share >= STRONG_COVERAGE_THRESHOLD:
+        # share can't be None here: scanned is non-empty (the `not scanned`
+        # branch above already handled the empty case), and every SCANNED
+        # host is by definition not NON_UBUNTU, so the candidate set that
+        # assessed_share divides by is non-empty too. (The old `share is
+        # None or` fallback was unreachable for the same reason; removed.)
         posture = "strong"
         headline = "Fleet compliance is strong, with only isolated gaps to close."
     elif rate >= 90:
@@ -465,8 +488,8 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
         posture = "moderate"
         headline = (
             "Assessed hosts score well, but only %.1f%% of scan candidates "
-            "were assessed; posture is capped at moderate until coverage "
-            "gaps are closed." % share
+            "were assessed%s; posture is capped at moderate until coverage "
+            "gaps are closed." % (share, candidate_detail)
         )
     else:
         posture = "moderate"

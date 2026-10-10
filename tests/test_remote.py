@@ -1,8 +1,8 @@
-"""Tests for grc_auditor.remote error classification.
-
-Focus: a host-key MISMATCH on the BASTION must keep its security-signal type so
-the caller routes it to HOST_KEY_MISMATCH, not plain UNREACHABLE. No live SSH --
-we drive the pure classifier with fabricated paramiko exceptions.
+"""Tests for grc_auditor.remote: argv quoting and connect/command error
+classification (connect timeout, command timeout mid-run). No live SSH --
+we drive RemoteHost and the pure classifier with fabricated paramiko/socket
+exceptions. (Bastion support was cut in the ELI-142 carve; these tests no
+longer cover bastion-specific host-key-mismatch routing.)
 """
 
 from __future__ import annotations

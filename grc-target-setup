@@ -54,6 +54,20 @@ verify_sha512sum() {
     echo "checksum verified: $actual"
 }
 
+# normalize_pubkey KEY
+# Strips CR (CRLF-terminated input from a Windows-edited key file or
+# copy/paste) and one trailing LF, and prints the result. This is the value
+# that actually gets written to authorized_keys, so the stripping has to
+# happen on $PUBKEY itself, not only on validate_pubkey()'s local copy: a
+# CR left on the end of a comment-less key reaches sshd as part of the data
+# field and the key stops working.
+normalize_pubkey() {
+    local key="$1"
+    key="${key//$'\r'/}"
+    key="${key%$'\n'}"
+    printf '%s' "$key"
+}
+
 # validate_pubkey KEY
 # Rejects anything that is not a recognizable single-line SSH public key
 # before it is ever written to authorized_keys: an unrecognized key type,
@@ -97,7 +111,7 @@ fi
 while [ $# -gt 0 ]; do
     case "$1" in
         --scan-user)   SCAN_USER="${2:?--scan-user needs a name}"; shift 2 ;;
-        --pubkey)      PUBKEY="${2:?--pubkey needs a key string}"; validate_pubkey "$PUBKEY"; shift 2 ;;
+        --pubkey)      PUBKEY="$(normalize_pubkey "${2:?--pubkey needs a key string}")"; validate_pubkey "$PUBKEY"; shift 2 ;;
         --pubkey-file) PUBKEY_FILE="${2:?--pubkey-file needs a path}"; shift 2 ;;
         --ssg-dir)     SSG_DIR="${2:?--ssg-dir needs a path}"; shift 2 ;;
         --force)       FORCE=1; shift ;;
@@ -199,7 +213,7 @@ if [ -n "$SCAN_USER" ]; then
     # Authorize a public key, if given.
     if [ -n "$PUBKEY_FILE" ]; then
         [ -r "$PUBKEY_FILE" ] || die "--pubkey-file not readable: $PUBKEY_FILE"
-        PUBKEY="$(cat "$PUBKEY_FILE")"
+        PUBKEY="$(normalize_pubkey "$(cat "$PUBKEY_FILE")")"
         validate_pubkey "$PUBKEY"
     fi
     if [ -n "$PUBKEY" ]; then

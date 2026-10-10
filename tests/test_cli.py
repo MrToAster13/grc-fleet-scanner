@@ -96,6 +96,39 @@ def test_cmd_run_scaffolds_when_config_missing(tmp_path, capsys):
         load_config(str(dest))
 
 
+def test_scaffold_with_no_example_is_a_config_error(tmp_path, monkeypatch, capsys):
+    # No config.example.yaml anywhere to scaffold from: this is a genuine
+    # ConfigError (nothing was written, the operator's config state is
+    # unchanged and broken), not EXIT_CONFIG_SCAFFOLDED (ELI-341).
+    monkeypatch.setattr(cli_mod, "_example_config_path", lambda: None)
+    dest = tmp_path / "config.yaml"
+    rc = _scaffold_config(str(dest))
+    assert rc == cli_mod.EXIT_CONFIG_ERROR
+    assert not dest.exists()
+    assert "config error" in capsys.readouterr().err.lower()
+
+
+def test_scaffold_oserror_while_writing_is_a_config_error(tmp_path, monkeypatch, capsys):
+    # An OSError while writing the scaffold (e.g. disk full, permission
+    # denied) is itself a genuine ConfigError, not EXIT_CONFIG_SCAFFOLDED
+    # (ELI-341).
+    dest = tmp_path / "config.yaml"
+
+    import builtins
+    real_open = builtins.open
+
+    def _boom(path, mode="r", *args, **kwargs):
+        if path == str(dest) and "w" in mode:
+            raise OSError("disk full")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(cli_mod, "open", _boom, raising=False)
+    rc = _scaffold_config(str(dest))
+    assert rc == cli_mod.EXIT_CONFIG_ERROR
+    assert not dest.exists()
+    assert "config error" in capsys.readouterr().err.lower()
+
+
 # --------------------------------------------------------------------------- #
 # zero-scanned signal: exit code + console summary (ELI-140)
 # --------------------------------------------------------------------------- #

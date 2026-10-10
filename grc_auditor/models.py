@@ -256,6 +256,14 @@ class RunRecord:
     scope: list[str] = field(default_factory=list)   # the CIDRs scanned
     config_hash: Optional[str] = None
     hosts: list[HostRecord] = field(default_factory=list)
+    # Explicit dry-run marker (ELI-341). None means "unknown / not recorded"
+    # (e.g. a run loaded from before this field existed); the store infers it
+    # structurally in that case. True/False means the caller told us directly,
+    # which matters for a dry run with zero candidate hosts: it leaves no
+    # leftover DISCOVERED host for the old structural inference to key off of,
+    # so without an explicit marker it could wrongly pass for a real,
+    # comparable run and become a drift/trend baseline.
+    dry_run: Optional[bool] = None
 
     # --- convenience aggregates used by the report -----------------------
     def counts_by_status(self) -> dict[str, int]:

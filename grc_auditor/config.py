@@ -268,6 +268,17 @@ def ip_in_networks(ip: str, networks) -> bool:
 def _parse_credential_group(doc: dict) -> CredentialGroup:
     name = _require(doc, "name", "credential_groups[]")
     where = f"credential_group '{name}'"
+    if "bastion" in doc:
+        # Bastion support was cut (ELI-142). An old config with a bastion:
+        # block used to jump through it; silently ignoring the key now would
+        # dial these hosts directly instead, and they'd just show up as
+        # unreachable with no clue why (ELI-341). Fail loudly and point at
+        # the supported workaround instead.
+        raise ConfigError(
+            f"{where}: 'bastion' is no longer supported. Set up a local SSH "
+            f"port forward instead (e.g. `ssh -L 2222:<target>:22 <bastion>`) "
+            f"and point this group's ssh_port/host at the forwarded port."
+        )
     level = doc.get("cis_level")
     if level is not None and int(level) not in (1, 2):
         raise ConfigError(f"{where}: cis_level must be 1 or 2")
