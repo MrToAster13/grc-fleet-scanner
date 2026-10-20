@@ -1,5 +1,7 @@
 # Handoff: grc-fleet-scanner MVP simplification, adversarial audit, and dual tracking
 
+Linear retired 2026-10-19; tickets now live in vault `Tickets/`.
+
 > **Historical.** Written mid-session on 2026-09-05 while five audits were still in
 > flight. Superseded by [002-audit-findings.md](002-audit-findings.md) for the findings and by
 > Linear ELI-136 through ELI-144 for the live work. Kept for the reasoning behind the MVP carve.
