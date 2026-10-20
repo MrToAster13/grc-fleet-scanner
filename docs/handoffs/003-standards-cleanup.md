@@ -1,5 +1,7 @@
 # grc-fleet-scanner: standards cleanup handoff
 
+Linear retired 2026-10-19; tickets now live in vault `Tickets/`.
+
 Written 2026-09-05 19:44:26. Closed 2026-09-06. Status: **complete, committed as `d17f1a9`.**
 
 ## Where the work is
