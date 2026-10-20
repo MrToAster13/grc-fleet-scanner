@@ -9,5 +9,5 @@ Each records what was done, what was verified, and what was deliberately left al
 | 002 | [002-audit-findings.md](002-audit-findings.md) | Consolidated findings from five adversarial audits, with the prioritized cut list | Live reference |
 | 003 | [003-standards-cleanup.md](003-standards-cleanup.md) | Writing-standards cleanup, em-dash purge, stale-claim fixes | Complete, committed as `d17f1a9` |
 
-Open repo defects are tracked in Linear under the GRC Tool project as ELI-136 through ELI-144.
+The repo defects from these handoffs were tracked as ELI-136 through ELI-144 under the GRC Tool project (`Tickets/Projects/GRC Tool.md`). All nine are Done and archived in the vault under `Tickets/Archive/`.
 Each ticket carries its own file paths and line numbers, so it can be worked without these docs.
