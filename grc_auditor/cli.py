@@ -56,7 +56,7 @@ def _utcnow() -> str:
 
 def _run_id() -> str:
     # The timestamp prefix keeps run ids lexically sortable (history ordering and
-    # previous_run_id rely on `run_id < ?` string comparison). The short random
+    # history.RunHistory's "earlier run" test rely on string comparison). The short random
     # suffix makes a collision between two runs started in the same wall-clock
     # second effectively impossible, so one run can never overwrite or be confused
     # with another's on-disk evidence.

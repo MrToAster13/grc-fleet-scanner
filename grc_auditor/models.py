@@ -240,6 +240,17 @@ def finalize_scan_status(host: HostRecord, scan: ScanResult,
     host.status = HostStatus.SCANNED
 
 
+def pass_rate(passed: int, evaluated: int) -> Optional[float]:
+    """The one fleet pass rate formula: ``100 * passed / evaluated``, rounded to
+    one decimal, or None when nothing was evaluated (never a fabricated 0.0 or
+    100.0). ``evaluated`` is ``passed + failed + error`` summed across SCANNED
+    hosts (``ScanResult.total_evaluated``). Every pass rate the report shows,
+    for this run or a prior one, comes through here."""
+    if evaluated <= 0:
+        return None
+    return round(100.0 * passed / evaluated, 1)
+
+
 def status_counts(hosts: list[HostRecord]) -> dict[str, int]:
     """Tally hosts by their status value -- the single home for this idiom,
     shared by classify (a bare host list) and RunRecord (its own hosts)."""
@@ -257,8 +268,8 @@ class RunRecord:
     config_hash: Optional[str] = None
     hosts: list[HostRecord] = field(default_factory=list)
     # Explicit dry-run marker (ELI-341). None means "unknown / not recorded"
-    # (e.g. a run loaded from before this field existed); the store infers it
-    # structurally in that case. True/False means the caller told us directly,
+    # (e.g. a run loaded from before this field existed); history.is_dry_run
+    # infers it structurally in that case. True/False means the caller told us directly,
     # which matters for a dry run with zero candidate hosts: it leaves no
     # leftover DISCOVERED host for the old structural inference to key off of,
     # so without an explicit marker it could wrongly pass for a real,
@@ -310,9 +321,7 @@ class RunRecord:
         scanned = self.scanned_hosts()
         passed = sum(h.scan.passed for h in scanned)
         evaluated = sum(h.scan.total_evaluated for h in scanned)
-        if evaluated == 0:
-            return None
-        return round(100.0 * passed / evaluated, 1)
+        return pass_rate(passed, evaluated)
 
     def to_dict(self) -> dict:
         return {
