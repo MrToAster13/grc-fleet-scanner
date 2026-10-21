@@ -14,6 +14,17 @@ release, everything lives under **Unreleased**.
   `models.pass_rate`. Report output is unchanged, with one edge case fixed: the trend line
   no longer charts runs newer than the run being reported. See
   `docs/adr/0001-comparable-run-history.md`.
+- **Per-host verdicts have one writer, `assess.assess_host`.** The reach, detect and scan
+  pass for one host moved out of `cli._process_host` into the new `assess.py`, and it is
+  the only code after triage that writes `host.status` and `host.detail`. `detect` now
+  returns a `ScanPlan` or a `Verdict`, and `scan_host` returns a `ScanResult` or raises
+  `ScanFailed`; neither writes host status. `models.finalize_scan_status` is replaced by
+  `assess.scan_verdict`, which keeps the same never-false-pass rules and detail text.
+  `assess_host` takes a `connect` factory, so the tests drive the real detect and scan
+  code against a fake host with no monkeypatching. Two edge cases changed: if the scan
+  parses but the temp-dir cleanup then fails, the host is `scan_error` with no scan
+  attached (it used to keep the parsed scan), and the per-host scan log line now comes
+  after cleanup. See `docs/adr/0002-one-writer-per-host-verdict.md`.
 - **MVP carve (ELI-142): `--deep`, bastion, and the CIS-NIST/ISO crosswalk are cut.**
   `--deep`, `fetch_remote_resources`'s one-flag preset, and `bin/grc-deep` are gone; set
   `cis_level: 2` and `fetch_remote_resources: true` directly in config instead.
@@ -76,7 +87,7 @@ release, everything lives under **Unreleased**.
   references are 800-53 **Rev 4** (a DoD baseline is Rev 5), that the status is a suggestion
   from automated CIS checks (not an ATO decision), and that the results are the CIS profile,
   not a DISA STIG.
-- **Structural never-false-pass chokepoint**: a single `finalize_scan_status` gate now
+- **Structural never-false-pass chokepoint**: a single `finalize_scan_status` gate (now `assess.scan_verdict`) now
   decides `SCANNED`. A scan that evaluated nothing (empty/rule-result-less `results.xml`)
   or whose coverage falls below a **hard, non-overridable confidence floor (50%)** is
   recorded as `scan_error` ("evidence retained but not certifiable"), never a clean pass,

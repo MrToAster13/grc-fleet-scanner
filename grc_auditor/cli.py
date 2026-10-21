@@ -3,8 +3,8 @@
 Wires the pipeline end-to-end:
     discover -> classify -> (reach -> detect -> scan)* -> persist -> report
 
-Per-host work (reach/detect/scan) runs in a bounded thread pool (IO-bound SSH),
-capped by scope.ssh_concurrency. Discovery and reporting are single-shot.
+Per-host work (reach/detect/scan, in assess.assess_host) runs in a bounded
+thread pool (IO-bound SSH), capped by scope.ssh_concurrency. Discovery and reporting are single-shot.
 """
 
 from __future__ import annotations
@@ -18,15 +18,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from . import __version__, discovery, classify as classify_mod
+from .assess import assess_host
 from .config import (
-    Config, ConfigError, apply_overrides, ip_in_networks, load_config,
+    ConfigError, apply_overrides, ip_in_networks, load_config,
 )
-from .detect import detect
-from .logging_setup import get_logger, setup_logging
-from .models import HostRecord, HostStatus, RunRecord
-from .remote import HostKeyMismatch, RemoteError, RemoteHost
+from .logging_setup import setup_logging
+from .models import HostStatus, RunRecord
 from .report import write_reports
-from .scan import scan_host
 from .store import Store
 
 # Exit codes for `run`. Kept together so the contract in docs/operating.md
@@ -62,47 +60,6 @@ def _run_id() -> str:
     # with another's on-disk evidence.
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"{stamp}-{secrets.token_hex(3)}"
-
-
-def _process_host(host: HostRecord, cfg: Config, run_id: str,
-                  artifacts_root: str) -> HostRecord:
-    """Reach + detect + scan a single host. Never raises; encodes outcome in status."""
-    log = get_logger()
-    group = cfg.credential_group_for(host.ip)
-    if group is None:  # defensive; classify should have caught this
-        host.status = HostStatus.NO_CREDENTIALS
-        host.detail = "no credential group matched"
-        return host
-
-    try:
-        with RemoteHost(host.ip, group, cfg.known_hosts) as conn:
-            plan = detect(host, conn, cfg)
-            if plan is None:
-                return host  # detect set an explanatory status
-            try:
-                scan_host(host, conn, plan, run_id, artifacts_root,
-                          timeout=cfg.scope.host_timeout_seconds)
-            except Exception as exc:  # scan_host sets status on known failures
-                if host.status is not HostStatus.SCAN_ERROR:
-                    host.status = HostStatus.SCAN_ERROR
-                    host.detail = f"scan failed: {exc}"
-                log.warning("scan[%s] failed: %s", host.ip, exc)
-    except HostKeyMismatch as exc:
-        # Distinct from plain unreachability: the host key no longer matches the
-        # pinned key. Surfaced as a security finding (possible MITM / unverified
-        # re-provisioning), not a coverage gap to shrug off.
-        host.status = HostStatus.HOST_KEY_MISMATCH
-        host.detail = str(exc)
-        log.warning("reach[%s] HOST KEY MISMATCH: %s", host.ip, exc)
-    except RemoteError as exc:
-        host.status = HostStatus.UNREACHABLE
-        host.detail = str(exc)
-        log.warning("reach[%s] failed: %s", host.ip, exc)
-    except Exception as exc:  # pragma: no cover - unexpected
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = f"unexpected error: {exc}"
-        log.exception("host[%s] unexpected error", host.ip)
-    return host
 
 
 def _example_config_path() -> "str | None":
@@ -283,7 +240,7 @@ def cmd_run(args) -> int:
                      len(candidates), cfg.scope.ssh_concurrency)
             with ThreadPoolExecutor(max_workers=cfg.scope.ssh_concurrency) as pool:
                 futures = {
-                    pool.submit(_process_host, h, cfg, run_id, store.artifacts_root): h
+                    pool.submit(assess_host, h, cfg, run_id, store.artifacts_root): h
                     for h in candidates
                 }
                 for fut in as_completed(futures):
