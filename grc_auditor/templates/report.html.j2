@@ -63,7 +63,7 @@
 <body>
 
 <h1>GRC Fleet Audit: CIS Ubuntu Benchmark</h1>
-{% if run.zero_scanned(dry_run=dry_run) %}
+{% if zero_scanned %}
 <div class="zero-scanned-banner">
   <div class="title">&#9888; ZERO HOSTS SCANNED: this report contains no findings</div>
   {% if run.hosts %}
