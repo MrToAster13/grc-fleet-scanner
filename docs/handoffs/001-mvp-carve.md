@@ -158,11 +158,11 @@ authoritative record.
 - Windows/PowerShell only: no bash line-continuations, no heredocs, no here-strings in
   PowerShell blocks. Keep commit messages single-line. Bake absolute `cd` paths into every
   command block, the owner does not track the working directory.
-- Writing rules were enforced in this repo by `AGENTS.md` when this was written: no em-dashes
-  and no AI-tell words (robust, seamless, crucial, leverage). The ban on hyphenated compounds
-  came from the global `CLAUDE.md`, not `AGENTS.md`; see 002-audit-findings.md. The same rules
-  applied to issue and ticket text. Since ELI-498, `AGENTS.md` points to the `unslop` skill
-  instead and carries no style rules of its own.
+- When this was written, `AGENTS.md` said to avoid AI-tell words (robust, seamless, crucial,
+  leverage) and to go easy on em-dash asides. The outright em-dash ban and the ban on
+  hyphenated compounds came from the global `CLAUDE.md`; see 002-audit-findings.md and
+  003-standards-cleanup.md. The same rules applied to issue and ticket text. Since ELI-498,
+  `AGENTS.md` points to the `unslop` skill instead and carries no style rules of its own.
 - The pre-commit hook runs the full suite; enable with
   `git config core.hooksPath .githooks`. Report pass/fail counts explicitly before committing.
 
