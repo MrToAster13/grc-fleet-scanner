@@ -31,3 +31,4 @@ Carry out the three architecture fixes Elijah approved from the 2026-10-21 revie
 ## Gotchas
 - A history lookup runs one aggregate query over every run, then filters in Python. One report runs up to three. ADR 0001 says to measure a slow real history.db before moving the filters back into SQL.
 - To see the pytest counts, add `-o addopts=""`.
+- Handoff 002 is a snapshot from before grc-1. Its line numbers are stale, and `002-audit-findings.md:183` still names `store.py:fleet_pass_rate_history`, which grc-1 removed. The trend's pass rate now comes from `models.pass_rate` through `RunHistory.trend`. I left 002 unchanged.
