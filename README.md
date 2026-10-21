@@ -140,7 +140,7 @@ reference, scheduling, troubleshooting, and report interpretation are in the
 | [docs/validation.md](docs/validation.md) | Validate the live scan leg against one Ubuntu VM (incl. negative-path checks) |
 | [docs/design.md](docs/design.md) | Design, decisions, coverage model, and what's out of scope |
 | [docs/adr/](docs/adr/) | Architecture decision records, one load-bearing decision per file |
-| [CONTEXT.md](CONTEXT.md) | Domain glossary: run, dry run, comparable run, baseline, scope changed, drift, trend point, fleet pass rate |
+| [CONTEXT.md](CONTEXT.md) | Domain glossary: run, dry run, comparable run, baseline, scope changed, drift, trend point, triage, assessment, verdict, fleet pass rate |
 | [docs/handoffs/](docs/handoffs/) | Session handoff docs: audit findings, the MVP carve reasoning, and what each pass verified |
 | [AGENTS.md](AGENTS.md) | Setup and test commands, layout, organization, boundaries, subagent and commit rules for AI agents working in this repo |
 | [CHANGELOG.md](CHANGELOG.md) | What's changed and the build history |
