@@ -47,7 +47,8 @@ python -m pip install pytest
 | `test_profiles.py` | `datastream_for_version`, `datastream_path`, `profile_id`, `supported_versions` |
 | `test_scan.py` | `scan.parse_xccdf_results` against namespaced XCCDF fixtures (counts, score, failed-rule ids/severities/titles; missing score) |
 | `test_rmf.py` | `rmf.rollup_from_arf`, `_base_control`, `write_rollup_csv` against a synthetic ARF: control rollup and status (Implemented/Planned/Not Assessed), enhancement refs of the same base counted once, a duplicate rule-result never downgrades a fail or buries an error/notselected verdict, revision parsed from the reference href, malformed XML raises `RmfError` |
-| `test_store.py` | `store.Store`: save/load round-trip incl. findings, `previous_run_id`, `list_runs` ordering, output layout |
+| `test_store.py` | `store.Store`: save/load round-trip incl. findings and the `dry_run` marker, `list_runs` ordering, output layout |
+| `test_history.py` | `history.RunHistory` over a real `Store`: drift baseline (most recent earlier run, unfinished runs skipped, `config_hash` match, scope changed), dry-run exclusion by marker and by structural signature, trend point order and `n` limit, live current point, one pass rate formula (`models.pass_rate`) |
 | `test_report.py` | `report.compute_drift`, `top_failing_controls`, `write_reports` (artifacts on disk, HTML/JSON/CSV content) |
 
 ## Fixtures

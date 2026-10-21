@@ -69,9 +69,11 @@ coverage is never mistaken for a clean result:
 **Fleet pass rate, one definition.** "Fleet pass rate" is always `100 * passed /
 (passed + failed + error)` summed across `SCANNED` hosts only (`ScanResult.total_evaluated`
 is that denominator). `not_applicable`, `not_checked`, and `other` never enter either side of
-the ratio. `models.RunRecord.fleet_pass_rate()` and `store.Store.fleet_pass_rate_history()`
-both implement this same formula and every report surface (executive summary, fleet trend,
-JSON/CSV exports) reads one of the two; do not add a third computation elsewhere.
+the ratio. `models.pass_rate()` is the only place the formula lives.
+`models.RunRecord.fleet_pass_rate()` calls it for a loaded run, and `history.RunHistory`
+calls it on the per-run sums `store.Store.run_summaries()` returns for prior trend points.
+Every report surface (executive summary, fleet trend, JSON/CSV exports) reads one of those
+two; do not compute the ratio anywhere else.
 
 ### Fleet coverage and the executive posture
 
@@ -216,25 +218,29 @@ dry run and a full run of the identical config hash identically), so
 `config_hash` matching alone cannot tell them apart. A dry run performs no
 scan and carries no compliance evidence; comparing against it, or charting it
 on the trend line, would either silently skip a real comparable baseline or
-report on a run that never assessed anything. Rather than adding a
-`dry_run` column to the frozen `runs` schema, dry runs are detected
-structurally: a dry run persists its candidate hosts while they are still in
-`HostStatus.DISCOVERED` ("alive, not yet processed"), because it never runs
-the classify -> reach -> detect -> scan pipeline on them. A real run always
-advances every candidate to a terminal status before persisting it. So among
-finished runs, any run holding a host row still `discovered` is provably a
-dry run, with no schema change and no risk of drifting out of sync with the
-pipeline that produces the signature. Both `Store.previous_run_id` and
-`Store.fleet_pass_rate_history` exclude this signature unconditionally.
+report on a run that never assessed anything. Since ELI-341 each run row
+carries an explicit `runs.dry_run` marker, and that marker decides whenever
+it is set. A dry run that found zero candidates leaves no host rows, so only
+the marker can identify it. Rows written before the marker existed
+(`dry_run` NULL) fall back to a structural signature: a dry run persists its
+candidate hosts while they are still in `HostStatus.DISCOVERED` ("alive, not
+yet processed"), because it never runs the classify -> reach -> detect ->
+scan pipeline on them. A real run always advances every candidate to a
+terminal status before persisting it, so among finished runs, a run holding a
+host row still `discovered` is a dry run.
 
-`fleet_pass_rate_history` (and the `fleet_trend`/sparkline it feeds) had the
-identical scope blindness as drift: it charted the last N finished runs with
-no config_hash filter, so a scope change read as a compliance swing on the
-trend line too. It is fixed the same way, in the same pass: an optional
-`config_hash` parameter filters the history to runs sharing this run's
-config_hash (plus the same dry-run exclusion above). It is scope-comparable
-now; there is no remaining reason to consider removing `fleet_trend`
-outright.
+The trend line once had the same scope blindness as drift: it charted the
+last N finished runs with no config_hash filter, so a scope change read as a
+compliance swing. It now uses the same comparable-run rule as drift, so there
+is no remaining reason to consider removing `fleet_trend` outright.
+
+All of these rules (finished, not a dry run, same `config_hash`) live in one
+module, `history.py`. `history.RunHistory.baseline()` picks the drift
+baseline and `history.RunHistory.trend()` picks the trend points, so the two
+displays cannot disagree on what counts as a comparable run. The store only
+reports raw per-run facts through `Store.run_summaries()`. See
+[ADR 0001](adr/0001-comparable-run-history.md) and the terms in
+[CONTEXT.md](../CONTEXT.md).
 
 ## 10. Known deferred enhancements
 

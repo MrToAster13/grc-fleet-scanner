@@ -2,10 +2,10 @@
 
 Each run appends three rows-sets - runs, hosts, findings - and never mutates a
 prior run. Raw OpenSCAP artifacts live alongside under runs/<run_id>/<ip>/.
-History enables the drift comparison in the report stage.
+History feeds history.RunHistory, which picks drift baselines and trend points.
 
 Schema (the third shared contract):
-  runs(run_id PK, started_at, finished_at, scope, config_hash)
+  runs(run_id PK, started_at, finished_at, scope, config_hash, dry_run)
   hosts(id PK, run_id FK, ip, hostname, os_guess, is_ubuntu, ubuntu_version,
         credential_group, status, detail, profile_id, benchmark_version,
         passed, failed, error, not_applicable, not_checked, other, score,
@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from dataclasses import dataclass
 from typing import Optional
 
 from .logging_setup import get_logger
@@ -67,6 +68,26 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE INDEX IF NOT EXISTS idx_hosts_run ON hosts(run_id);
 CREATE INDEX IF NOT EXISTS idx_findings_host ON findings(host_id);
 """
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    """The persisted facts about one run that run history needs, without its
+    hosts or findings. ``dry_run`` is the raw ``runs.dry_run`` marker (None
+    for rows written before ELI-341); ``discovered_hosts`` counts host rows
+    still in ``HostStatus.DISCOVERED``. ``scanned``, ``passed`` and
+    ``evaluated`` sum over SCANNED hosts only, the same inputs as
+    ``RunRecord.fleet_pass_rate``."""
+
+    run_id: str
+    started_at: str
+    finished: bool
+    config_hash: Optional[str]
+    dry_run: Optional[bool]
+    discovered_hosts: int
+    scanned: int
+    passed: int
+    evaluated: int
 
 
 class Store:
@@ -190,69 +211,39 @@ class Store:
         )
         return [dict(r) for r in cur.fetchall()]
 
-    # Whether a run was a dry run, for the drift/trend "comparable baseline"
-    # filters below. Prefers the explicit ``runs.dry_run`` marker (ELI-341)
-    # when it was recorded; a dry run that discovered zero candidate hosts
-    # leaves no leftover DISCOVERED host row, so the old structural signature
-    # alone would wrongly treat it as a real, comparable run. Falls back to
-    # that structural signature only for rows persisted before the marker
-    # existed (``runs.dry_run IS NULL``), so old history.db files keep
-    # loading and classifying exactly as before -- no backfill needed.
-    #
-    # Structural signature: a finished run holds a host row still in
-    # HostStatus.DISCOVERED ("alive, not yet processed") ONLY when it was a
-    # ``--dry-run`` pass with at least one candidate: a real run's candidates
-    # are always persisted post-processing with a terminal status
-    # (scanned/no_credentials/unreachable/...), set by `_process_host` before
-    # `save_host` is ever called for them. A dry run skips that processing
-    # entirely and persists candidates exactly as discovery/classify left
-    # them. See docs/design.md "Drift baselines and scope" for the decision
-    # this backs: a dry run is never a valid drift/trend baseline, because it
-    # performed no scan and carries no compliance evidence -- its fleet
-    # "pass rate" is always None, so comparing against it either wrongly
-    # blocks a real comparable prior run (if picked) or is silently a no-op
-    # (if not), and the report gives no signal that a baseline was skipped.
-    _DRY_RUN_SIGNATURE = (
-        "(CASE WHEN runs.dry_run IS NOT NULL THEN runs.dry_run = 1 "
-        "ELSE EXISTS (SELECT 1 FROM hosts WHERE hosts.run_id = runs.run_id "
-        "AND hosts.status = ?) END)"
-    )
-
-    def previous_run_id(self, before_run_id: str,
-                        config_hash: Optional[str] = None) -> Optional[str]:
-        """The most recent finished run comparable to ``before_run_id``.
-
-        "Comparable" means all of:
-          * finished (a crashed mid-fleet run has ``finished_at`` NULL and only
-            a partial host set; comparing against it would compute deltas
-            versus a truncated baseline and report a spurious
-            improvement/regression);
-          * not a dry-run pass (see ``_DRY_RUN_SIGNATURE`` above);
-          * when ``config_hash`` is given, an EXACT match on the stored
-            ``config_hash``. ``config_hash`` encodes scope (CIDRs/exclude),
-            credential groups, CIS level, and every other behavior-affecting
-            setting (see ``Config.canonical``), so two runs sharing it audited
-            the same thing. A narrowed CIDR, a different credential group, or
-            any other scope/config change produces a different hash and is
-            correctly treated as not comparable -- never silently diffed
-            against as if it were a compliance-posture change.
-
-        Pass ``config_hash=None`` to intentionally skip that filter (used only
-        to detect "some prior run exists, just not a matching one" for
-        reporting purposes -- never to select an actual baseline).
-        """
-        query = (
-            "SELECT run_id FROM runs WHERE run_id < ? AND finished_at IS NOT NULL "
-            f"AND NOT {self._DRY_RUN_SIGNATURE}"
+    def run_summaries(self) -> list[RunSummary]:
+        """One row per persisted run, newest first, with the raw facts
+        ``history.RunHistory`` needs to decide which runs are comparable and
+        to chart them. The store applies no comparability rule here: no
+        finished, dry-run or config_hash filter. Those rules live in
+        ``history.py``, in one place."""
+        cur = self._conn.execute(
+            "SELECT runs.run_id, runs.started_at, runs.finished_at, "
+            "runs.config_hash, runs.dry_run, "
+            "COALESCE(SUM(hosts.status = ?), 0) AS discovered_hosts, "
+            "COALESCE(SUM(hosts.status = ?), 0) AS scanned, "
+            "COALESCE(SUM(CASE WHEN hosts.status = ? THEN hosts.passed END), 0) "
+            "AS passed, "
+            "COALESCE(SUM(CASE WHEN hosts.status = ? THEN "
+            "COALESCE(hosts.passed, 0) + COALESCE(hosts.failed, 0) "
+            "+ COALESCE(hosts.error, 0) END), 0) AS evaluated "
+            "FROM runs LEFT JOIN hosts ON hosts.run_id = runs.run_id "
+            "GROUP BY runs.run_id ORDER BY runs.run_id DESC",
+            (HostStatus.DISCOVERED.value, HostStatus.SCANNED.value,
+             HostStatus.SCANNED.value, HostStatus.SCANNED.value),
         )
-        params: list = [before_run_id, HostStatus.DISCOVERED.value]
-        if config_hash is not None:
-            query += " AND config_hash = ?"
-            params.append(config_hash)
-        query += " ORDER BY run_id DESC LIMIT 1"
-        cur = self._conn.execute(query, params)
-        row = cur.fetchone()
-        return row["run_id"] if row else None
+        return [
+            RunSummary(
+                run_id=r["run_id"], started_at=r["started_at"],
+                finished=r["finished_at"] is not None,
+                config_hash=r["config_hash"],
+                dry_run=None if r["dry_run"] is None else bool(r["dry_run"]),
+                discovered_hosts=r["discovered_hosts"],
+                scanned=r["scanned"], passed=r["passed"],
+                evaluated=r["evaluated"],
+            )
+            for r in cur.fetchall()
+        ]
 
     def load_run(self, run_id: str) -> Optional[RunRecord]:
         run_row = self._conn.execute(
@@ -307,69 +298,3 @@ class Store:
                 )
             run.hosts.append(host)
         return run
-
-    # -- read: multi-run trend (read-only; schema unchanged) ---------------
-    def fleet_pass_rate_history(self, n: int = 10,
-                               config_hash: Optional[str] = None) -> list[dict]:
-        """Fleet pass-rate per run for the most recent ``n`` COMPARABLE runs.
-
-        Aggregates the persisted per-host passed/failed/error counts across the
-        SCANNED hosts of each run and derives the same fleet pass rate the
-        report shows (``100 * passed / (passed+failed+error)``). Runs with no
-        scanned hosts yield ``pass_rate=None`` and ``scanned=0`` so the report
-        can still place them on the timeline honestly.
-
-        Only FINISHED, non-dry-run runs are eligible, matching
-        ``previous_run_id`` -- the two posture displays must agree on what
-        counts as a run (see ``_DRY_RUN_SIGNATURE``). When ``config_hash`` is
-        given, only runs sharing that exact ``config_hash`` are eligible too:
-        a trend line that silently mixes runs against different scopes/configs
-        would chart a scope change as a compliance swing, the same failure
-        mode drift was fixed for. Pass ``config_hash=None`` to intentionally
-        see the unfiltered history (not used by the report).
-
-        Returned oldest-first (chronological) so it can be charted left-to-right.
-        Each item::
-
-            {"run_id", "started_at", "scanned", "passed", "evaluated",
-             "pass_rate"}
-        """
-        if n <= 0:
-            return []
-        query = (
-            "SELECT run_id, started_at FROM runs WHERE finished_at IS NOT NULL "
-            f"AND NOT {self._DRY_RUN_SIGNATURE}"
-        )
-        params: list = [HostStatus.DISCOVERED.value]
-        if config_hash is not None:
-            query += " AND config_hash = ?"
-            params.append(config_hash)
-        query += " ORDER BY run_id DESC LIMIT ?"
-        params.append(n)
-        run_rows = self._conn.execute(query, params).fetchall()
-        out: list[dict] = []
-        for rr in run_rows:
-            agg = self._conn.execute(
-                "SELECT COUNT(*) AS scanned, "
-                "COALESCE(SUM(passed),0) AS passed, "
-                "COALESCE(SUM(failed),0) AS failed, "
-                "COALESCE(SUM(error),0)  AS error "
-                "FROM hosts WHERE run_id = ? AND status = ?",
-                (rr["run_id"], HostStatus.SCANNED.value),
-            ).fetchone()
-            # COUNT(*) and COALESCE(SUM(...),0) guarantee these are non-NULL ints.
-            evaluated = agg["passed"] + agg["failed"] + agg["error"]
-            pass_rate = (
-                round(100.0 * agg["passed"] / evaluated, 1)
-                if evaluated > 0 else None
-            )
-            out.append({
-                "run_id": rr["run_id"],
-                "started_at": rr["started_at"],
-                "scanned": agg["scanned"],
-                "passed": agg["passed"],
-                "evaluated": evaluated,
-                "pass_rate": pass_rate,
-            })
-        out.reverse()  # oldest-first for charting
-        return out

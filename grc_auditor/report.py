@@ -7,9 +7,9 @@ Produces, for one run:
   * hosts.csv    - per-host summary
   * findings.csv - per-failed-control rows
 
-Drift compares this run to the nearest prior run in the history store that
-audited the same scope/configuration (matching config_hash); see
-compute_drift().
+Drift compares this run to its baseline, the most recent comparable prior run
+(finished, not a dry run, same config_hash). history.RunHistory owns that rule
+and the trend line's; see compute_drift() and fleet_trend().
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
         "Jinja2 is required. Install dependencies: pip install -r requirements.txt"
     ) from exc
 
+from .history import RunHistory, current_point
 from .logging_setup import get_logger
 from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, HostStatus, RunRecord
 from .store import Store
@@ -167,33 +168,21 @@ class Drift:
 
 
 def compute_drift(run: RunRecord, store: Store) -> Drift:
-    """Drift vs. the nearest run that actually audited the same scope/config.
+    """Drift vs. the run's baseline, the most recent comparable prior run.
 
-    A candidate baseline must be a finished, non-dry-run run whose
-    ``config_hash`` matches this run's exactly (see
-    ``Store.previous_run_id``). ``config_hash`` already encodes scope
-    (CIDRs/exclude), credential groups, CIS level and every other
-    behavior-affecting config field, so an exact match means the two runs
-    audited the same thing -- a `grc-dry` pass, or a run against a narrowed
-    CIDR, can never become the baseline for a full/differently-scoped run.
-    When no such run exists, this returns a driftless result rather than
-    falling back to the nearest run regardless of scope: absence of trend is
-    a legitimate result, a fabricated one is not.
+    ``history.RunHistory.baseline`` picks it: finished, not a dry run, and the
+    same ``config_hash``, so a `grc-dry` pass or a run against a narrowed CIDR
+    never becomes the baseline for a full or differently scoped run. When no
+    baseline exists this returns a driftless result, with ``scope_changed``
+    set when earlier history exists under a different config.
     """
-    prev_id = store.previous_run_id(run.run_id, config_hash=run.config_hash)
-    if prev_id is None:
-        # Distinguish "nothing to compare against, ever" from "something
-        # exists but doesn't match this run's scope/config" purely for the
-        # rendered message -- config_hash=None here means "ignore scope",
-        # so a hit means real history exists, just not a comparable one.
-        scope_changed = store.previous_run_id(run.run_id) is not None
+    baseline = RunHistory(store).baseline(run)
+    prev = baseline.run
+    if prev is None:
         return Drift(None, None, run.fleet_pass_rate(), [],
-                    scope_changed=scope_changed)
+                    scope_changed=baseline.scope_changed)
 
-    prev = store.load_run(prev_id)
-    prev_scores = {
-        h.ip: h.scan.score for h in prev.scanned_hosts()
-    } if prev else {}
+    prev_scores = {h.ip: h.scan.score for h in prev.scanned_hosts()}
 
     per_host: list[HostDrift] = []
     for h in run.scanned_hosts():
@@ -204,8 +193,8 @@ def compute_drift(run: RunRecord, store: Store) -> Drift:
         ))
 
     return Drift(
-        prev_run_id=prev_id,
-        prev_pass_rate=prev.fleet_pass_rate() if prev else None,
+        prev_run_id=prev.run_id,
+        prev_pass_rate=prev.fleet_pass_rate(),
         curr_pass_rate=run.fleet_pass_rate(),
         per_host=per_host,
         scope_changed=False,
@@ -319,14 +308,11 @@ def controls_by_severity(run: RunRecord) -> dict:
 def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
     """Fleet pass-rate trend across the last ``n`` runs (incl. this one).
 
-    Pulls history from :meth:`Store.fleet_pass_rate_history`, scoped to runs
-    sharing this run's ``config_hash`` -- a run against a narrowed CIDR, a
-    changed credential group, or any other scope/config change never lands on
-    the same trend line as this run, for the same reason it's never a drift
-    baseline (see ``compute_drift``). Gracefully reports a single-point "first
-    run" when there is no comparable prior history. The current run is
-    reconciled in from the live ``run`` object so the latest point reflects
-    this in-progress run even before/independent of persistence.
+    ``history.RunHistory.trend`` supplies the points: the comparable prior
+    runs (the same rule that picks the drift baseline, so a scope or config
+    change never lands on this run's trend line) and then this run, read from
+    the live ``run`` object. With no comparable history the trend is a single
+    "first run" point.
 
     Returns::
 
@@ -334,36 +320,17 @@ def fleet_trend(run: RunRecord, store: Store, n: int = 8) -> dict:
          "first_run": bool, "min": float|None, "max": float|None,
          "spark": "▁▂▅█..."}
     """
-    history = store.fleet_pass_rate_history(n, config_hash=run.config_hash) if store else []
-
-    # Ensure the current run is represented and authoritative for its own point.
-    curr_rate = run.fleet_pass_rate()
-    curr_scanned = len(run.scanned_hosts())
-    found_current = False
-    for h in history:
-        if h["run_id"] == run.run_id:
-            h["pass_rate"] = curr_rate
-            h["scanned"] = curr_scanned
-            found_current = True
-    if not found_current:
-        history.append({
-            "run_id": run.run_id,
-            "started_at": run.started_at,
-            "scanned": curr_scanned,
-            "pass_rate": curr_rate,
-        })
-        history.sort(key=lambda r: r["run_id"])
-        history = history[-n:]
-
-    points = []
-    for h in history:
-        points.append({
-            "run_id": h["run_id"],
-            "label": (h.get("started_at") or h["run_id"])[:16],
-            "pass_rate": h.get("pass_rate"),
-            "scanned": h.get("scanned", 0),
-            "is_current": h["run_id"] == run.run_id,
-        })
+    trend = RunHistory(store).trend(run, n) if store else [current_point(run)]
+    points = [
+        {
+            "run_id": p.run_id,
+            "label": (p.started_at or p.run_id)[:16],
+            "pass_rate": p.pass_rate,
+            "scanned": p.scanned,
+            "is_current": p.is_current,
+        }
+        for p in trend
+    ]
 
     rated = [p["pass_rate"] for p in points if p["pass_rate"] is not None]
     return {
