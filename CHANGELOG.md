@@ -6,6 +6,14 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Changed
+- **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
+  and the trend line may compare against (finished, not a dry run, same `config_hash`) now
+  live in one module, `history.RunHistory`, instead of two SQL queries in `store.py`.
+  `Store.previous_run_id` and `Store.fleet_pass_rate_history` are removed; the store exposes
+  raw per-run facts through `Store.run_summaries()`. The pass rate formula now lives only in
+  `models.pass_rate`. Report output is unchanged, with one edge case fixed: the trend line
+  no longer charts runs newer than the run being reported. See
+  `docs/adr/0001-comparable-run-history.md`.
 - **MVP carve (ELI-142): `--deep`, bastion, and the CIS-NIST/ISO crosswalk are cut.**
   `--deep`, `fetch_remote_resources`'s one-flag preset, and `bin/grc-deep` are gone; set
   `cis_level: 2` and `fetch_remote_resources: true` directly in config instead.
