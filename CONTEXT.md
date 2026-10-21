@@ -34,6 +34,20 @@ _Avoid_: Delta (for the whole comparison), regression
 One run's fleet pass rate on the trend line: a comparable run, or the run being reported.
 _Avoid_: History entry, data point
 
+### Hosts
+
+**Triage**:
+The pre-connection classification of a discovered host from discovery evidence alone (OS hint, open SSH port, matching credential group), which decides whether the host is a scan candidate.
+_Avoid_: Classification pass, pre-scan
+
+**Assessment**:
+The per-host pass that reaches a scan candidate over SSH, detects its OS and scanner, runs the scan, and ends in a verdict.
+_Avoid_: Scan (a scan is only the oscap step inside an assessment), audit (for one host)
+
+**Verdict**:
+A host status plus the detail that explains it.
+_Avoid_: Result, outcome (a rule outcome is one check's result inside a scan)
+
 ### Posture
 
 **Fleet pass rate**:
