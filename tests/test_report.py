@@ -489,6 +489,24 @@ def test_report_omits_zero_scanned_banner_when_a_host_was_scanned(tmp_path):
         store.close()
 
 
+def test_report_omits_zero_scanned_banner_for_a_dry_run(tmp_path):
+    # write_reports takes no dry_run flag; the banner follows the run's own
+    # marker through posture.zero_scanned.
+    store = Store(str(tmp_path))
+    try:
+        hosts = [HostRecord(ip="10.0.10.40", status=HostStatus.DISCOVERED,
+                            is_ubuntu=True)]
+        run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", hosts)
+        run.dry_run = True
+        run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
+        paths = write_reports(run, store, run_dir)
+
+        html = open(paths["html"], encoding="utf-8").read()
+        assert "ZERO HOSTS SCANNED" not in html
+    finally:
+        store.close()
+
+
 # --- low-confidence (anti-false-pass) -------------------------------------- #
 
 def test_low_confidence_host_is_flagged(tmp_path):
