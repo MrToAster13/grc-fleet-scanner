@@ -19,29 +19,6 @@ def _make_run(run_id, started_at, hosts, scope=None):
     )
 
 
-def test_previous_run_id_skips_unfinished_baseline(tmp_path):
-    # Drift must baseline only against a FINISHED run. A run that crashed mid-fleet
-    # (finished_at NULL, only some hosts persisted) must never be chosen, or deltas
-    # are computed against a truncated baseline.
-    store = Store(str(tmp_path))
-    try:
-        finished = _make_run("20260101T000000Z", "2026-01-01T00:00:00+00:00", [])
-        store.save_run(finished)                       # finished_at is set
-        crashed = RunRecord(
-            run_id="20260102T000000Z", started_at="2026-01-02T00:00:00+00:00",
-            scope=["10.0.10.0/24"], config_hash="x", hosts=[],
-        )
-        store.begin_run(crashed)                        # finished_at stays NULL
-        assert store.previous_run_id("20260103T000000Z") == "20260101T000000Z"
-        # The crashed run must not chart on the fleet trend either -- both posture
-        # displays agree on what counts as a completed run.
-        trend_ids = [p["run_id"] for p in store.fleet_pass_rate_history(n=8)]
-        assert "20260102T000000Z" not in trend_ids
-        assert "20260101T000000Z" in trend_ids
-    finally:
-        store.close()
-
-
 def test_save_and_load_round_trip_including_findings(tmp_path):
     store = Store(str(tmp_path))
     try:
@@ -99,165 +76,36 @@ def test_load_unknown_run_returns_none(tmp_path):
         store.close()
 
 
-def test_previous_run_id_returns_earlier_run(tmp_path):
+def test_dry_run_marker_round_trips(tmp_path):
+    # The ELI-341 marker survives save and load, including on a dry run with
+    # zero candidate hosts. history.RunHistory reads it to exclude dry runs.
     store = Store(str(tmp_path))
     try:
-        store.save_run(_make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                                 [fabricate_scanned_host()]))
-        store.save_run(_make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                                 [fabricate_scanned_host()]))
-
-        assert store.previous_run_id("20260627T000000Z") == "20260601T000000Z"
-        # nothing before the earliest run
-        assert store.previous_run_id("20260601T000000Z") is None
-    finally:
-        store.close()
-
-
-def test_previous_run_id_matches_on_config_hash(tmp_path):
-    # Two runs sharing config_hash (same scope/config) ARE a comparable pair.
-    store = Store(str(tmp_path))
-    try:
-        earlier = _make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                            [fabricate_scanned_host()])
-        earlier.config_hash = "same-scope"
-        store.save_run(earlier)
-
-        later = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                          [fabricate_scanned_host()])
-        later.config_hash = "same-scope"
-        store.save_run(later)
-
-        assert store.previous_run_id("20260627T000000Z",
-                                     config_hash="same-scope") == "20260601T000000Z"
-    finally:
-        store.close()
-
-
-def test_previous_run_id_rejects_differing_config_hash(tmp_path):
-    # A prior run against a DIFFERENT scope/config (different config_hash) must
-    # never be picked as the baseline -- that's the bug this ticket fixes.
-    store = Store(str(tmp_path))
-    try:
-        narrowed = _make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                             [fabricate_scanned_host()])
-        narrowed.config_hash = "narrowed-cidr"
-        store.save_run(narrowed)
-
-        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                         [fabricate_scanned_host()])
-        full.config_hash = "full-scope"
-        store.save_run(full)
-
-        # No comparable baseline: the only prior run has a different config_hash.
-        assert store.previous_run_id("20260627T000000Z",
-                                     config_hash="full-scope") is None
-        # Without a config_hash filter, the (non-comparable) run is still visible
-        # -- used only to detect "history exists but scope changed", never as a
-        # baseline.
-        assert store.previous_run_id("20260627T000000Z") == "20260601T000000Z"
-    finally:
-        store.close()
-
-
-def test_previous_run_id_and_history_exclude_dry_run_signature(tmp_path):
-    # A dry run (--dry-run) persists its candidate hosts still in DISCOVERED
-    # status -- never processed to a terminal status. Even though it shares the
-    # SAME config_hash as a later full run (dry_run isn't part of the hash), it
-    # must never be picked as a drift baseline or charted on the trend line:
-    # it performed no scan and carries no compliance evidence.
-    store = Store(str(tmp_path))
-    try:
-        dry = _make_run(
-            "20260601T000000Z", "2026-06-01T00:00:00+00:00",
-            [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
-        )
-        dry.config_hash = "shared-hash"
-        store.save_run(dry)
-
-        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                         [fabricate_scanned_host()])
-        full.config_hash = "shared-hash"
-        store.save_run(full)
-
-        assert store.previous_run_id("20260627T000000Z",
-                                     config_hash="shared-hash") is None
-        # Also excluded from the unfiltered "does any history exist" lookup --
-        # a dry run is not comparable history at all, scope-matched or not.
-        assert store.previous_run_id("20260627T000000Z") is None
-
-        history_ids = [p["run_id"] for p in
-                       store.fleet_pass_rate_history(n=8, config_hash="shared-hash")]
-        assert "20260601T000000Z" not in history_ids
-        history_ids_unfiltered = [p["run_id"] for p in
-                                  store.fleet_pass_rate_history(n=8)]
-        assert "20260601T000000Z" not in history_ids_unfiltered
-    finally:
-        store.close()
-
-
-def test_dry_run_with_zero_candidates_is_excluded_from_baseline(tmp_path):
-    # A dry run that discovered zero candidate hosts leaves NO leftover
-    # DISCOVERED host row: the old structural signature
-    # (test_previous_run_id_and_history_exclude_dry_run_signature above) has
-    # nothing to key off of and would wrongly treat this as a real,
-    # comparable run. The explicit `dry_run` marker (ELI-341) must still
-    # exclude it even with an empty host list.
-    store = Store(str(tmp_path))
-    try:
-        dry = _make_run(
-            "20260601T000000Z", "2026-06-01T00:00:00+00:00", [],
-        )
+        dry = _make_run("20260601T000000Z", "2026-06-01T00:00:00+00:00", [])
         dry.dry_run = True
-        dry.config_hash = "shared-hash"
         store.save_run(dry)
 
-        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                         [fabricate_scanned_host()])
-        full.config_hash = "shared-hash"
-        store.save_run(full)
-
-        assert store.previous_run_id("20260627T000000Z",
-                                     config_hash="shared-hash") is None
-        assert store.previous_run_id("20260627T000000Z") is None
-
-        history_ids = [p["run_id"] for p in
-                       store.fleet_pass_rate_history(n=8, config_hash="shared-hash")]
-        assert "20260601T000000Z" not in history_ids
-
-        # Round-trips back out with the marker intact.
-        loaded = store.load_run("20260601T000000Z")
-        assert loaded.dry_run is True
+        assert store.load_run("20260601T000000Z").dry_run is True
     finally:
         store.close()
 
 
-def test_run_without_dry_run_marker_still_loads_and_infers_structurally(tmp_path):
+def test_run_without_dry_run_marker_still_loads(tmp_path):
     # Backward compatibility: a run persisted before the `dry_run` column
     # existed has no marker (NULL in the column, None on the loaded
-    # RunRecord) and must still load, and still classify correctly via the
-    # structural DISCOVERED-leftover signature.
+    # RunRecord) and must still load with its DISCOVERED host intact, which
+    # is what history.RunHistory's structural dry-run fallback reads.
     store = Store(str(tmp_path))
     try:
         dry = _make_run(
             "20260601T000000Z", "2026-06-01T00:00:00+00:00",
             [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
         )
-        # dry.dry_run defaults to None -- as if persisted before the marker.
-        dry.config_hash = "shared-hash"
         store.save_run(dry)
 
         loaded = store.load_run("20260601T000000Z")
         assert loaded.dry_run is None
         assert loaded.hosts[0].status is HostStatus.DISCOVERED
-
-        full = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                         [fabricate_scanned_host()])
-        full.config_hash = "shared-hash"
-        store.save_run(full)
-
-        assert store.previous_run_id("20260627T000000Z",
-                                     config_hash="shared-hash") is None
     finally:
         store.close()
 
