@@ -5,3 +5,4 @@ venv/
 config.yaml
 grc-output/
 *.db
+.worktrees/
