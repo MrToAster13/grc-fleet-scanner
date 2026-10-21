@@ -1,0 +1,11 @@
+# One writer per host verdict, in assess.py
+
+A host's verdict (its status plus the detail that explains it) used to be written in four modules. `detect.py`, `scan.py`, `cli._process_host` and `models.finalize_scan_status` each set `host.status` and `host.detail` at the point they reached a decision, 22 status assignments in all on top of the 4 in `classify.py`. Answering "how can a host end up `scanned`?" meant reading all four, and a later step could overwrite an earlier step's verdict without anyone seeing it. Testing the sequence meant monkeypatching `RemoteHost`, `detect` and `scan_host` on the `cli` module. We moved the per-host reach, detect and scan pass into `assess.assess_host`, which is now the only code after triage that writes a verdict, through one function, `assess._record`.
+
+## Consequences
+
+- `classify.py` is the triage writer and `assess.py` is the only post-triage writer. Any new `host.status =` outside those two files is a regression. `grep -rn "host.status =\|\.status = HostStatus" grc_auditor/` lists only those two.
+- `detect` returns a `ScanPlan` or a `Verdict` and `scan_host` returns a `ScanResult` or raises `ScanFailed`. Neither writes host status or detail. `detect` still records the facts it learns (`is_ubuntu`, `ubuntu_version`). The ready line detect used to write is now `ScanPlan.ready_detail`, and `assess_host` records it only when the host ends `scanned`.
+- The never-false-pass chokepoint lives in `assess.scan_verdict`, which replaces `models.finalize_scan_status` with the same rules and detail text. `assess_host` attaches the parsed scan to the host before it asks for the verdict, so a refused scan keeps its evidence.
+- `assess_host` takes a `connect(ip, credential_group, known_hosts)` factory that defaults to `remote.RemoteHost`. The tests in `tests/test_assess.py` pass a factory that returns a `FakeRemoteHost` and run the real `detect` and `scan_host`, with no monkeypatching.
+- If the scan parses but the temp-dir cleanup in `scan_host` then raises, the host is `scan_error` with no scan attached, where it used to keep the parsed scan. A `ScanFailed` followed by a cleanup error still records the `ScanFailed` detail.
