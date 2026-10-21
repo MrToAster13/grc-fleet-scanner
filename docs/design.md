@@ -131,7 +131,7 @@ would let a run be dressed up as clean.
 - **Fail toward under-reporting, never toward a false pass.** A check that did not run is
   never counted as a pass; an unassessable host gets an explicit gap status, not an
   invented score. This is enforced *structurally*, not by convention: a single chokepoint
-  (`finalize_scan_status`) gates the `scanned` verdict, and a scan that evaluated nothing,
+  (`assess.scan_verdict`) gates the `scanned` verdict, and a scan that evaluated nothing,
   or whose coverage falls below a **hard, non-overridable floor (50%)**, is recorded as
   `scan_error`, never a clean pass. Above that floor, **assessment confidence** (the % of
   the benchmark that produced a verdict) still flags a high score that only reflects the few
@@ -184,9 +184,10 @@ would let a run be dressed up as clean.
 | `remote.py` | SSH, host-key verification, sudo, SFTP; a clear failure taxonomy |
 | `detect.py` | Ubuntu version + oscap/SSG presence + profile resolution |
 | `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
+| `assess.py` | per-host reach, detect and scan; the only writer of a host's verdict after triage, including the `scan_verdict` chokepoint (see [ADR 0002](adr/0002-one-writer-per-host-verdict.md)) |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |
 | `report.py` | HTML dashboard + JSON/CSV + drift |
-| `cli.py` | orchestration, argparse, bounded concurrency |
+| `cli.py` | orchestration, argparse, bounded concurrency (runs `assess.assess_host` per scan candidate) |
 
 The three frozen contracts (the config schema, the per-host result model, and the SQLite
 schema) are stable seams that let the modules evolve independently.

@@ -11,6 +11,10 @@ OpenSCAP ``xccdf eval`` exit codes:
   * 2 = evaluation completed, at least one rule did not pass -> SCANNED
   * 1 = tooling error (bad profile, unreadable content, ...) -> SCAN_ERROR
 Any other non-zero code is treated as a tooling error.
+
+This module never writes ``host.status`` or ``host.detail``. A known failure
+raises :class:`ScanFailed` with the detail to record; a parsed scan goes back to
+``assess.assess_host``, which runs it through ``assess.scan_verdict``.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 from .detect import ScanPlan
 from .logging_setup import get_logger
 from .models import (
-    HostRecord, HostStatus, RuleResult, ScanResult, finalize_scan_status,
+    HostRecord, RuleResult, ScanResult,
     UNDETERMINED_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
 from .remote import RemoteHostProtocol
@@ -105,25 +109,36 @@ def _build_oscap_argv(plan: ScanPlan, r_results: str, r_arf: str,
     return argv
 
 
+class ScanFailed(RuntimeError):
+    """A known scan failure. ``detail`` is the text assess records with
+    SCAN_ERROR; it is also the exception message. ``scan`` is the parsed result
+    when the scan itself finished and only the temp-dir cleanup failed."""
+
+    def __init__(self, detail: str, scan: Optional[ScanResult] = None):
+        super().__init__(detail)
+        self.detail = detail
+        self.scan = scan
+
+
 def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
               run_id: str, artifacts_root: str,
               timeout: int = 600) -> ScanResult:
-    """Evaluate one host and return a parsed ScanResult; updates host.status."""
+    """Evaluate one host and return the parsed ScanResult.
+
+    Raises ScanFailed on a known failure. Never writes host.status or
+    host.detail; ``assess.scan_verdict`` decides whether the result certifies.
+    """
     mk = conn.run("mktemp -d /tmp/grc_audit.XXXXXX", timeout=30)
     remote_dir = mk.stdout.strip()
     if not mk.ok or not remote_dir:
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = "could not create remote temp dir"
-        raise RuntimeError(host.detail)
+        raise ScanFailed("could not create remote temp dir")
     # SECURITY: `remote_dir` is the stdout of a command run on the TARGET, which
     # may be hostile (it controls its own `mktemp` / PATH). It is interpolated
     # into commands run as root via sudo, so a crafted value would be shell
     # injection -> root RCE. Refuse anything that is not exactly our temp path
     # shape; downstream commands additionally go through run_argv (quoted).
     if not _SAFE_REMOTE_DIR.match(remote_dir):
-        host.status = HostStatus.SCAN_ERROR
-        host.detail = "mktemp returned an unexpected path; refusing to proceed"
-        raise RuntimeError(host.detail)
+        raise ScanFailed("mktemp returned an unexpected path; refusing to proceed")
 
     r_results = posixpath.join(remote_dir, "results.xml")
     r_arf = posixpath.join(remote_dir, "arf.xml")
@@ -139,6 +154,7 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
     local_arf = os.path.join(local_dir, "arf.xml")
     local_report = os.path.join(local_dir, "report.html")
 
+    finished: Optional[ScanResult] = None
     try:
         log.info("scan[%s]: evaluating CIS L%d (%s)",
                  host.ip, plan.cis_level, plan.ubuntu_version)
@@ -150,20 +166,16 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
         _write_local(local_dir, "oscap.stderr.txt", res.stderr)
 
         if res.exit_code not in _OSCAP_SUCCESS_CODES:
-            host.status = HostStatus.SCAN_ERROR
             detail = (res.stderr.strip() or res.stdout.strip())[:300]
-            host.detail = f"oscap error (exit {res.exit_code}): {detail}"
-            raise RuntimeError(host.detail)
+            raise ScanFailed(f"oscap error (exit {res.exit_code}): {detail}")
 
         # A success exit code with no results.xml means the scan did not produce
         # what we need to parse; treat as an error rather than reporting zeros.
         if not conn.run_argv(["test", "-f", r_results], timeout=30).ok:
-            host.status = HostStatus.SCAN_ERROR
-            host.detail = (
+            raise ScanFailed(
                 f"oscap exited {res.exit_code} but produced no results.xml at "
                 f"{r_results} (see oscap.stderr.txt)"
             )
-            raise RuntimeError(host.detail)
 
         # Pull artifacts back into the immutable per-run evidence store. The
         # results file is mandatory; ARF/HTML are best-effort evidence.
@@ -177,25 +189,26 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
         scan.results_xml_path = local_results
         scan.arf_path = local_arf if os.path.exists(local_arf) else None
         scan.html_path = local_report if os.path.exists(local_report) else None
-
-        # Chokepoint: a successful oscap exit + a parseable file is NOT enough to
-        # certify SCANNED -- a zero-outcome or sub-floor scan is recorded as a gap
-        # (SCAN_ERROR), never a clean pass. This is where never-false-pass is
-        # structurally enforced rather than left to convention.
-        finalize_scan_status(host, scan)
-        log.info("scan[%s]: %d pass / %d fail (score %s) -> %s",
-                 host.ip, scan.passed, scan.failed,
-                 f"{scan.score:.1f}" if scan.score is not None else "n/a",
-                 host.status.value)
+        finished = scan
         return scan
     finally:
         # Guarantee remote temp cleanup on every path (success, oscap error,
-        # parse failure, transfer failure). Best-effort: never mask the original
-        # error and never fail the run on a leftover temp dir.
-        cleanup = conn.run_argv(["rm", "-rf", remote_dir], sudo=plan.sudo, timeout=30)
-        if not cleanup.ok:
-            log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
-                        host.ip, remote_dir, cleanup.exit_code)
+        # parse failure, transfer failure). A cleanup error never masks an
+        # earlier failure. After a finished scan it becomes a ScanFailed that
+        # carries the parsed scan, so the evidence stays attached. This catches
+        # every Exception because RemoteHost.run wraps only SSH errors and
+        # timeouts; a reset transport raises OSError or EOFError unwrapped.
+        try:
+            cleanup = conn.run_argv(["rm", "-rf", remote_dir], sudo=plan.sudo, timeout=30)
+        except Exception as exc:  # noqa: BLE001 - see comment above
+            if finished is not None:
+                raise ScanFailed(f"scan failed: {exc}", scan=finished) from exc
+            log.warning("scan[%s]: could not remove remote temp %s: %s",
+                        host.ip, remote_dir, exc)
+        else:
+            if not cleanup.ok:
+                log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
+                            host.ip, remote_dir, cleanup.exit_code)
 
 
 def _write_local(local_dir: str, name: str, text: str) -> None:
