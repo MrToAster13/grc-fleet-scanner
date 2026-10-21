@@ -16,7 +16,7 @@ Carry out the three architecture fixes Elijah approved from the 2026-10-21 revie
 
 ## Behavior changes
 - The trend no longer charts runs newer than the run being reported. Before, it could, if you re-rendered an old run. This change was intended, and the CHANGELOG records it.
-- `fleet_trend(run, n)` with `n < 0` now returns the current point alone. It used to return an empty list. No caller passes a negative `n`, so I kept the new behavior.
+- `fleet_trend(run, store, n)` with `n < 0` now returns the current point alone. It used to return a trend whose `points` list was empty. No caller passes a negative `n`, so I kept the new behavior.
 
 ## Next (in order)
 1. grc-2: per-host assessment module. An Opus agent is implementing it in its own worktree. The design: a new `grc_auditor/assess.py` that is the only writer of post-triage `HostStatus`. `detect` returns a verdict, `scan_host` raises `ScanFailed` instead of setting status then raising, and tests drive `assess_host` with `FakeRemoteHost` through a `connect` seam instead of monkeypatching. `classify.py` stays out of scope and keeps its four triage writes, because it decides before any connection and the review's file list for grc-2 leaves it out.
