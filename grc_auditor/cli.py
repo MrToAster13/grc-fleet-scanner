@@ -158,7 +158,9 @@ def cmd_run(args) -> int:
     if not os.path.exists(args.config):
         return _scaffold_config(args.config)
     try:
-        cfg = load_config(args.config)
+        # An empty scope.cidrs in the file is fine when --cidr supplies the
+        # scope; apply_overrides validates that --cidr like a file scope.
+        cfg = load_config(args.config, allow_empty_scope=bool(args.cidr))
         cfg = apply_overrides(
             cfg, cidrs=args.cidr, exclude=args.exclude, output_dir=args.output,
             cis_level=args.cis_level, ssh_concurrency=args.concurrency,
