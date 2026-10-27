@@ -48,18 +48,44 @@ trap 'rm -rf "$work"' EXIT
 
 # --- fixture: a fake python3 that builds a fake venv ----------------------- #
 # As python3 (`-m venv DIR`) it creates DIR/bin/python as a symlink back to
-# itself. As the venv interpreter (`-m pip install ... -r REQ`) it logs one
-# line to $PIP_LOG per requirements install attempt, and exits 1 when
-# FAKE_PIP_FAIL=1. The `--upgrade pip` call succeeds and is not logged.
+# itself. With FAKE_VENV_BROKEN=1 it fails the way a venv does without
+# ensurepip: the interpreter is there, pip is not, exit 1.
+# As the venv interpreter it answers:
+#   -c ...                  the version in FAKE_PY_VERSION (default 3.10)
+#   -m pip --version        fails while DIR/bin/pip-missing exists
+#   -m pip install ... -r   logs one line to $PIP_LOG per requirements attempt,
+#                           exits 1 when FAKE_PIP_FAIL=1 or pip is missing
+#   -m pip install (other)  succeeds and is not logged
 mkdir -p "$work/fakebin"
 cat > "$work/fakebin/python3" <<'FAKE'
 #!/usr/bin/env bash
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "venv" ]; then
     mkdir -p "$3/bin"
     ln -sf "$0" "$3/bin/python"
+    if [ "${FAKE_VENV_BROKEN:-0}" = "1" ]; then
+        : > "$3/bin/pip-missing"
+        echo "fake venv: ensurepip is not available" >&2
+        exit 1
+    fi
+    rm -f "$3/bin/pip-missing"
     exit 0
 fi
+if [ "${1:-}" = "-c" ]; then
+    echo "${FAKE_PY_VERSION:-3.10}"
+    exit 0
+fi
+pip_missing=0
+[ -e "$(dirname "$0")/pip-missing" ] && pip_missing=1
+if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip" ] && [ "${3:-}" = "--version" ]; then
+    if [ "$pip_missing" -eq 0 ]; then exit 0; fi
+    echo "No module named pip" >&2
+    exit 1
+fi
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip" ] && [ "${3:-}" = "install" ]; then
+    if [ "$pip_missing" -eq 1 ]; then
+        echo "No module named pip" >&2
+        exit 1
+    fi
     case " $* " in
         *" -r "*)
             echo "attempt" >> "$PIP_LOG"
@@ -87,11 +113,13 @@ new_home() {
     echo "$home"
 }
 
-# Run grc_ensure_venv for GRC_HOME=$1 with FAKE_PIP_FAIL=$2. The fake python3
-# is first on PATH. Output goes to stdout; the exit status is the function's.
+# Run grc_ensure_venv for GRC_HOME=$1 with FAKE_PIP_FAIL=$2, FAKE_VENV_BROKEN=${3:-0}
+# and FAKE_PY_VERSION=${4:-3.10}. The fake python3 is first on PATH. Output goes
+# to stdout; the exit status is the function's.
 run_ensure() {
-    local home="$1" fail="$2"
-    env GRC_HOME="$home" FAKE_PIP_FAIL="$fail" PATH="$work/fakebin:$PATH" \
+    local home="$1" fail="$2" broken="${3:-0}" pyver="${4:-3.10}"
+    env GRC_HOME="$home" FAKE_PIP_FAIL="$fail" FAKE_VENV_BROKEN="$broken" \
+        FAKE_PY_VERSION="$pyver" PATH="$work/fakebin:$PATH" \
         bash -c 'source "$1/bin/_grc-common.sh"; grc_ensure_venv' _ "$home" 2>&1
 }
 
@@ -181,6 +209,42 @@ if [ "$(attempts)" -eq 1 ]; then
     pass_case "stamp older than requirements.txt triggers a reinstall"
 else
     fail_case "stamp older than requirements.txt triggers a reinstall" \
+        "attempts=$(attempts), wanted 1"
+fi
+
+# --- 5. a venv left without pip by a failed creation is repaired ---------- #
+# Regression for review finding 1: `python3 -m venv` can fail after creating
+# bin/python (no ensurepip). The next run sees an interpreter, so it must
+# still check pip and rebuild the venv in place before installing.
+home="$(new_home)"
+rm -f "$PIP_LOG"
+out="$(run_ensure "$home" 0 1)"
+status=$?
+check "venv creation without pip dies" 1 "$status" "$out" "could not create the venv"
+out="$(run_ensure "$home" 0 0)"
+status=$?
+check "run after a half-built venv succeeds" 0 "$status" "$out"
+if [ "$(attempts)" -eq 1 ]; then
+    pass_case "half-built venv gets pip repaired and deps installed"
+else
+    fail_case "half-built venv gets pip repaired and deps installed" \
+        "attempts=$(attempts), wanted 1"
+fi
+
+# --- 6. a stamp from another Python version does not count ----------------- #
+# Regression for review finding 2: a venv whose interpreter changed (OS
+# upgrade behind the same python3 link) has site-packages under another
+# lib/pythonX.Y, so the old stamp must not count as fresh.
+home="$(new_home)"
+run_ensure "$home" 0 0 3.10 >/dev/null
+rm -f "$PIP_LOG"
+out="$(run_ensure "$home" 0 0 3.12)"
+status=$?
+check "run after a Python version change succeeds" 0 "$status" "$out"
+if [ "$(attempts)" -eq 1 ]; then
+    pass_case "Python version change triggers a reinstall"
+else
+    fail_case "Python version change triggers a reinstall" \
         "attempts=$(attempts), wanted 1"
 fi
 
