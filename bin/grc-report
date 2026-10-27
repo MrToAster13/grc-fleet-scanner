@@ -15,10 +15,18 @@ while [ $# -gt 0 ]; do
 done
 
 # Run ids are sortable timestamps, so the lexically-last dir is the newest run.
-latest="$(ls -1d "$out"/runs/*/ 2>/dev/null | sort | tail -1 || true)"
-[ -n "$latest" ] || grc_die "no runs found under $out/runs -- run grc-run first (or pass -o <dir>)."
-report="${latest}report.html"
-[ -f "$report" ] || grc_die "the latest run has no report.html ($report) -- did the run finish?"
+# A failed run leaves its dir behind without a report.html, so walk newest
+# first and take the first run that has one.
+runs="$(ls -1d "$out"/runs/*/ 2>/dev/null | sort -r || true)"
+[ -n "$runs" ] || grc_die "no runs found under $out/runs -- run grc-run first (or pass -o <dir>)."
+report=""
+while IFS= read -r run; do
+    if [ -f "${run}report.html" ]; then
+        report="${run}report.html"
+        break
+    fi
+done <<< "$runs"
+[ -n "$report" ] || grc_die "no run under $out/runs has a report.html -- did a run finish?"
 
 # With a display, open in the first available browser; headless, print the path.
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
