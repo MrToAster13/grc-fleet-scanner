@@ -5,6 +5,13 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Fixed
+- **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
+  checked only port 22, so a host whose sshd listens on the group's port was marked
+  `unreachable` before any connect. Triage now gates only groups on port 22. For any other
+  port it leaves the host to the SSH reach stage, because nmap's default port set may not
+  cover that port and an unseen port proves nothing (ELI-630).
+
 ### Changed
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
   and the trend line may compare against (finished, not a dry run, same `config_hash`) now
