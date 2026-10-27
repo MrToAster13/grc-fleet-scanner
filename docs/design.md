@@ -120,9 +120,12 @@ Edges:
   deliberate: a single unassessed host in a 4-host fleet is a quarter of the estate.
 
 These are proposed values (ELI-166), pending Elijah's confirmation. They live as
-`MIN_COVERAGE_FOR_POSTURE` and `STRONG_COVERAGE_THRESHOLD` in `grc_auditor/report.py` and
+`MIN_COVERAGE_FOR_POSTURE` and `STRONG_COVERAGE_THRESHOLD` in `grc_auditor/posture.py`,
+next to the pass-rate cutoffs `WEAK_PASS_RATE` (75%) and `STRONG_PASS_RATE` (90%), and
 are not operator-tunable, for the same reason the per-host floor is not: a config knob
-would let a run be dressed up as clean.
+would let a run be dressed up as clean. `posture.py` also owns the scan-candidate rule,
+the assessed share, and the zero-scanned predicate behind the report banner, the console
+warning and exit code `3`, so the report and the CLI read one set of fleet posture rules.
 
 ## 5. Design principles
 
@@ -186,8 +189,9 @@ would let a run be dressed up as clean.
 | `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
 | `assess.py` | per-host reach, detect and scan; the only writer of a host's verdict after triage, including the `scan_verdict` chokepoint (see [ADR 0002](adr/0002-one-writer-per-host-verdict.md)) |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |
+| `posture.py` | fleet posture rules: scan candidates, assessed share, the posture ladder and its thresholds, the zero-scanned predicate |
 | `report.py` | HTML dashboard + JSON/CSV + drift |
-| `cli.py` | orchestration, argparse, bounded concurrency (runs `assess.assess_host` per scan candidate) |
+| `cli.py` | orchestration, argparse, bounded concurrency (runs `assess.assess_host` per host that triage left `discovered`) |
 
 The three frozen contracts (the config schema, the per-host result model, and the SQLite
 schema) are stable seams that let the modules evolve independently.
