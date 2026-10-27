@@ -189,6 +189,7 @@ warning and exit code `3`, so the report and the CLI read one set of fleet postu
 | `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
 | `assess.py` | per-host reach, detect and scan; the only writer of a host's verdict after triage, including the `scan_verdict` chokepoint (see [ADR 0002](adr/0002-one-writer-per-host-verdict.md)) |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |
+| `history.py` | comparable-run rules (finished, not a dry run, same `config_hash`) for the drift baseline and the trend line, over the store's raw run summaries (see [ADR 0001](adr/0001-comparable-run-history.md)) |
 | `posture.py` | fleet posture rules: scan candidates, assessed share, the posture ladder and its thresholds, the zero-scanned predicate |
 | `report.py` | HTML dashboard + JSON/CSV + drift |
 | `cli.py` | orchestration, argparse, bounded concurrency (runs `assess.assess_host` per host that triage left `discovered`) |

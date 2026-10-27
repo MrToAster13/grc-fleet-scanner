@@ -193,6 +193,12 @@ a scalar where a list belongs, or a malformed CIDR in `targets`, stops `run` wit
 and a `config error:` line naming the key. Booleans must be unquoted `true` or `false`: a
 quoted `'false'` is refused, because it is a string and would otherwise read as true.
 
+**A host is missing from the report entirely.** nmap marks a host down when it does not
+answer the ping probe, and a host marked down never gets a row. Cloud VMs and hosts behind
+a firewall that drops ICMP often look like this. Set `nmap_extra_args: ["-Pn"]` to treat
+every address in scope as up. On a large scope this is slower, because nmap probes every
+address. [validation.md](validation.md) §4 covers it for a single cloud host.
+
 ---
 
 ## 6. Interpreting the report
