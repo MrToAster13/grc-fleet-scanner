@@ -36,3 +36,5 @@ jobs:
         run: bash tests/shell/test_target_setup_integrity.sh
       - name: Run the launcher venv bootstrap test harness
         run: bash tests/shell/test_grc_common_venv.sh
+      - name: Run the grc-report run-selection test harness
+        run: bash tests/shell/test_grc_report.sh

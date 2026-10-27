@@ -5,6 +5,13 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Fixed
+- **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
+  checked only port 22, so a host whose sshd listens on the group's port was marked
+  `unreachable` before any connect. Triage now gates only groups on port 22. For any other
+  port it leaves the host to the SSH reach stage, because nmap's default port set may not
+  cover that port and an unseen port proves nothing (ELI-630).
+
 ### Changed
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
   and the trend line may compare against (finished, not a dry run, same `config_hash`) now
@@ -132,6 +139,8 @@ release, everything lives under **Unreleased**.
   missing, older than `requirements.txt`, or written by a different Python version. A venv
   left without pip by a failed creation is rebuilt in place on the next run. An install from
   before this fix has no stamp, so its next run reinstalls once (ELI-632).
+- **`grc-report` opens the newest run that has a report.** A failed run leaves its run directory behind without a `report.html`. `grc-report` used to pick that newest directory and exit with an error. It now skips runs without a report and opens the newest run that has one. If no run has one, it exits 1 with one error line.
+- **`history` columns line up.** The `STARTED` column was 22 characters wide, but the store writes 25-character timestamps, so `SCOPE` sat out of line. The column is now 25 wide.
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over
