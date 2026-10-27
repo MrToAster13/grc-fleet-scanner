@@ -35,23 +35,57 @@ grc_venv_python() {
     else return 1; fi
 }
 
+# The venv interpreter's major.minor version, e.g. 3.12.
+grc_py_version() {
+    "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])'
+}
+
+# True when the deps stamp exists, is at least as new as requirements.txt, and
+# records the Python version the venv's interpreter reports now. The stamp is
+# written only after pip install succeeds, so a failed install, a
+# requirements.txt edited since the last good install, or a Python version
+# change (site-packages moves to another lib/pythonX.Y) all read as stale.
+grc_deps_fresh() {
+    [ -f "$1" ] && ! [ "$2" -nt "$1" ] && [ "$(cat "$1")" = "$3" ]
+}
+
 # Ensure $GRC_HOME/.venv exists with the deps installed, then export GRC_PY (the
 # venv interpreter) and PYTHONPATH (so grc_auditor / smoketest import from the
 # repo). This is the "self-bootstrap on first run" step -- no manual venv needed.
+# The venv and the deps are checked separately: a venv whose pip install failed
+# has an interpreter but no stamp, so the next run reinstalls instead of skipping.
 grc_ensure_venv() {
     local venv="$GRC_HOME/.venv"
+    local req="$GRC_HOME/requirements.txt"
+    local stamp="$venv/.grc-deps-stamp"
+    local base pyver
     if ! GRC_PY="$(grc_venv_python "$venv")"; then
-        local base
         base="$(grc_base_python)" || grc_die "no python3 on PATH -- install Python 3.10+."
         echo "grc: first run -- creating virtualenv in $venv ..." >&2
         "$base" -m venv "$venv" \
             || grc_die "could not create the venv (try: sudo apt install -y python3-venv)."
         GRC_PY="$(grc_venv_python "$venv")" \
             || grc_die "venv created but no python found inside $venv."
+    fi
+    pyver="$(grc_py_version "$GRC_PY")" \
+        || grc_die "could not read the Python version of $GRC_PY."
+    if ! grc_deps_fresh "$stamp" "$req" "$pyver"; then
         echo "grc: installing Python dependencies ..." >&2
+        # Drop the old stamp first, so a failed install leaves none behind and
+        # the next run retries rather than trusting an earlier good install.
+        rm -f "$stamp"
+        if ! "$GRC_PY" -m pip --version >/dev/null 2>&1; then
+            # A venv left half-built (python3-venv missing when it was first
+            # created) has an interpreter but no pip. Running venv again on the
+            # existing directory restores pip in place, so nothing is deleted.
+            base="$(grc_base_python)" || grc_die "no python3 on PATH -- install Python 3.10+."
+            "$base" -m venv "$venv" \
+                || grc_die "could not repair the venv (try: sudo apt install -y python3-venv)."
+        fi
         "$GRC_PY" -m pip install --quiet --upgrade pip || true
-        "$GRC_PY" -m pip install --quiet -r "$GRC_HOME/requirements.txt" \
-            || grc_die "pip install of requirements failed."
+        "$GRC_PY" -m pip install --quiet -r "$req" \
+            || grc_die "pip install of requirements failed. Retry by hand: \"$GRC_PY\" -m pip install -r \"$req\""
+        printf '%s\n' "$pyver" > "$stamp"
     fi
     export GRC_PY PYTHONPATH="$GRC_HOME${PYTHONPATH:+:$PYTHONPATH}"
 }
