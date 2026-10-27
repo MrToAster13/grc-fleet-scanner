@@ -8,7 +8,7 @@ initial coverage status:
 
   * Ubuntu hint + credential group  -> stays DISCOVERED (proceeds to reach)
   * Ubuntu hint + no group          -> NO_CREDENTIALS
-  * Ubuntu hint + no SSH port       -> UNREACHABLE
+  * Ubuntu hint + group on port 22, port 22 not seen -> UNREACHABLE (other group ports go to reach)
   * no Ubuntu hint                  -> NON_UBUNTU (inventory only)
 
 Optionally (gated on config, default off) unknown-Linux hosts can be promoted to
@@ -76,11 +76,9 @@ def _looks_linux(host: HostRecord) -> bool:
     return any(marker in blob for marker in _LINUX_MARKERS)
 
 
-def _has_ssh(host: HostRecord, port: int) -> bool:
-    """True if the host shows evidence of SSH on ``port`` (the matched group's
-    ssh_port): an open port or a banner keyed on that port."""
-    return port in host.open_ports or any(
-        key.startswith(f"{port}/") for key in host.banners
+def _has_ssh(host: HostRecord) -> bool:
+    return 22 in host.open_ports or any(
+        key.startswith("22/") for key in host.banners
     )
 
 
@@ -120,13 +118,13 @@ def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
             continue
 
         host.credential_group = group.name
-        if group.ssh_port == 22 and not _has_ssh(host, 22):
+        if group.ssh_port == 22 and not _has_ssh(host):
             # Ubuntu-looking but port 22 closed: cannot deep-dive. Only port 22 is
             # gated here. nmap's default port set always covers 22, but a
             # custom group port may be outside it, so for any other port an
             # unseen port proves nothing and the reach stage decides.
             host.status = HostStatus.UNREACHABLE
-            host.detail = f"no open SSH port ({group.ssh_port}) detected"
+            host.detail = "no open SSH port (22) detected"
             continue
 
         # Ready for the reach stage; leave as DISCOVERED.
