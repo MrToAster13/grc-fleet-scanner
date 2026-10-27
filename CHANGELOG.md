@@ -144,8 +144,12 @@ release, everything lives under **Unreleased**.
   explicit `targets: []` is refused instead of becoming a catch-all. `host_timeout_seconds`
   must be 1 to 86400. `run --cidr X` now works when the file's `scope.cidrs` is empty; with
   neither, the empty-scope refusal is unchanged. The `bastion` error no longer names a
-  `host` key that groups do not have, and says the forward must be in `scope.cidrs` and that
-  discovery only treats port 22 as SSH.
+  `host` key that groups do not have, and says the forward must be in `scope.cidrs`. Some
+  values that used to load are now refused: `sudo: 1`, a blank `sudo:`, `use_agent:` or
+  `os_detect:` (a blank `use_agent:` used to turn the agent off without a word), and a
+  fractional `host_timeout_seconds`. An empty `key_path: ''` or `known_hosts: ''` still
+  loads but now reads as unset, so such a config's hash changes once and its next run has
+  no drift baseline.
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over
