@@ -120,8 +120,9 @@ release, everything lives under **Unreleased**.
   skipped setup once `.venv/bin/python` existed, so one failed `pip install` left a broken
   venv that no later run fixed. The deps are now tracked by `.venv/.grc-deps-stamp`, written
   only after `pip install -r requirements.txt` succeeds. A run reinstalls when the stamp is
-  missing or older than `requirements.txt`. An install from before this fix has no stamp, so
-  its next run reinstalls once (ELI-632).
+  missing, older than `requirements.txt`, or written by a different Python version. A venv
+  left without pip by a failed creation is rebuilt in place on the next run. An install from
+  before this fix has no stamp, so its next run reinstalls once (ELI-632).
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over
