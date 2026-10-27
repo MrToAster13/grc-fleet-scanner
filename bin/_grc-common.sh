@@ -35,23 +35,40 @@ grc_venv_python() {
     else return 1; fi
 }
 
+# True when the deps stamp exists and is at least as new as requirements.txt.
+# The stamp is written only after pip install succeeds, so a failed install, or
+# a requirements.txt edited since the last good install, reads as stale.
+grc_deps_fresh() {
+    [ -f "$1" ] && ! [ "$2" -nt "$1" ]
+}
+
 # Ensure $GRC_HOME/.venv exists with the deps installed, then export GRC_PY (the
 # venv interpreter) and PYTHONPATH (so grc_auditor / smoketest import from the
 # repo). This is the "self-bootstrap on first run" step -- no manual venv needed.
+# The venv and the deps are checked separately: a venv whose pip install failed
+# has an interpreter but no stamp, so the next run reinstalls instead of skipping.
 grc_ensure_venv() {
     local venv="$GRC_HOME/.venv"
+    local req="$GRC_HOME/requirements.txt"
+    local stamp="$venv/.grc-deps-stamp"
+    local base
     if ! GRC_PY="$(grc_venv_python "$venv")"; then
-        local base
         base="$(grc_base_python)" || grc_die "no python3 on PATH -- install Python 3.10+."
         echo "grc: first run -- creating virtualenv in $venv ..." >&2
         "$base" -m venv "$venv" \
             || grc_die "could not create the venv (try: sudo apt install -y python3-venv)."
         GRC_PY="$(grc_venv_python "$venv")" \
             || grc_die "venv created but no python found inside $venv."
+    fi
+    if ! grc_deps_fresh "$stamp" "$req"; then
         echo "grc: installing Python dependencies ..." >&2
+        # Drop the old stamp first, so a failed install leaves none behind and
+        # the next run retries rather than trusting an earlier good install.
+        rm -f "$stamp"
         "$GRC_PY" -m pip install --quiet --upgrade pip || true
-        "$GRC_PY" -m pip install --quiet -r "$GRC_HOME/requirements.txt" \
+        "$GRC_PY" -m pip install --quiet -r "$req" \
             || grc_die "pip install of requirements failed."
+        : > "$stamp"
     fi
     export GRC_PY PYTHONPATH="$GRC_HOME${PYTHONPATH:+:$PYTHONPATH}"
 }
