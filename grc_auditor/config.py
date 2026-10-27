@@ -400,8 +400,7 @@ def _parse_credential_group(doc, index: int) -> CredentialGroup:
             f"and point this group's targets and ssh_port at the forwarded "
             f"port (e.g. targets: [127.0.0.1], ssh_port: 2222). Add the "
             f"forward's address to scope.cidrs too, or discovery never finds "
-            f"it. Note that discovery only treats port 22 as SSH today, so a "
-            f"forward on any other port is reported unreachable."
+            f"it."
         )
     level = doc.get("cis_level")
     ssh_port = _as_int(doc.get("ssh_port", 22), f"{where}: ssh_port")
