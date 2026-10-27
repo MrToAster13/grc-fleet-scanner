@@ -479,3 +479,19 @@ def test_explicit_empty_targets_raises(tmp_path):
 def test_omitted_targets_still_default_to_catch_all(tmp_path):
     cfg = load_config(_write_raw(tmp_path, _SCOPE + _GROUP))
     assert cfg.credential_groups[0].targets == ["default"]
+
+
+# Regression (ELI-631 sol-loop S1): a blank nmap_timing loaded on main and
+# fell back to -T3 in discovery, so it must keep loading.
+_EMPTY_OPTIONALS = (
+    "scope:\n  cidrs: [10.0.0.0/24]\n  nmap_timing: ''\n"
+    "credential_groups:\n  - name: a\n    ssh_user: u\n    key_path: ''\n"
+    "known_hosts: ''\n"
+)
+
+
+def test_blank_nmap_timing_still_loads_and_falls_back_to_t3(tmp_path):
+    from grc_auditor.discovery import build_nmap_args
+
+    cfg = load_config(_write_raw(tmp_path, _EMPTY_OPTIONALS))
+    assert build_nmap_args(cfg.scope, False)[1] == "-T3"
