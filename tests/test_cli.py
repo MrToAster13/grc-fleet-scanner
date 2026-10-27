@@ -277,3 +277,31 @@ def test_exit_code_and_summary_helpers_take_no_dry_run_argument():
     import inspect
     assert "dry_run" not in inspect.signature(_exit_code_for_run).parameters
     assert "dry_run" not in inspect.signature(_print_summary).parameters
+
+
+# --------------------------------------------------------------------------- #
+# `history` column layout (ELI-633 AC3)
+# --------------------------------------------------------------------------- #
+def test_history_scope_column_lines_up_with_a_25_char_timestamp(tmp_path, capsys):
+    # The STARTED column must be wide enough for the ISO timestamp the store
+    # writes (25 chars: 2026-06-29T16:10:00+00:00). The SCOPE column then starts
+    # at offset 24 (RUN ID) + 2 + 25 (STARTED) + 2 = 53 in the header and in
+    # every row. The expected offset is written out here, not read back from
+    # the output, so a header and row that agree with each other but not with
+    # the timestamp still fail.
+    from grc_auditor.store import Store
+
+    started = "2026-06-29T16:10:00+00:00"
+    assert len(started) == 25
+    store = Store(str(tmp_path))
+    store.save_run(RunRecord(
+        run_id="20260629T161000Z-ab12cd", started_at=started,
+        finished_at=started, scope=["10.0.10.0/24"],
+        config_hash="deadbeefcafef00d", hosts=[], dry_run=False,
+    ))
+    store.close()
+
+    assert cli_mod.cmd_history(SimpleNamespace(output=str(tmp_path))) == 0
+    header, row = capsys.readouterr().out.splitlines()[:2]
+    assert header.index("SCOPE") == 53, header
+    assert row.index("10.0.10.0/24") == 53, row
