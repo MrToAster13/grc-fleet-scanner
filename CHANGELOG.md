@@ -116,6 +116,8 @@ release, everything lives under **Unreleased**.
   LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **`grc-report` opens the newest run that has a report.** A failed run leaves its run directory behind without a `report.html`. `grc-report` used to pick that newest directory and exit with an error. It now skips runs without a report and opens the newest run that has one. If no run has one, it exits 1 with one error line.
+- **`history` columns line up.** The `STARTED` column was 22 characters wide, but the store writes 25-character timestamps, so `SCOPE` sat out of line. The column is now 25 wide.
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over

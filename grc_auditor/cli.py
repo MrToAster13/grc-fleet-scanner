@@ -308,10 +308,10 @@ def cmd_history(args) -> int:
     if not runs:
         print("No runs recorded yet.")
         return 0
-    print(f"{'RUN ID':<24}  {'STARTED':<22}  SCOPE")
+    print(f"{'RUN ID':<24}  {'STARTED':<25}  SCOPE")
     for r in runs:
         scope = ", ".join(json.loads(r["scope"] or "[]"))
-        print(f"{r['run_id']:<24}  {r['started_at']:<22}  {scope}")
+        print(f"{r['run_id']:<24}  {r['started_at']:<25}  {scope}")
     return 0
 
 
