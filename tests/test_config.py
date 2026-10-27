@@ -301,3 +301,197 @@ def test_treat_unknown_linux_loads_and_affects_hash(tmp_path):
         tmp_path, VALID_YAML + "    treat_unknown_linux_as_ubuntu: true\n"))
     assert promoted.treat_unknown_linux_as_ubuntu is True
     assert promoted.hash() != base.hash()
+
+
+# --------------------------------------------------------------------------- #
+# ELI-631: config typos fail as ConfigError, not tracebacks or silent passes
+# --------------------------------------------------------------------------- #
+_SCOPE = "scope:\n  cidrs: [10.0.0.0/24]\n"
+_GROUP = "credential_groups:\n  - name: a\n    ssh_user: u\n"
+
+
+def _write_raw(tmp_path, text):
+    p = tmp_path / "config.yaml"
+    p.write_text(text, encoding="utf-8")
+    return str(p)
+
+
+# AC1: each wrong-typed value raises ConfigError, and the message names the key.
+@pytest.mark.parametrize("text, key", [
+    ("scope:\n  - 10.0.0.0/24\n", "scope"),
+    ("scope:\n  cidrs: [10]\n", "scope.cidrs"),
+    (_SCOPE + _GROUP + "    cis_level: two\n", "cis_level"),
+    (_SCOPE + "cis_level: two\n", "cis_level"),
+    (_SCOPE + _GROUP + "    ssh_port: ssh\n", "ssh_port"),
+    (_SCOPE + "credential_groups:\n  - lab\n", "credential_groups"),
+    (_SCOPE + "credential_groups:\n  name: a\n  ssh_user: u\n", "credential_groups"),
+    ("scope:\n  cidrs: [10.0.0.0/24]\n  host_timeout_seconds: 10m\n",
+     "host_timeout_seconds"),
+    ("scope:\n  cidrs: [10.0.0.0/24]\n  exclude: 10.0.0.1\n", "scope.exclude"),
+    ("scope:\n  cidrs: [10.0.0.0/24]\n  nmap_extra_args: -Pn\n", "nmap_extra_args"),
+    (_SCOPE + "output_dir:\n", "output_dir"),
+], ids=[
+    "scope_is_list", "cidr_int", "group_cis_level_word", "global_cis_level_word",
+    "ssh_port_word", "group_is_string", "groups_is_mapping", "timeout_word",
+    "exclude_scalar", "extra_args_scalar", "output_dir_null",
+])
+def test_wrong_typed_value_raises_config_error_naming_the_key(tmp_path, text, key):
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert key in str(ei.value)
+
+
+# AC2: a quoted boolean is refused instead of read as true.
+@pytest.mark.parametrize("text, key", [
+    (_SCOPE + _GROUP + "    sudo: 'false'\n", "sudo"),
+    (_SCOPE + _GROUP + "    use_agent: 'false'\n", "use_agent"),
+    (_SCOPE + "treat_unknown_linux_as_ubuntu: 'false'\n",
+     "treat_unknown_linux_as_ubuntu"),
+    (_SCOPE + "fetch_remote_resources: 'false'\n", "fetch_remote_resources"),
+    (_SCOPE + "os_detect: 'false'\n", "os_detect"),
+])
+def test_quoted_boolean_raises_config_error_naming_the_key(tmp_path, text, key):
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert key in str(ei.value)
+    assert "true or false" in str(ei.value)
+
+
+def test_real_booleans_still_load(tmp_path):
+    cfg = load_config(_write_raw(
+        tmp_path, _SCOPE + _GROUP + "    sudo: false\n    use_agent: false\n"
+        "os_detect: true\n"))
+    assert cfg.credential_groups[0].sudo is False
+    assert cfg.credential_groups[0].use_agent is False
+    assert cfg.os_detect is True
+
+
+# AC3: a bad group target is refused, naming the group and the value.
+def test_invalid_group_target_cidr_raises_naming_group_and_value(tmp_path):
+    text = _SCOPE + _GROUP + "    targets: [10.0.0.0/33]\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert "'a'" in str(ei.value)
+    assert "10.0.0.0/33" in str(ei.value)
+
+
+def test_valid_group_targets_still_load(tmp_path):
+    text = _SCOPE + _GROUP + "    targets: [10.0.0.0/24, 10.0.1.5, default, '*']\n"
+    cfg = load_config(_write_raw(tmp_path, text))
+    assert cfg.credential_groups[0].targets == [
+        "10.0.0.0/24", "10.0.1.5", "default", "*"]
+
+
+# AC4: a scalar scope.cidrs is refused with a "must be a list" message.
+def test_scalar_scope_cidrs_raises_must_be_a_list(tmp_path):
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, "scope:\n  cidrs: 10.0.0.0/24\n"))
+    assert "scope.cidrs" in str(ei.value)
+    assert "must be a list" in str(ei.value)
+
+
+# AC5 (config seam): an empty file scope is allowed when --cidr will fill it.
+def test_empty_file_scope_loads_when_cidr_override_supplied(tmp_path):
+    path = _write_raw(tmp_path, "scope:\n  cidrs: []\n")
+    cfg = load_config(path, allow_empty_scope=True)
+    cfg = apply_overrides(cfg, cidrs=["10.0.5.0/24"])
+    assert cfg.scope.cidrs == ["10.0.5.0/24"]
+
+
+def test_commented_out_scope_loads_when_cidr_override_supplied(tmp_path):
+    path = _write_raw(tmp_path, "scope:\n#  cidrs: [10.0.0.0/24]\n")
+    cfg = load_config(path, allow_empty_scope=True)
+    cfg = apply_overrides(cfg, cidrs=["10.0.5.0/24"])
+    assert cfg.scope.cidrs == ["10.0.5.0/24"]
+
+
+# AC6 (config seam): without the override, the refusal is unchanged.
+def test_commented_out_scope_without_override_is_refused_as_empty(tmp_path):
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, "scope:\n#  cidrs: [10.0.0.0/24]\n"))
+    assert "scope.cidrs is empty" in str(ei.value)
+
+
+# AC7: the bastion message names only keys a credential group has.
+def test_bastion_message_names_only_real_keys(tmp_path):
+    text = _SCOPE + _GROUP + "    bastion:\n      host: b\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    msg = str(ei.value)
+    assert "ssh_port" in msg
+    assert "targets" in msg
+    assert "/host" not in msg
+
+
+# ELI-631 adversarial review regressions.
+# Finding 1: the bastion advice must say what discovery needs today.
+def test_bastion_message_says_forward_must_be_in_scope_and_port_22(tmp_path):
+    text = _SCOPE + _GROUP + "    bastion:\n      host: b\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    msg = str(ei.value)
+    assert "scope.cidrs" in msg
+    assert "port 22" in msg
+
+
+# Finding 2: a per-host timeout must be a positive, sane number of seconds.
+@pytest.mark.parametrize("value", ["0", "-5", str(10 ** 30)])
+def test_host_timeout_out_of_range_raises(tmp_path, value):
+    text = "scope:\n  cidrs: [10.0.0.0/24]\n  host_timeout_seconds: " + value + "\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert "host_timeout_seconds" in str(ei.value)
+
+
+# Finding 3: values that loaded before this change still load.
+def test_whole_number_floats_and_empty_optional_paths_still_load(tmp_path):
+    text = ("scope:\n  cidrs: [10.0.0.0/24]\n  host_timeout_seconds: 600.0\n"
+            "  ssh_concurrency: 10.0\ncis_level: 2.0\nknown_hosts: ''\n"
+            "credential_groups:\n  - name: 2024\n    ssh_user: u\n"
+            "    ssh_port: 22.0\n    key_path: ''\n")
+    cfg = load_config(_write_raw(tmp_path, text))
+    assert cfg.scope.host_timeout_seconds == 600
+    assert cfg.scope.ssh_concurrency == 10
+    assert cfg.cis_level == 2
+    assert cfg.known_hosts is None
+    g = cfg.credential_groups[0]
+    assert g.name == 2024
+    assert g.ssh_port == 22
+    assert g.key_path is None
+
+
+def test_fractional_port_is_refused(tmp_path):
+    text = _SCOPE + _GROUP + "    ssh_port: 22.5\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert "ssh_port" in str(ei.value)
+
+
+# Finding 4: an explicit empty targets list is not a silent catch-all.
+def test_explicit_empty_targets_raises(tmp_path):
+    text = _SCOPE + _GROUP + "    targets: []\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert "targets" in str(ei.value)
+    assert "'a'" in str(ei.value)
+
+
+def test_omitted_targets_still_default_to_catch_all(tmp_path):
+    cfg = load_config(_write_raw(tmp_path, _SCOPE + _GROUP))
+    assert cfg.credential_groups[0].targets == ["default"]
+
+
+# Regression (ELI-631 sol-loop S1): a blank nmap_timing loaded on main and
+# fell back to -T3 in discovery, so it must keep loading.
+_EMPTY_OPTIONALS = (
+    "scope:\n  cidrs: [10.0.0.0/24]\n  nmap_timing: ''\n"
+    "credential_groups:\n  - name: a\n    ssh_user: u\n    key_path: ''\n"
+    "known_hosts: ''\n"
+)
+
+
+def test_blank_nmap_timing_still_loads_and_falls_back_to_t3(tmp_path):
+    from grc_auditor.discovery import build_nmap_args
+
+    cfg = load_config(_write_raw(tmp_path, _EMPTY_OPTIONALS))
+    assert build_nmap_args(cfg.scope, False)[1] == "-T3"

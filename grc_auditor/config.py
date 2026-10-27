@@ -155,9 +155,71 @@ def _require(doc: dict, key: str, where: str):
     return doc[key]
 
 
+def _as_list(value, where: str) -> list:
+    """A YAML list, or [] when the key is absent/empty. A scalar is refused:
+    iterating a string would otherwise validate it one character at a time."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(f"{where} must be a list (got {value!r})")
+    return value
+
+
+def _as_mapping(value, where: str) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where} must be a mapping (got {value!r})")
+    return value
+
+
+def _as_bool(value, where: str) -> bool:
+    """Only a real YAML boolean. A quoted 'false' is a non-empty string, which
+    bool() would read as True."""
+    if not isinstance(value, bool):
+        raise ConfigError(
+            f"{where} must be true or false, unquoted (got {value!r})")
+    return value
+
+
+def _as_int(value, where: str) -> int:
+    if isinstance(value, bool):
+        raise ConfigError(f"{where} must be an integer (got {value!r})")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            pass
+    raise ConfigError(f"{where} must be an integer (got {value!r})")
+
+
+def _as_str(value, where: str, *, optional: bool = False) -> Optional[str]:
+    # An optional value left as '' meant "use the default" before (the
+    # consumers test truthiness), so keep it meaning that.
+    if optional and (value is None or value == ""):
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{where} must be a non-empty string (got {value!r})")
+    return value
+
+
+def _as_cis_level(value, where: str) -> int:
+    level = _as_int(value, where)
+    if level not in (1, 2):
+        raise ConfigError(f"{where} must be 1 or 2 (got {value!r})")
+    return level
+
+
 def _validate_threshold(value) -> float:
     """Coerce + bounds-check a low-confidence threshold (single rule for both
     the config file and CLI overrides)."""
+    if isinstance(value, bool):
+        raise ConfigError(
+            f"low_confidence_threshold must be a number (got {value!r})")
     try:
         v = float(value)
     except (TypeError, ValueError) as exc:
@@ -185,20 +247,38 @@ _FORBIDDEN_NMAP_ARGS = {
 }
 
 
-def _validate_cidrs(cidrs, where: str) -> list:
-    """Validate scope CIDRs: well-formed AND not over-broad (blast-radius guard).
-    Shared by the file path and the --cidr override so neither can bypass it."""
-    if not cidrs:
+_EMPTY_SCOPE_MESSAGE = (
+    "scope.cidrs is empty. Active scanning requires an explicit, "
+    "authorized target scope. Refusing to run."
+)
+
+
+def _parse_network(c, where: str):
+    """ip_network for a config string. A non-string is refused: YAML reads a
+    bare `10` as an int, and ip_network(10) is silently 0.0.0.10/32."""
+    if not isinstance(c, str):
         raise ConfigError(
-            "scope.cidrs is empty. Active scanning requires an explicit, "
-            "authorized target scope. Refusing to run."
-        )
+            f"Invalid CIDR in {where}: {c!r} (must be a string such as "
+            f"10.0.0.0/24)")
+    try:
+        return ipaddress.ip_network(c, strict=False)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid CIDR in {where}: {c!r} ({exc})") from exc
+
+
+def _validate_cidrs(cidrs, where: str, *, allow_empty: bool = False) -> list:
+    """Validate scope CIDRs: well-formed AND not over-broad (blast-radius guard).
+    Shared by the file path and the --cidr override so neither can bypass it.
+    ``allow_empty`` is only for the file path when --cidr will supply the scope;
+    apply_overrides then validates that override with allow_empty off."""
+    cidrs = _as_list(cidrs, where)
+    if not cidrs:
+        if allow_empty:
+            return []
+        raise ConfigError(_EMPTY_SCOPE_MESSAGE)
     out = []
     for c in cidrs:
-        try:
-            net = ipaddress.ip_network(c, strict=False)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid CIDR in {where}: {c!r} ({exc})") from exc
+        net = _parse_network(c, where)
         floor = _MIN_IPV4_PREFIX if net.version == 4 else _MIN_IPV6_PREFIX
         if net.prefixlen < floor:
             raise ConfigError(
@@ -212,20 +292,14 @@ def _validate_cidrs(cidrs, where: str) -> list:
 
 def _validate_exclude(exclude, where: str) -> list:
     out = []
-    for c in exclude or []:
-        try:
-            ipaddress.ip_network(c, strict=False)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid CIDR in {where}: {c!r} ({exc})") from exc
+    for c in _as_list(exclude, where):
+        _parse_network(c, where)
         out.append(str(c))
     return out
 
 
 def _validate_concurrency(value) -> int:
-    try:
-        n = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ConfigError(f"ssh_concurrency must be an integer (got {value!r})") from exc
+    n = _as_int(value, "ssh_concurrency")
     if not 1 <= n <= _MAX_SSH_CONCURRENCY:
         raise ConfigError(
             f"ssh_concurrency must be between 1 and {_MAX_SSH_CONCURRENCY} (got {n})"
@@ -233,9 +307,23 @@ def _validate_concurrency(value) -> int:
     return n
 
 
+_MAX_HOST_TIMEOUT_SECONDS = 86400
+
+
+def _validate_host_timeout(value) -> int:
+    """Per-host timeout in seconds. 0 or less fails every remote command at
+    once; a huge value overflows the nmap subprocess timeout."""
+    n = _as_int(value, "scope.host_timeout_seconds")
+    if not 1 <= n <= _MAX_HOST_TIMEOUT_SECONDS:
+        raise ConfigError(
+            f"scope.host_timeout_seconds must be between 1 and "
+            f"{_MAX_HOST_TIMEOUT_SECONDS} (got {n})")
+    return n
+
+
 def _validate_nmap_extra_args(args) -> list:
     out = []
-    for a in args or []:
+    for a in _as_list(args, "scope.nmap_extra_args"):
         a = str(a)
         if not a.startswith("-"):
             raise ConfigError(
@@ -265,8 +353,40 @@ def ip_in_networks(ip: str, networks) -> bool:
     return False
 
 
-def _parse_credential_group(doc: dict) -> CredentialGroup:
-    name = _require(doc, "name", "credential_groups[]")
+_CATCH_ALL_TARGETS = ("default", "*")
+
+
+def _validate_targets(targets, where: str) -> list:
+    """Group targets: CIDRs, exact IPs, or a catch-all token. A malformed entry
+    would otherwise never match any host, so its hosts would silently fall
+    through to another group or to no_credentials."""
+    if targets is None:
+        return ["default"]
+    targets = _as_list(targets, f"{where}: targets")
+    if not targets:
+        # An explicit [] used to become a catch-all, handing every host this
+        # group's credentials. Make the operator say so.
+        raise ConfigError(
+            f"{where}: targets is empty. List CIDRs or IPs, use [default] for "
+            f"a catch-all, or omit the key.")
+    for t in targets:
+        if isinstance(t, str) and t.strip() in _CATCH_ALL_TARGETS:
+            continue
+        _parse_network(t.strip() if isinstance(t, str) else t,
+                       f"{where}: targets")
+    return targets
+
+
+def _parse_credential_group(doc, index: int) -> CredentialGroup:
+    if not isinstance(doc, dict):
+        raise ConfigError(
+            f"credential_groups[{index}] must be a mapping with name and "
+            f"ssh_user (got {doc!r})")
+    name = _require(doc, "name", f"credential_groups[{index}]")
+    if not (isinstance(name, int) and not isinstance(name, bool)):
+        # An int name (name: 2024) loaded before; keep it as YAML gave it so
+        # the config hash for that config does not change.
+        name = _as_str(name, f"credential_groups[{index}].name")
     where = f"credential_group '{name}'"
     if "bastion" in doc:
         # Bastion support was cut (ELI-142). An old config with a bastion:
@@ -277,28 +397,36 @@ def _parse_credential_group(doc: dict) -> CredentialGroup:
         raise ConfigError(
             f"{where}: 'bastion' is no longer supported. Set up a local SSH "
             f"port forward instead (e.g. `ssh -L 2222:<target>:22 <bastion>`) "
-            f"and point this group's ssh_port/host at the forwarded port."
+            f"and point this group's targets and ssh_port at the forwarded "
+            f"port (e.g. targets: [127.0.0.1], ssh_port: 2222). Add the "
+            f"forward's address to scope.cidrs too, or discovery never finds "
+            f"it. Note that discovery only treats port 22 as SSH today, so a "
+            f"forward on any other port is reported unreachable."
         )
     level = doc.get("cis_level")
-    if level is not None and int(level) not in (1, 2):
-        raise ConfigError(f"{where}: cis_level must be 1 or 2")
-    targets = doc.get("targets") or ["default"]
-    if not isinstance(targets, list):
-        raise ConfigError(f"{where}: 'targets' must be a list")
+    ssh_port = _as_int(doc.get("ssh_port", 22), f"{where}: ssh_port")
+    if not 1 <= ssh_port <= 65535:
+        raise ConfigError(f"{where}: ssh_port must be between 1 and 65535 "
+                          f"(got {ssh_port})")
     return CredentialGroup(
         name=name,
-        ssh_user=_require(doc, "ssh_user", where),
-        targets=targets,
-        key_path=doc.get("key_path"),
-        use_agent=bool(doc.get("use_agent", True)),
-        ssh_port=int(doc.get("ssh_port", 22)),
-        sudo=bool(doc.get("sudo", True)),
-        cis_level=None if level is None else int(level),
+        ssh_user=_as_str(_require(doc, "ssh_user", where), f"{where}: ssh_user"),
+        targets=_validate_targets(doc.get("targets"), where),
+        key_path=_as_str(doc.get("key_path"), f"{where}: key_path", optional=True),
+        use_agent=_as_bool(doc.get("use_agent", True), f"{where}: use_agent"),
+        ssh_port=ssh_port,
+        sudo=_as_bool(doc.get("sudo", True), f"{where}: sudo"),
+        cis_level=None if level is None
+        else _as_cis_level(level, f"{where}: cis_level"),
     )
 
 
-def load_config(path: str) -> Config:
-    """Parse and validate a YAML config file into a Config."""
+def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
+    """Parse and validate a YAML config file into a Config.
+
+    ``allow_empty_scope`` lets an empty scope.cidrs through for a run whose
+    --cidr override will supply the scope. Without it, an empty scope is the
+    authorization-guard refusal."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             doc = yaml.safe_load(fh) or {}
@@ -310,22 +438,26 @@ def load_config(path: str) -> Config:
     if not isinstance(doc, dict):
         raise ConfigError("Top-level config must be a mapping")
 
-    scope_doc = _require(doc, "scope", "config")
+    # `scope:` with every child commented out parses as None: treat it as an
+    # empty scope, so it gets the authorization-guard refusal (or --cidr).
+    scope_doc = _as_mapping(_require(doc, "scope", "config"), "scope")
     scope = ScanScope(
-        cidrs=_validate_cidrs(scope_doc.get("cidrs") or [], "scope.cidrs"),
-        exclude=_validate_exclude(scope_doc.get("exclude", []), "scope.exclude"),
-        nmap_timing=scope_doc.get("nmap_timing", "-T3"),
-        nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args", [])),
+        cidrs=_validate_cidrs(scope_doc.get("cidrs"), "scope.cidrs",
+                              allow_empty=allow_empty_scope),
+        exclude=_validate_exclude(scope_doc.get("exclude"), "scope.exclude"),
+        nmap_timing=_as_str(scope_doc.get("nmap_timing", "-T3"),
+                            "scope.nmap_timing", optional=True),
+        nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args")),
         ssh_concurrency=_validate_concurrency(scope_doc.get("ssh_concurrency", 10)),
-        host_timeout_seconds=int(scope_doc.get("host_timeout_seconds", 600)),
+        host_timeout_seconds=_validate_host_timeout(
+            scope_doc.get("host_timeout_seconds", 600)),
     )
 
-    groups_doc = doc.get("credential_groups") or []
-    credential_groups = [_parse_credential_group(g) for g in groups_doc]
+    groups_doc = _as_list(doc.get("credential_groups"), "credential_groups")
+    credential_groups = [_parse_credential_group(g, i)
+                         for i, g in enumerate(groups_doc)]
 
-    level = int(doc.get("cis_level", 1))
-    if level not in (1, 2):
-        raise ConfigError("cis_level must be 1 or 2")
+    level = _as_cis_level(doc.get("cis_level", 1), "cis_level")
 
     threshold = _validate_threshold(
         doc.get("low_confidence_threshold", DEFAULT_LOW_CONFIDENCE_THRESHOLD))
@@ -333,15 +465,18 @@ def load_config(path: str) -> Config:
     return Config(
         scope=scope,
         credential_groups=credential_groups,
-        output_dir=doc.get("output_dir", "./grc-output"),
-        known_hosts=doc.get("known_hosts"),
+        output_dir=_as_str(doc.get("output_dir", "./grc-output"), "output_dir"),
+        known_hosts=_as_str(doc.get("known_hosts"), "known_hosts", optional=True),
         cis_level=level,
-        ssg_dir=doc.get("ssg_dir", "/usr/share/xml/scap/ssg/content"),
+        ssg_dir=_as_str(doc.get("ssg_dir", "/usr/share/xml/scap/ssg/content"),
+                        "ssg_dir"),
         low_confidence_threshold=threshold,
-        treat_unknown_linux_as_ubuntu=bool(
-            doc.get("treat_unknown_linux_as_ubuntu", False)),
-        fetch_remote_resources=bool(doc.get("fetch_remote_resources", False)),
-        os_detect=bool(doc.get("os_detect", False)),
+        treat_unknown_linux_as_ubuntu=_as_bool(
+            doc.get("treat_unknown_linux_as_ubuntu", False),
+            "treat_unknown_linux_as_ubuntu"),
+        fetch_remote_resources=_as_bool(doc.get("fetch_remote_resources", False),
+                                        "fetch_remote_resources"),
+        os_detect=_as_bool(doc.get("os_detect", False), "os_detect"),
         raw=doc,
     )
 

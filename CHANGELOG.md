@@ -141,6 +141,22 @@ release, everything lives under **Unreleased**.
   before this fix has no stamp, so its next run reinstalls once (ELI-632).
 - **`grc-report` opens the newest run that has a report.** A failed run leaves its run directory behind without a `report.html`. `grc-report` used to pick that newest directory and exit with an error. It now skips runs without a report and opens the newest run that has one. If no run has one, it exits 1 with one error line.
 - **`history` columns line up.** The `STARTED` column was 22 characters wide, but the store writes 25-character timestamps, so `SCOPE` sat out of line. The column is now 25 wide.
+- **Config typos fail as `config error`, not tracebacks or silent passes (ELI-631).**
+  `load_config` now type-checks every value. A wrong type (`cis_level: two`,
+  `ssh_port: ssh`, `scope` as a list, a scalar `cidrs`, `exclude` or `nmap_extra_args`, a
+  credential group that is not a mapping, an empty `output_dir:`) raises `ConfigError`
+  naming the key, so `run` exits `2` with one `config error:` line. Quoted booleans
+  (`sudo: 'false'`) are refused instead of read as true. `cidrs: [10]` is refused instead of
+  scanning `0.0.0.10/32`. Group `targets` must be valid CIDRs, IPs, `default` or `*`, and an
+  explicit `targets: []` is refused instead of becoming a catch-all. `host_timeout_seconds`
+  must be 1 to 86400. `run --cidr X` now works when the file's `scope.cidrs` is empty; with
+  neither, the empty-scope refusal is unchanged. The `bastion` error no longer names a
+  `host` key that groups do not have, and says the forward must be in `scope.cidrs`. Some
+  values that used to load are now refused: `sudo: 1`, a blank `sudo:`, `use_agent:` or
+  `os_detect:` (a blank `use_agent:` used to turn the agent off without a word), and a
+  fractional `host_timeout_seconds`. An empty `key_path: ''` or `known_hosts: ''` still
+  loads but now reads as unset, so such a config's hash changes once and its next run has
+  no drift baseline.
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over

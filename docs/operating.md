@@ -130,7 +130,7 @@ python -m grc_auditor history -o ./grc-output
 |---|---|
 | `-c, --config PATH` | config file (default `./config.yaml`; scaffolded if absent) |
 | `--dry-run` | discover + classify only; no SSH, no scan |
-| `--cidr CIDR` | override scope CIDR (repeatable) |
+| `--cidr CIDR` | override scope CIDR (repeatable); works when the file's `scope.cidrs` is empty |
 | `--exclude CIDR` | override exclusions (repeatable) |
 | `-o, --output DIR` | override output directory |
 | `--cis-level {1,2}` | override global CIS level |
@@ -155,13 +155,14 @@ python -m grc_auditor history -o ./grc-output
 
 ```yaml
 scope:
-  cidrs: [10.0.10.0/24]      # REQUIRED: authorized ranges. Empty => refuses to run.
+  cidrs: [10.0.10.0/24]      # REQUIRED: a list of authorized ranges. Empty => refuses to
+                             #   run unless --cidr supplies the scope.
                              #   Refused if wider than /16 (blast-radius guard).
   exclude: [10.0.10.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
   nmap_timing: "-T3"         # cautious default; only -T0..-T5 accepted
   nmap_extra_args: []        # flags only: no bare targets, no scope/output-altering flags
   ssh_concurrency: 10        # bounded parallel SSH/scan workers (1..100)
-  host_timeout_seconds: 600  # per-host scan timeout
+  host_timeout_seconds: 600  # per-host scan timeout, 1..86400 seconds
 
 output_dir: "./grc-output"   # history.db + per-run reports/evidence
 cis_level: 1                 # global default: 1 = baseline, 2 = stricter
@@ -177,7 +178,8 @@ os_detect: false             # default false; nmap -O OS detection (feeds the cl
 
 credential_groups:           # first matching group (top-down) wins
   - name: prod
-    targets: [10.0.10.0/24]  # CIDRs / exact IPs / ["default"] catch-all
+    targets: [10.0.10.0/24]  # CIDRs / exact IPs / ["default"] catch-all. Omitted =>
+                             #   catch-all; an empty list [] is refused.
     ssh_user: grc-scan
     key_path: "~/.ssh/grc_scan_ed25519"   # omit => rely on ssh-agent
     use_agent: true
@@ -185,6 +187,11 @@ credential_groups:           # first matching group (top-down) wins
     sudo: true               # uses passwordless `sudo -n` for root-only checks
     cis_level: 2             # optional per-group override of global cis_level
 ```
+
+Every value is type-checked when the config loads. A wrong type, such as `cis_level: two`,
+a scalar where a list belongs, or a malformed CIDR in `targets`, stops `run` with exit `2`
+and a `config error:` line naming the key. Booleans must be unquoted `true` or `false`: a
+quoted `'false'` is refused, because it is a string and would otherwise read as true.
 
 ---
 
