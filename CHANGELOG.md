@@ -5,6 +5,13 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Fixed
+- **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
+  checked only port 22, so a host whose sshd listens on the group's port was marked
+  `unreachable` before any connect. Triage now gates only groups on port 22. For any other
+  port it leaves the host to the SSH reach stage, because nmap's default port set may not
+  cover that port and an unseen port proves nothing (ELI-630).
+
 ### Changed
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
   and the trend line may compare against (finished, not a dry run, same `config_hash`) now
@@ -25,6 +32,15 @@ release, everything lives under **Unreleased**.
   raises an unexpected error and the temp-dir cleanup then fails too, the detail names the
   first error instead of the cleanup's, and the per-host scan log line now comes after
   cleanup. See `docs/adr/0002-one-writer-per-host-verdict.md`.
+- **Fleet posture rules moved into `posture.py`.** The scan-candidate rule, the assessed
+  share, the posture ladder with its thresholds, and the zero-scanned predicate now live in
+  one module instead of being split across `report.py` and `models.py`. The ladder's 75% and
+  90% pass-rate cutoffs are named constants (`WEAK_PASS_RATE`, `STRONG_PASS_RATE`) next to
+  `MIN_COVERAGE_FOR_POSTURE` and `STRONG_COVERAGE_THRESHOLD`. `RunRecord.zero_scanned` is
+  replaced by `posture.zero_scanned(run)`, which reads the run's own `dry_run` marker, so
+  `write_reports`, `cli._print_summary` and `cli._exit_code_for_run` no longer take a separate
+  `dry_run` argument. A run with no recorded marker counts as a real run, as before. Report
+  output, console output and exit codes are unchanged.
 - **MVP carve (ELI-142): `--deep`, bastion, and the CIS-NIST/ISO crosswalk are cut.**
   `--deep`, `fetch_remote_resources`'s one-flag preset, and `bin/grc-deep` are gone; set
   `cis_level: 2` and `fetch_remote_resources: true` directly in config instead.
@@ -50,7 +66,7 @@ release, everything lives under **Unreleased**.
   zero hosts (every host landed in a coverage gap, or discovery found nothing) is
   now unmistakable: the console summary prints a loud warning, the HTML report
   gets a banner at the top, and the process exits `3` instead of `0`. All three
-  surfaces read one predicate, `RunRecord.zero_scanned()`, so they can't drift
+  surfaces read one predicate, `posture.zero_scanned()`, so they can't drift
   apart. The alarm is deliberately silent for `--dry-run` (which never scans by
   design) and for a fleet that is entirely `non_ubuntu` (those hosts were never
   scan candidates). Exit codes are documented in `docs/operating.md` §4.
@@ -116,6 +132,8 @@ release, everything lives under **Unreleased**.
   LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **`grc-report` opens the newest run that has a report.** A failed run leaves its run directory behind without a `report.html`. `grc-report` used to pick that newest directory and exit with an error. It now skips runs without a report and opens the newest run that has one. If no run has one, it exits 1 with one error line.
+- **`history` columns line up.** The `STARTED` column was 22 characters wide, but the store writes 25-character timestamps, so `SCOPE` sat out of line. The column is now 25 wide.
 - **Config typos fail as `config error`, not tracebacks or silent passes (ELI-631).**
   `load_config` now type-checks every value. A wrong type (`cis_level: two`,
   `ssh_port: ssh`, `scope` as a list, a scalar `cidrs`, `exclude` or `nmap_extra_args`, a

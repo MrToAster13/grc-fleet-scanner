@@ -85,8 +85,10 @@ def build_nmap_args(scope: ScanScope, want_os: bool,
     args = ["nmap", _safe_timing(scope.nmap_timing), "-sV", "-oX", "-"]
     if want_os:
         args.append("-O")
-    for ex in scope.exclude:
-        args += ["--exclude", ex]
+    # nmap keeps only the last --exclude it is given, so pass every entry in a
+    # single comma-separated value.
+    if scope.exclude:
+        args += ["--exclude", ",".join(scope.exclude)]
     args += list(scope.nmap_extra_args)
     args += list(scope.cidrs if cidrs is None else cidrs)
     return args
