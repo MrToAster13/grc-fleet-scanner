@@ -425,13 +425,32 @@ def test_bastion_message_names_only_real_keys(tmp_path):
 
 # ELI-631 adversarial review regressions.
 # Finding 1: the bastion advice must say what discovery needs today.
-def test_bastion_message_says_forward_must_be_in_scope_and_port_22(tmp_path):
+# ELI-640: since ELI-630 a group's non-22 ssh_port reaches the SSH stage, so
+# the message must not claim discovery treats only port 22 as SSH.
+def test_bastion_message_says_forward_must_be_in_scope_without_port_22_claim(tmp_path):
     text = _SCOPE + _GROUP + "    bastion:\n      host: b\n"
     with pytest.raises(ConfigError) as ei:
         load_config(_write_raw(tmp_path, text))
     msg = str(ei.value)
     assert "scope.cidrs" in msg
-    assert "port 22" in msg
+    assert "port 22" not in msg
+    assert "reported unreachable" not in msg
+
+
+# ELI-640 adversarial finding 1: discovery runs nmap's default port set, so a
+# forward port outside it gives no banner and the host drops as non-Ubuntu.
+# The message must name the fix, and the fix it names must load.
+def test_bastion_message_names_nmap_extra_args_port_fix_that_loads(tmp_path):
+    text = _SCOPE + _GROUP + "    bastion:\n      host: b\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    msg = str(ei.value)
+    assert "scope.nmap_extra_args" in msg
+    assert '["-p22,2222"]' in msg
+    cfg = load_config(_write_raw(
+        tmp_path,
+        'scope:\n  cidrs: [127.0.0.1/32]\n  nmap_extra_args: ["-p22,2222"]\n'))
+    assert cfg.scope.nmap_extra_args == ["-p22,2222"]
 
 
 # Finding 2: a per-host timeout must be a positive, sane number of seconds.
