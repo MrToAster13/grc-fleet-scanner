@@ -84,7 +84,7 @@ grc_ensure_venv() {
         fi
         "$GRC_PY" -m pip install --quiet --upgrade pip || true
         "$GRC_PY" -m pip install --quiet -r "$req" \
-            || grc_die "pip install of requirements failed."
+            || grc_die "pip install of requirements failed. Retry by hand: \"$GRC_PY\" -m pip install -r \"$req\""
         printf '%s\n' "$pyver" > "$stamp"
     fi
     export GRC_PY PYTHONPATH="$GRC_HOME${PYTHONPATH:+:$PYTHONPATH}"
