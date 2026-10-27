@@ -37,11 +37,11 @@ _Avoid_: History entry, data point
 ### Hosts
 
 **Triage**:
-The pre-connection classification of a discovered host from discovery evidence alone (OS hint, open SSH port, matching credential group), which decides whether the host is a scan candidate.
+The pre-connection classification of a discovered host from discovery evidence alone (OS hint, open SSH port, matching credential group), which decides whether the host goes on to assessment.
 _Avoid_: Classification pass, pre-scan
 
 **Assessment**:
-The per-host pass that reaches a scan candidate over SSH, detects its OS and scanner, runs the scan, and ends in a verdict.
+The per-host pass that reaches a host cleared by triage over SSH, detects its OS and scanner, runs the scan, and ends in a verdict.
 _Avoid_: Scan (a scan is only the oscap step inside an assessment), audit (for one host)
 
 **Verdict**:
@@ -53,3 +53,19 @@ _Avoid_: Result, outcome (a rule outcome is one check's result inside a scan)
 **Fleet pass rate**:
 Passed checks as a percentage of evaluated checks (passed, failed and error) summed across scanned hosts, or none when nothing was evaluated.
 _Avoid_: Compliance score, fleet score
+
+**Scan candidate**:
+A host in scope for scanning: every host in a run except non-Ubuntu inventory.
+_Avoid_: Target, in-scope host (when the non-Ubuntu exclusion matters)
+
+**Assessed share**:
+Scanned hosts as a percentage of scan candidates, or none when a run has no scan candidates.
+_Avoid_: Coverage (the coverage sentence divides by every discovered host), scan rate
+
+**Posture**:
+The run's overall rating (no-data, weak, incomplete, moderate or strong) from its fleet pass rate and assessed share, with a headline that explains it.
+_Avoid_: Compliance status, grade
+
+**Zero-scanned run**:
+A run that is not a dry run, scanned no host, and either discovered nothing or had at least one scan candidate.
+_Avoid_: Empty run, failed run
