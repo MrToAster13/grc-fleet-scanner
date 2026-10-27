@@ -11,6 +11,10 @@ release, everything lives under **Unreleased**.
   `unreachable` before any connect. Triage now gates only groups on port 22. For any other
   port it leaves the host to the SSH reach stage, because nmap's default port set may not
   cover that port and an unseen port proves nothing (ELI-630).
+- **The `bastion` error no longer says a forward must be on port 22.** Since ELI-630 a
+  forward on any `ssh_port` reaches the SSH stage, so the message dropped that claim. It
+  now says that discovery scans nmap's default ports, and that a forward on another port
+  belongs in `scope.nmap_extra_args` (for example `["-p22,2222"]`) (ELI-640).
 
 ### Changed
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
