@@ -136,6 +136,8 @@ rm -f "$PIP_LOG"
 out="$(run_ensure "$home" 1)"
 status=$?
 check "failed requirements install dies" 1 "$status" "$out" "pip install of requirements failed"
+check "failed install prints the venv's own retry command (AC4)" 1 "$status" "$out" \
+    "/.venv/bin/python\" -m pip install -r"
 if [ ! -e "$(stamp_of "$home")" ]; then
     pass_case "failed install leaves no stamp"
 else
@@ -161,7 +163,6 @@ fi
 home="$(new_home)"
 run_ensure "$home" 0 >/dev/null
 rm -f "$PIP_LOG"
-: > "$(stamp_of "$home")"
 touch -d '2000-01-01' "$(stamp_of "$home")"
 touch -d '+1 day' "$home/requirements.txt"
 out="$(run_ensure "$home" 1)"
@@ -200,7 +201,6 @@ fi
 home="$(new_home)"
 run_ensure "$home" 0 >/dev/null
 rm -f "$PIP_LOG"
-: > "$(stamp_of "$home")"
 touch -d '2000-01-01' "$(stamp_of "$home")"
 out="$(run_ensure "$home" 0)"
 status=$?
