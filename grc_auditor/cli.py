@@ -25,6 +25,7 @@ from .config import (
 )
 from .logging_setup import setup_logging
 from .models import HostStatus, RunRecord
+from .posture import zero_scanned
 from .report import write_reports
 from .store import Store
 
@@ -254,13 +255,12 @@ def cmd_run(args) -> int:
 
         # Stage 8: report (drift needs the store, after this run is saved)
         paths = write_reports(run, store, run_dir,
-                              low_confidence_threshold=cfg.low_confidence_threshold,
-                              dry_run=args.dry_run)
+                              low_confidence_threshold=cfg.low_confidence_threshold)
     finally:
         store.close()
 
-    _print_summary(run, paths, dry_run=args.dry_run)
-    return _exit_code_for_run(run, dry_run=args.dry_run)
+    _print_summary(run, paths)
+    return _exit_code_for_run(run)
 
 
 # Exit code reserved for a run that completed but scanned zero hosts. 0, 1,
@@ -271,14 +271,15 @@ def cmd_run(args) -> int:
 EXIT_ZERO_SCANNED = 3
 
 
-def _exit_code_for_run(run: RunRecord, *, dry_run: bool = False) -> int:
+def _exit_code_for_run(run: RunRecord) -> int:
     """The single home for the run's exit code, so the console summary, the
     report banner, and the process exit status all read the same
-    `zero_scanned` predicate and can't disagree with each other."""
-    return EXIT_ZERO_SCANNED if run.zero_scanned(dry_run=dry_run) else 0
+    `posture.zero_scanned` predicate and can't disagree with each other.
+    The predicate reads the dry-run marker from the run itself."""
+    return EXIT_ZERO_SCANNED if zero_scanned(run) else 0
 
 
-def _print_summary(run: RunRecord, paths: dict, *, dry_run: bool = False) -> None:
+def _print_summary(run: RunRecord, paths: dict) -> None:
     counts = run.counts_by_status()
     pr = run.fleet_pass_rate()
     pr_str = f"{pr}%" if pr is not None else "n/a"
@@ -290,7 +291,7 @@ def _print_summary(run: RunRecord, paths: dict, *, dry_run: bool = False) -> Non
     print(f"  Fleet pass rate  : {pr_str}")
     print(f"  Report           : {paths['html']}")
     print(f"  JSON / CSV       : {paths['json']}")
-    if run.zero_scanned(dry_run=dry_run):
+    if zero_scanned(run):
         print()
         print("  *** ZERO HOSTS SCANNED -- this report has no findings. ***")
         if not run.hosts:
@@ -310,10 +311,10 @@ def cmd_history(args) -> int:
     if not runs:
         print("No runs recorded yet.")
         return 0
-    print(f"{'RUN ID':<24}  {'STARTED':<22}  SCOPE")
+    print(f"{'RUN ID':<24}  {'STARTED':<25}  SCOPE")
     for r in runs:
         scope = ", ".join(json.loads(r["scope"] or "[]"))
-        print(f"{r['run_id']:<24}  {r['started_at']:<22}  {scope}")
+        print(f"{r['run_id']:<24}  {r['started_at']:<25}  {scope}")
     return 0
 
 

@@ -181,6 +181,17 @@ def test_print_summary_is_quiet_when_hosts_scanned(capsys):
     assert "ZERO HOSTS SCANNED" not in out
 
 
+def test_exit_code_and_summary_read_the_dry_run_marker_on_the_run(capsys):
+    # The helpers take no separate dry_run flag: posture.zero_scanned reads
+    # run.dry_run, which cmd_run sets when it builds the RunRecord.
+    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED)]
+    run = _run(hosts)
+    run.dry_run = True
+    assert _exit_code_for_run(run) == 0
+    _print_summary(run, {"html": "r.html", "json": "r.json"})
+    assert "ZERO HOSTS SCANNED" not in capsys.readouterr().out
+
+
 def test_cmd_run_dry_run_never_alarms_even_when_the_only_host_would_gate(
     tmp_path, monkeypatch, capsys,
 ):
@@ -218,6 +229,82 @@ def test_cmd_run_dry_run_never_alarms_even_when_the_only_host_would_gate(
     html = (run_dirs[0] / "report.html").read_text(encoding="utf-8")
     assert "ZERO HOSTS SCANNED" not in html
     assert 'class="zero-scanned-banner"' not in html
+
+
+def test_cmd_run_real_run_that_scans_nothing_alarms_on_all_three_surfaces(
+    tmp_path, monkeypatch, capsys,
+):
+    """The non-dry counterpart of the test above, end to end through cmd_run:
+    the run is built with dry_run=False, its only host ends in a coverage gap,
+    and the exit code, console summary and report banner all fire."""
+    cfg_path = tmp_path / "config.yaml"
+    _scaffold_config(str(cfg_path))
+    doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["output_dir"] = str(tmp_path / "out")
+    cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+    def fake_discover(scope, want_os=False):
+        return [HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED)]
+
+    def fake_assess(host, cfg, run_id, artifacts_root):
+        host.status = HostStatus.UNREACHABLE
+        host.detail = "ssh refused"
+        return host
+
+    monkeypatch.setattr(discovery, "discover", fake_discover)
+    monkeypatch.setattr(cli_mod.classify_mod, "classify", lambda hosts, cfg: None)
+    monkeypatch.setattr(cli_mod, "assess_host", fake_assess)
+
+    args = SimpleNamespace(
+        config=str(cfg_path), cidr=None, exclude=None, output=None, cis_level=None,
+        concurrency=None, low_confidence_threshold=None, os_detect=False,
+        dry_run=False, verbose=False,
+    )
+    rc = cmd_run(args)
+    out = capsys.readouterr().out
+
+    assert rc == cli_mod.EXIT_ZERO_SCANNED
+    assert "ZERO HOSTS SCANNED" in out
+
+    run_dirs = list((tmp_path / "out" / "runs").iterdir())
+    assert len(run_dirs) == 1
+    html = (run_dirs[0] / "report.html").read_text(encoding="utf-8")
+    assert 'class="zero-scanned-banner"' in html
+
+
+def test_exit_code_and_summary_helpers_take_no_dry_run_argument():
+    import inspect
+    assert "dry_run" not in inspect.signature(_exit_code_for_run).parameters
+    assert "dry_run" not in inspect.signature(_print_summary).parameters
+
+
+# --------------------------------------------------------------------------- #
+# `history` column layout (ELI-633 AC3)
+# --------------------------------------------------------------------------- #
+def test_history_scope_column_lines_up_with_a_25_char_timestamp(tmp_path, capsys):
+    # The STARTED column must be wide enough for the ISO timestamp the store
+    # writes (25 chars: 2026-06-29T16:10:00+00:00). The SCOPE column then starts
+    # at offset 24 (RUN ID) + 2 + 25 (STARTED) + 2 = 53 in the header and in
+    # every row. The expected offset is written out here, not read back from
+    # the output, so a header and row that agree with each other but not with
+    # the timestamp still fail.
+    from grc_auditor.store import Store
+
+    started = "2026-06-29T16:10:00+00:00"
+    assert len(started) == 25
+    store = Store(str(tmp_path))
+    store.save_run(RunRecord(
+        run_id="20260629T161000Z-ab12cd", started_at=started,
+        finished_at=started, scope=["10.0.10.0/24"],
+        config_hash="deadbeefcafef00d", hosts=[], dry_run=False,
+    ))
+    store.close()
+
+    assert cli_mod.cmd_history(SimpleNamespace(output=str(tmp_path))) == 0
+    header, row = capsys.readouterr().out.splitlines()[:2]
+    assert header.index("SCOPE") == 53, header
+    assert row.index("10.0.10.0/24") == 53, row
 
 
 # --------------------------------------------------------------------------- #
