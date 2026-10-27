@@ -2,7 +2,58 @@
 
 from __future__ import annotations
 
-from grc_auditor.discovery import parse_nmap_xml
+from grc_auditor.config import ScanScope
+from grc_auditor.discovery import build_nmap_args, parse_nmap_xml
+
+
+def _exclude_tokens(args):
+    """Return the value of every --exclude token in an nmap argv."""
+    return [args[i + 1] for i, a in enumerate(args[:-1]) if a == "--exclude"]
+
+
+def test_multiple_excludes_emit_one_comma_joined_exclude():
+    # AC1: two or more entries -> exactly one --exclude, joined in order.
+    scope = ScanScope(cidrs=["10.0.0.0/24"], exclude=["10.0.0.5", "10.0.0.128/25"])
+    args = build_nmap_args(scope, want_os=False)
+    assert args.count("--exclude") == 1
+    assert _exclude_tokens(args) == ["10.0.0.5,10.0.0.128/25"]
+
+
+def test_single_exclude_has_no_trailing_comma():
+    # AC2: one entry -> --exclude <entry>, no trailing comma.
+    scope = ScanScope(cidrs=["10.0.0.0/24"], exclude=["10.0.0.5"])
+    args = build_nmap_args(scope, want_os=False)
+    assert _exclude_tokens(args) == ["10.0.0.5"]
+
+
+def test_no_excludes_emits_no_exclude_token():
+    # AC3: no entries -> no --exclude token at all.
+    scope = ScanScope(cidrs=["10.0.0.0/24"], exclude=[])
+    args = build_nmap_args(scope, want_os=False)
+    assert "--exclude" not in args
+
+
+def test_batch_cidrs_override_still_carries_joined_exclude():
+    # AC4: the cidrs override (batched scans) keeps the joined exclude.
+    scope = ScanScope(cidrs=["10.0.0.0/24", "10.0.1.0/24"],
+                      exclude=["10.0.0.5", "10.0.1.7"])
+    args = build_nmap_args(scope, want_os=False, cidrs=["10.0.1.0/24"])
+    assert _exclude_tokens(args) == ["10.0.0.5,10.0.1.7"]
+    assert args[-1] == "10.0.1.0/24"
+    assert "10.0.0.0/24" not in args
+
+
+def test_other_args_keep_position_and_value():
+    # AC5: timing, -sV, -oX -, -O, extra args and targets are unchanged.
+    scope = ScanScope(cidrs=["10.0.0.0/24"], exclude=["10.0.0.5", "10.0.0.6"],
+                      nmap_timing="-T4", nmap_extra_args=["--open"])
+    args = build_nmap_args(scope, want_os=True)
+    assert args == [
+        "nmap", "-T4", "-sV", "-oX", "-", "-O",
+        "--exclude", "10.0.0.5,10.0.0.6",
+        "--open",
+        "10.0.0.0/24",
+    ]
 
 
 def test_parses_up_hosts_ip_hostname_ports_banners(sample_nmap_xml):
