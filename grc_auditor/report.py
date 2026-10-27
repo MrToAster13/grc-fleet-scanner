@@ -32,6 +32,7 @@ except ImportError as exc:  # pragma: no cover - dependency guard
 from .history import RunHistory, current_point
 from .logging_setup import get_logger
 from .models import DEFAULT_LOW_CONFIDENCE_THRESHOLD, HostStatus, RunRecord
+from .posture import fleet_posture, zero_scanned
 from .store import Store
 
 log = get_logger()
@@ -363,35 +364,6 @@ def _sparkline(values: list) -> str:
     return "".join(out)
 
 
-# Fleet-level coverage gates on the executive posture (ELI-166). The share is
-# scanned hosts over scan candidates (every host except NON_UBUNTU inventory).
-# Below MIN_COVERAGE_FOR_POSTURE the posture is "incomplete": the pass rate
-# describes less than half the in-scope fleet, mirroring the per-host 50% hard
-# confidence floor. "strong" additionally needs STRONG_COVERAGE_THRESHOLD.
-# See docs/design.md section 4.
-MIN_COVERAGE_FOR_POSTURE = 50.0
-STRONG_COVERAGE_THRESHOLD = 90.0
-
-
-def _scan_candidates(run: RunRecord) -> list:
-    """Hosts in scope for scanning: every host except NON_UBUNTU inventory."""
-    return [h for h in run.hosts if h.status is not HostStatus.NON_UBUNTU]
-
-
-def assessed_share(run: RunRecord) -> Optional[float]:
-    """Percent of scan candidates (non-NON_UBUNTU hosts) that reached SCANNED.
-
-    None when the run has no scan candidates at all. Hosts still DISCOVERED
-    count as unassessed, so an unfinished run can never inflate the share.
-    This is deliberately not the coverage sentence's denominator
-    (``len(run.hosts)``): out-of-scope inventory must not drag posture down.
-    """
-    candidates = _scan_candidates(run)
-    if not candidates:
-        return None
-    return round(100.0 * len(run.scanned_hosts()) / len(candidates), 1)
-
-
 def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
                       low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> dict:
     """A plain-language posture block for non-technical readers.
@@ -404,63 +376,7 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
     gaps = run.coverage_gaps()
     total = len(run.hosts)
     rate = run.fleet_pass_rate()
-    share = assessed_share(run)
-    n_candidates = len(_scan_candidates(run))
-    n_excluded = total - n_candidates
-    # Only spell out the candidate math when it differs from the coverage
-    # sentence's "of discovered hosts" denominator below -- otherwise the two
-    # percentages already agree and the extra clause would be noise.
-    if n_excluded:
-        candidate_detail = (
-            " (%d of %d; %d non-Ubuntu host%s excluded)"
-            % (len(scanned), n_candidates, n_excluded,
-               "" if n_excluded == 1 else "s")
-        )
-    else:
-        candidate_detail = ""
-
-    if not scanned:
-        posture = "no-data"
-        headline = (
-            "No hosts were successfully scanned this run; compliance posture "
-            "cannot be assessed. Resolve the coverage gaps below."
-        )
-    elif rate is None:
-        posture = "no-data"
-        headline = "Hosts were scanned but produced no evaluable results."
-    elif rate < 75:
-        # Weak is already a non-clean verdict; low coverage can only make the
-        # real picture worse, so it does not soften it.
-        posture = "weak"
-        headline = "Fleet compliance is weak; broad remediation is required."
-    elif share is not None and share < MIN_COVERAGE_FOR_POSTURE:
-        # The scanned-host pass rate says nothing reliable about a fleet that
-        # was mostly never reached. Mirrors HARD_CONFIDENCE_FLOOR per host.
-        posture = "incomplete"
-        headline = (
-            "Only %.1f%% of scan candidates were assessed%s, too little of "
-            "the fleet to rate its compliance. Close the coverage gaps below "
-            "before relying on the pass rate." % (share, candidate_detail)
-        )
-    elif rate >= 90 and share >= STRONG_COVERAGE_THRESHOLD:
-        # share can't be None here: scanned is non-empty (the `not scanned`
-        # branch above already handled the empty case), and every SCANNED
-        # host is by definition not NON_UBUNTU, so the candidate set that
-        # assessed_share divides by is non-empty too. (The old `share is
-        # None or` fallback was unreachable for the same reason; removed.)
-        posture = "strong"
-        headline = "Fleet compliance is strong, with only isolated gaps to close."
-    elif rate >= 90:
-        # High pass rate, but too many candidates unassessed to call it strong.
-        posture = "moderate"
-        headline = (
-            "Assessed hosts score well, but only %.1f%% of scan candidates "
-            "were assessed%s; posture is capped at moderate until coverage "
-            "gaps are closed." % (share, candidate_detail)
-        )
-    else:
-        posture = "moderate"
-        headline = "Fleet compliance is moderate; several controls need attention."
+    posture = fleet_posture(run)
 
     # Trend sentence. fleet_delta is None both when there is genuinely no prior
     # run AND when a delta can't be computed because this run (or the prior one)
@@ -531,8 +447,8 @@ def executive_summary(run: RunRecord, drift: Drift, top: list, sev: dict,
 
     high_rules = sev["by_severity"].get("high", {}).get("rules", 0)
     return {
-        "posture": posture,
-        "headline": headline,
+        "posture": posture.level,
+        "headline": posture.headline,
         "trend": trend,
         "coverage": coverage,
         "fleet_pass_rate": rate,
@@ -563,7 +479,6 @@ def _summary(run: RunRecord, drift: Drift) -> dict:
 
 def write_reports(run: RunRecord, store: Store, run_dir: str,
                   low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
-                  dry_run: bool = False,
                   ) -> dict[str, str]:
     """Render all report artifacts into run_dir. Returns {kind: path}."""
     os.makedirs(run_dir, exist_ok=True)
@@ -600,7 +515,7 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
         run=run, summary=summary, drift=drift, top=top,
         severity=severity, trend=trend, exec_summary=exec_summary,
         low_conf_ips=low_conf_ips, gap_statuses=gap_statuses,
-        dry_run=dry_run,
+        zero_scanned=zero_scanned(run),
     )
     html_path = os.path.join(run_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as fh:
