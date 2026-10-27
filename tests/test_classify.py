@@ -130,3 +130,94 @@ def test_promotion_never_touches_clearly_non_linux():
     classify([host], cfg)
     assert host.is_ubuntu is False
     assert host.status is HostStatus.NON_UBUNTU
+
+
+# --- ELI-630: the matched credential group's ssh_port drives the SSH gate --- #
+
+def _ssh_port_cfg(port):
+    # One catch-all group that connects on `port` (remote.py dials g.ssh_port).
+    from grc_auditor.config import Config, ScanScope
+
+    return Config(
+        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        credential_groups=[
+            CredentialGroup(name="lab", ssh_user="ubuntu",
+                            targets=["default"], ssh_port=port),
+        ],
+    )
+
+
+def test_group_ssh_port_open_is_discovered_without_port_22():
+    # AC1: sshd on 2222 only. The group says 2222, so the host is reachable.
+    cfg = _ssh_port_cfg(2222)
+    host = HostRecord(
+        ip="10.0.10.21", open_ports=[2222, 80],
+        banners={"80/tcp": "nginx 1.18.0 (Ubuntu)"},
+    )
+    classify([host], cfg)
+
+    assert host.is_ubuntu is True
+    assert host.status is HostStatus.DISCOVERED
+    assert host.credential_group == "lab"
+
+
+def test_group_ssh_port_banner_key_counts_as_ssh_evidence():
+    # AC2: the only SSH evidence is a banner keyed on the group's port.
+    cfg = _ssh_port_cfg(2222)
+    host = HostRecord(
+        ip="10.0.10.21", open_ports=[],
+        banners={"2222/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
+    )
+    classify([host], cfg)
+
+    assert host.status is HostStatus.DISCOVERED
+
+
+def test_group_port_unseen_by_nmap_is_left_for_the_reach_stage():
+    # Regression (ELI-630 review): nmap scans only its default port set, so a
+    # non-22 group port that nmap did not report may still be open. Classify
+    # must not gate on it; the SSH reach stage decides with a real connect.
+    cfg = _ssh_port_cfg(2222)
+    host = HostRecord(
+        ip="10.0.10.21", open_ports=[22, 80],
+        banners={"22/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
+    )
+    classify([host], cfg)
+
+    assert host.is_ubuntu is True
+    assert host.status is HostStatus.DISCOVERED
+    assert host.credential_group == "lab"
+
+
+def test_default_group_port_22_open_is_discovered(config_factory):
+    # AC4: default group (ssh_port 22) with port 22 open. Unchanged behavior.
+    cfg = config_factory()
+    host = _ubuntu_ssh_host()
+    classify([host], cfg)
+
+    assert host.status is HostStatus.DISCOVERED
+
+
+def test_default_group_only_port_2222_open_is_unreachable():
+    # AC5: default group checks 22. An open 2222 does not count.
+    cfg = _ssh_port_cfg(22)
+    host = HostRecord(
+        ip="10.0.10.21", open_ports=[2222],
+        banners={"2222/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
+    )
+    classify([host], cfg)
+
+    assert host.status is HostStatus.UNREACHABLE
+
+
+def test_non_ubuntu_host_with_open_2222_stays_non_ubuntu():
+    # AC6: the port change does not touch the Ubuntu hint.
+    cfg = _ssh_port_cfg(2222)
+    host = HostRecord(
+        ip="10.0.10.30", open_ports=[2222],
+        banners={"2222/tcp": "OpenSSH 9.2p1 Debian"},
+    )
+    classify([host], cfg)
+
+    assert host.is_ubuntu is False
+    assert host.status is HostStatus.NON_UBUNTU
