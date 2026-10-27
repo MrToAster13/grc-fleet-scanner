@@ -33,3 +33,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run the grc-target-setup integrity test harness
         run: bash tests/shell/test_target_setup_integrity.sh
+      - name: Run the launcher venv bootstrap test harness
+        run: bash tests/shell/test_grc_common_venv.sh
