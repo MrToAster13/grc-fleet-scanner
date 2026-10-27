@@ -72,7 +72,7 @@ check "AC1 headless: skips the newer run with no report and prints the older rep
     "exit $rc, stdout '$so_out', wanted '$want'"
 
 # --- AC1 open branch: display set, stub opener receives the same path ------- #
-rm -f "$ac1/opened.log"
+rm -f "$work/stubs/opened.log"
 run_grc_report "$ac1" DISPLAY=:99
 # The opener runs in the background; wait up to 5s for its log line.
 for _ in $(seq 50); do
@@ -108,6 +108,9 @@ check "AC2: prints no path on stdout" \
     $([ -z "$so_out" ] && echo yes || echo no) "stdout '$so_out'"
 check "AC2: one error line on stderr names the output dir" \
     $(printf '%s' "$se_out" | grep -qF "no run under $ac2/runs has a report.html" && echo yes || echo no) \
+    "stderr '$se_out'"
+check "AC2: stderr is exactly one line" \
+    $([ "$(wc -l < "$work/stderr")" -eq 1 ] && echo yes || echo no) \
     "stderr '$se_out'"
 
 echo
