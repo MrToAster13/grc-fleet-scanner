@@ -198,7 +198,7 @@ def _as_int(value, where: str) -> int:
 
 
 def _as_str(value, where: str, *, optional: bool = False) -> Optional[str]:
-    # An optional path left as '' meant "use the default" before (the
+    # An optional value left as '' meant "use the default" before (the
     # consumers test truthiness), so keep it meaning that.
     if optional and (value is None or value == ""):
         return None
@@ -446,7 +446,7 @@ def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
                               allow_empty=allow_empty_scope),
         exclude=_validate_exclude(scope_doc.get("exclude"), "scope.exclude"),
         nmap_timing=_as_str(scope_doc.get("nmap_timing", "-T3"),
-                            "scope.nmap_timing"),
+                            "scope.nmap_timing", optional=True),
         nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args")),
         ssh_concurrency=_validate_concurrency(scope_doc.get("ssh_concurrency", 10)),
         host_timeout_seconds=_validate_host_timeout(
