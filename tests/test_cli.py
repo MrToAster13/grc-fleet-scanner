@@ -218,3 +218,59 @@ def test_cmd_run_dry_run_never_alarms_even_when_the_only_host_would_gate(
     html = (run_dirs[0] / "report.html").read_text(encoding="utf-8")
     assert "ZERO HOSTS SCANNED" not in html
     assert 'class="zero-scanned-banner"' not in html
+
+
+# --------------------------------------------------------------------------- #
+# ELI-631: config errors exit 2 cleanly; --cidr fills an empty file scope
+# --------------------------------------------------------------------------- #
+def _run_args(cfg_path, cidr=None):
+    return SimpleNamespace(
+        config=str(cfg_path), cidr=cidr, exclude=None, output=None, cis_level=None,
+        concurrency=None, low_confidence_threshold=None, os_detect=False,
+        dry_run=True, verbose=False,
+    )
+
+
+# AC1 (cli seam): a typo'd value is exit 2 with a one-line error, no traceback.
+@pytest.mark.parametrize("text", [
+    "scope:\n  - 10.0.0.0/24\n",
+    "scope:\n  cidrs: [10.0.0.0/24]\ncis_level: two\n",
+    "scope:\n  cidrs: [10.0.0.0/24]\ncredential_groups:\n  - lab\n",
+    "scope:\n  cidrs: [10.0.0.0/24]\noutput_dir:\n",
+], ids=["scope_is_list", "cis_level_word", "group_is_string", "output_dir_null"])
+def test_cmd_run_config_typo_exits_2_without_traceback(tmp_path, capsys, text):
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(text, encoding="utf-8")
+    rc = cmd_run(_run_args(cfg_path))
+    err = capsys.readouterr().err
+    assert rc == cli_mod.EXIT_CONFIG_ERROR
+    assert err.startswith("config error:")
+    assert "Traceback" not in err
+
+
+# AC5 (cli seam): --cidr runs when the file's scope.cidrs is empty.
+def test_cmd_run_cidr_override_fills_empty_file_scope(tmp_path, monkeypatch, capsys):
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        "scope:\n  cidrs: []\noutput_dir: " + str(tmp_path / "out").replace("\\", "/")
+        + "\n", encoding="utf-8")
+    seen = {}
+
+    def fake_discover(scope, want_os=False):
+        seen["cidrs"] = list(scope.cidrs)
+        return []
+
+    monkeypatch.setattr(discovery, "discover", fake_discover)
+    rc = cmd_run(_run_args(cfg_path, cidr=["10.0.5.0/24"]))
+    assert rc == 0, capsys.readouterr().err
+    assert seen["cidrs"] == ["10.0.5.0/24"]
+
+
+# AC6 (cli seam): with neither, the refusal is unchanged.
+def test_cmd_run_empty_scope_without_cidr_is_still_refused(tmp_path, capsys):
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("scope:\n  cidrs: []\n", encoding="utf-8")
+    rc = cmd_run(_run_args(cfg_path))
+    err = capsys.readouterr().err
+    assert rc == cli_mod.EXIT_CONFIG_ERROR
+    assert "scope.cidrs is empty" in err

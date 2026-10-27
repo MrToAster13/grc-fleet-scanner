@@ -116,6 +116,18 @@ release, everything lives under **Unreleased**.
   LICENSE; 97-test pytest suite with namespaced XCCDF fixtures.
 
 ### Fixed
+- **Config typos fail as `config error`, not tracebacks or silent passes (ELI-631).**
+  `load_config` now type-checks every value. A wrong type (`cis_level: two`,
+  `ssh_port: ssh`, `scope` as a list, a scalar `cidrs`, `exclude` or `nmap_extra_args`, a
+  credential group that is not a mapping, an empty `output_dir:`) raises `ConfigError`
+  naming the key, so `run` exits `2` with one `config error:` line. Quoted booleans
+  (`sudo: 'false'`) are refused instead of read as true. `cidrs: [10]` is refused instead of
+  scanning `0.0.0.10/32`. Group `targets` must be valid CIDRs, IPs, `default` or `*`, and an
+  explicit `targets: []` is refused instead of becoming a catch-all. `host_timeout_seconds`
+  must be 1 to 86400. `run --cidr X` now works when the file's `scope.cidrs` is empty; with
+  neither, the empty-scope refusal is unchanged. The `bastion` error no longer names a
+  `host` key that groups do not have, and says the forward must be in `scope.cidrs` and that
+  discovery only treats port 22 as SSH.
 - **Executive posture now accounts for fleet coverage.** Posture used to come from the
   scanned-host pass rate alone, so a 50-host fleet with 2 hosts scanned and passing read
   "strong" at 4% coverage. Posture now also reads the assessed share (scanned hosts over
