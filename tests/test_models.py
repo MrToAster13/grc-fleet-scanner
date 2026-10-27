@@ -1,9 +1,9 @@
-"""Tests for grc_auditor.models: the zero_scanned predicate.
+"""Tests for grc_auditor.models: the RunRecord aggregates fleet posture reads.
 
-zero_scanned is the single home for "did anything get scanned this run" --
-shared by the console summary, the report banner, and the exit code, so the
-three can't drift apart. It is a pure function over RunRecord.hosts, testable
-with no SSH, nmap, or oscap.
+The zero-scanned predicate moved to grc_auditor.posture; its tests live in
+tests/test_posture.py. What stays here is the per-run arithmetic posture
+builds on: which hosts count as scanned, which count as coverage gaps, and
+the fleet pass rate.
 """
 
 from __future__ import annotations
@@ -18,53 +18,28 @@ def _run(hosts):
                      hosts=hosts)
 
 
-def test_zero_scanned_true_when_no_host_reached_scanned():
+def test_scanned_hosts_needs_both_the_status_and_a_scan_result():
+    # A host marked SCANNED with no ScanResult attached is not counted.
+    bare = HostRecord(ip="10.0.10.10", status=HostStatus.SCANNED)
+    real = fabricate_scanned_host(ip="10.0.10.11")
+    assert _run([bare, real]).scanned_hosts() == [real]
+
+
+def test_coverage_gaps_exclude_scanned_and_non_ubuntu_hosts():
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        HostRecord(ip="10.0.10.11", status=HostStatus.UNREACHABLE),
-        HostRecord(ip="10.0.10.12", status=HostStatus.SCANNER_ABSENT),
-    ]
-    assert _run(hosts).zero_scanned() is True
-
-
-def test_zero_scanned_true_when_no_hosts_discovered_at_all():
-    assert _run([]).zero_scanned() is True
-
-
-def test_zero_scanned_false_when_at_least_one_host_scanned():
-    hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        fabricate_scanned_host(ip="10.0.10.11"),
-    ]
-    assert _run(hosts).zero_scanned() is False
-
-
-def test_zero_scanned_false_when_one_scanned_and_forty_are_gaps():
-    # One good host out of forty-one must never alarm: the predicate is about
-    # *nothing* being scanned, not about a low scan rate.
-    gaps = [HostRecord(ip=f"10.0.10.{i}", status=HostStatus.UNREACHABLE)
-            for i in range(40)]
-    hosts = [fabricate_scanned_host(ip="10.0.10.99")] + gaps
-    assert _run(hosts).zero_scanned() is False
-
-
-def test_zero_scanned_false_for_a_dry_run_even_with_every_host_gated():
-    # --dry-run never scans by design (discover + classify only). Every host
-    # left DISCOVERED (the dry-run outcome) or already gated by classify must
-    # not trip the alarm meant for a real run that scanned nothing.
-    hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED),
-        HostRecord(ip="10.0.10.11", status=HostStatus.NO_CREDENTIALS),
-    ]
-    assert _run(hosts).zero_scanned(dry_run=True) is False
-
-
-def test_zero_scanned_false_when_fleet_is_entirely_non_ubuntu():
-    # non_ubuntu hosts were never scan candidates -- scanning none of them is
-    # the tool working as designed, not the same failure as every credential
-    # or SSH path being wrong across the fleet.
-    hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NON_UBUNTU),
+        fabricate_scanned_host(ip="10.0.10.10"),
         HostRecord(ip="10.0.10.11", status=HostStatus.NON_UBUNTU),
+        HostRecord(ip="10.0.10.12", status=HostStatus.NO_CREDENTIALS),
     ]
-    assert _run(hosts).zero_scanned() is False
+    assert [h.ip for h in _run(hosts).coverage_gaps()] == ["10.0.10.12"]
+
+
+def test_fleet_pass_rate_is_none_when_nothing_was_scanned():
+    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.UNREACHABLE)]
+    assert _run(hosts).fleet_pass_rate() is None
+    assert _run([]).fleet_pass_rate() is None
+
+
+def test_run_record_has_no_zero_scanned_method():
+    # The predicate lives in grc_auditor.posture now (ELI-617 AC5).
+    assert not hasattr(RunRecord, "zero_scanned")
