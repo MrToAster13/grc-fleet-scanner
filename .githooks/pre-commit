@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Pre-commit gate: the offline test suite must pass before a commit lands.
-# This is the Python equivalent of a Husky/lint-staged hook -- no Node, no extra
-# dependencies, just the pytest suite the repo already ships.
+# Pre-commit gate: the offline test suite and the shell harnesses must pass
+# before a commit lands. This is the Python equivalent of a Husky/lint-staged
+# hook -- no Node, no extra dependencies, just the pytest suite and
+# tests/shell/run-all.sh the repo already ships.
 #
 # Enable once per clone:
 #   git config core.hooksPath .githooks
@@ -31,6 +32,13 @@ if ! "$PY" -m pytest -q; then
     echo >&2
     echo "pre-commit: tests failed -- commit aborted." >&2
     echo "Fix the failures, or bypass with 'git commit --no-verify' if you must." >&2
+    exit 1
+fi
+echo "pre-commit: running the shell harnesses (bash tests/shell/run-all.sh)..."
+if ! bash tests/shell/run-all.sh >/dev/null; then
+    echo >&2
+    echo "pre-commit: a shell harness failed -- commit aborted." >&2
+    echo "Run 'bash tests/shell/run-all.sh' to see which one." >&2
     exit 1
 fi
 echo "pre-commit: all tests passed."

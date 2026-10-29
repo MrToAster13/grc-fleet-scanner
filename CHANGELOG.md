@@ -37,6 +37,12 @@ release, everything lives under **Unreleased**.
   belongs in `scope.nmap_extra_args` (for example `["-p22,2222"]`) (ELI-640).
 
 ### Changed
+- **One entry point for the shell harnesses.** `tests/shell/run-all.sh` runs every
+  `tests/shell/test_*.sh` and fails if any fails or none exist. CI, the pre-commit hook,
+  AGENTS.md and tests/README.md all call it; before this, AGENTS.md and tests/README.md
+  named one harness of the three CI ran, and the hook ran only pytest. The README and
+  design doc no longer quote a hand-kept test count, and the README states Python 3.10+
+  like the other docs (ELI-719).
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
   and the trend line may compare against (finished, not a dry run, same `config_hash`) now
   live in one module, `history.RunHistory`, instead of two SQL queries in `store.py`.

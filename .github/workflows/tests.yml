@@ -29,14 +29,8 @@ jobs:
 
   shell-tests:
     runs-on: ubuntu-latest
-    name: shell tests (grc-target-setup)
+    name: shell tests
     steps:
       - uses: actions/checkout@v4
-      - name: Run the grc-target-setup integrity test harness
-        run: bash tests/shell/test_target_setup_integrity.sh
-      - name: Run the launcher venv bootstrap test harness
-        run: bash tests/shell/test_grc_common_venv.sh
-      - name: Run the grc-report run-selection test harness
-        run: bash tests/shell/test_grc_report.sh
-      - name: Run the install.sh launcher link test harness
-        run: bash tests/shell/test_install_links.sh
+      - name: Run every shell test harness (tests/shell/test_*.sh)
+        run: bash tests/shell/run-all.sh
