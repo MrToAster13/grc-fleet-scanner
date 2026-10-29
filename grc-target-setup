@@ -14,8 +14,8 @@
 #     after checking the downloaded archive against ComplianceAsCode's own
 #     published sha512 checksum, refusing to install on any mismatch,
 #   * optionally creates a scan account (--scan-user NAME) with passwordless
-#     sudo for only the commands the scanner runs (the oscap scan, its temp-dir
-#     cleanup and a `true` probe), and authorizes an SSH public key for it
+#     sudo for only the commands the scanner runs (the oscap scan, creating,
+#     opening and removing its output dir, and a `true` probe), and authorizes an SSH public key for it
 #     (--pubkey 'ssh-ed25519 AAAA... you' --from RUN_HOST) that works only from
 #     the run host, with forwarding and PTYs off.
 # Verifies the result at the end. Mirrors docs/validation.md §1 (fire-tested on
@@ -120,29 +120,90 @@ sudoers_safe_path() {
     esac
 }
 
-# scan_sudoers USER TRUE_BIN OSCAP_BIN RM_BIN DATASTREAM
-# Prints the sudoers drop-in for the scan account. It allows only the three
-# commands grc-fleet-scanner runs under sudo, with their exact arguments:
+# sudoers_safe_group GROUP
+# Dies unless GROUP is a plain group name: it goes into the rule as a chgrp
+# argument, so a leading dash, a space, a comma or any sudoers special
+# character would change what the rule allows. scan.py _SAFE_GROUP accepts the
+# same names.
+sudoers_safe_group() {
+    case "$1" in
+        ''|-*|.*|*[!A-Za-z0-9._-]*) die "group '$1' is not a plain group name -- refusing to write it into sudoers." ;;
+    esac
+    [ "${#1}" -le 32 ] || die "group '$1' is longer than 32 characters -- refusing to write it into sudoers."
+}
+
+# require_private_group USER GROUP_ENTRY PASSWD_DB
+# Dies unless USER's primary group belongs to USER alone. GROUP_ENTRY is the
+# group's `getent group` line, PASSWD_DB is `getent passwd`. The scanner hands
+# its output dir to this group (0750), and oscap's files are 0644, so any other
+# member of the group, listed or through its own primary gid, could read the
+# list of failed controls. adduser makes a group of the user's own; an account
+# reused with a shared group such as `users` is refused.
+require_private_group() {
+    local user="$1" entry="$2" passwd_db="$3" name gid members m others
+    [ -n "$entry" ] || die "could not read $user's primary group."
+    IFS=: read -r name _ gid members <<<"$entry"
+    IFS=, read -ra m <<<"$members"
+    for others in "${m[@]}"; do
+        [ -z "$others" ] || [ "$others" = "$user" ] \
+            || die "group '$name' also has member '$others'. The scan account needs a group of its own, or other users can read the scan results."
+    done
+    others="$(awk -F: -v g="$gid" -v u="$user" '$4 == g && $1 != u { print $1; exit }' <<<"$passwd_db")"
+    [ -z "$others" ] \
+        || die "group '$name' is also the primary group of '$others'. The scan account needs a group of its own, or other users can read the scan results."
+}
+
+# normalize_ssg_dir DIR
+# Prints DIR with every trailing slash removed. The scanner builds the
+# datastream path as `ssg_dir.rstrip('/') + '/' + file` (profiles.py), and sudo
+# compares arguments as strings, so `--ssg-dir /opt/ssg/` has to name the same
+# path the scanner sends or sudo refuses the scan. Dies on `/`, which would
+# strip to nothing.
+normalize_ssg_dir() {
+    local d="$1"
+    while [ "${d%/}" != "$d" ]; do d="${d%/}"; done
+    [ -n "$d" ] || die "--ssg-dir cannot be / -- give the directory that holds the datastream."
+    printf '%s' "$d"
+}
+
+# scan_sudoers USER GROUP TRUE_BIN MKTEMP_BIN CHGRP_BIN CHMOD_BIN OSCAP_BIN RM_BIN DATASTREAM
+# Prints the sudoers drop-in for the scan account. It allows only the commands
+# grc-fleet-scanner runs under sudo, with their exact arguments:
 #   * `true` with no arguments, the passwordless-sudo probe (detect.py),
+#   * `mktemp -d /var/lib/grc_audit.XXXXXX`, the scan's output dir (scan.py),
+#   * `chgrp GROUP` and `chmod 0750` of that dir, so the scan account (GROUP is
+#     its primary group) can pull results over SFTP while other local users,
+#     who could otherwise read oscap's 0644 files, get nothing,
 #   * `oscap xccdf eval` for CIS level 1 or 2 against this host's datastream,
-#     with or without --fetch-remote-resources, writing into the scanner's
-#     own mktemp dir (scan.py _build_oscap_argv),
-#   * `rm -rf` of that mktemp dir (scan.py cleanup).
-# The temp dir comes from `mktemp -d /tmp/grc_audit.XXXXXX`, six characters
-# from [A-Za-z0-9]. Each is matched by a character class, never by `*` or `?`,
-# because sudoers wildcards also match spaces and so would admit extra
-# arguments. A change to these commands in the scanner has to change this
-# rule too; tests/test_target_setup_sudoers.py fails until it does.
+#     with or without --fetch-remote-resources, writing into that dir
+#     (scan.py _build_oscap_argv),
+#   * `rm -rf` of that dir (scan.py cleanup).
+# Root makes the output dir inside /var/lib, where only root can add entries.
+# A dir the scan account could create (anything under /tmp) would let it plant
+# results.xml as a symlink, and a root oscap write would follow the link and
+# overwrite any file on the host.
+# mktemp fills the six X's from [A-Za-z0-9]. Each is matched by a character
+# class, never by `*` or `?`, because sudoers wildcards also match spaces and
+# so would admit extra arguments. A change to these commands in the scanner has
+# to change this rule too; tests/test_target_setup_sudoers.py fails until it does.
 scan_sudoers() {
-    local user="$1" true_bin="$2" oscap_bin="$3" rm_bin="$4" ds="$5"
+    local user="$1" group="$2" true_bin="$3" mktemp_bin="$4" chgrp_bin="$5" chmod_bin="$6"
+    local oscap_bin="$7" rm_bin="$8" ds="$9"
     local c tmpdir level fetch specs=()
+    sudoers_safe_group "$group"
     sudoers_safe_path true "$true_bin"
+    sudoers_safe_path mktemp "$mktemp_bin"
+    sudoers_safe_path chgrp "$chgrp_bin"
+    sudoers_safe_path chmod "$chmod_bin"
     sudoers_safe_path oscap "$oscap_bin"
     sudoers_safe_path rm "$rm_bin"
     sudoers_safe_path datastream "$ds"
     c='[A-Za-z0-9]'
-    tmpdir="/tmp/grc_audit.$c$c$c$c$c$c"
+    tmpdir="/var/lib/grc_audit.$c$c$c$c$c$c"
     specs+=("$true_bin \"\"")
+    specs+=("$mktemp_bin -d /var/lib/grc_audit.XXXXXX")
+    specs+=("$chgrp_bin $group $tmpdir")
+    specs+=("$chmod_bin 0750 $tmpdir")
     for level in 1 2; do
         for fetch in "" "--fetch-remote-resources "; do
             specs+=("$oscap_bin xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_level${level}_server ${fetch}--results $tmpdir/results.xml --results-arf $tmpdir/arf.xml --report $tmpdir/report.html $ds")
@@ -218,7 +279,7 @@ while [ $# -gt 0 ]; do
         --pubkey)      PUBKEY="$(normalize_pubkey "${2:?--pubkey needs a key string}")"; validate_pubkey "$PUBKEY"; shift 2 ;;
         --pubkey-file) PUBKEY_FILE="${2:?--pubkey-file needs a path}"; shift 2 ;;
         --from)        FROM="${2:?--from needs the run host address}"; validate_from "$FROM"; shift 2 ;;
-        --ssg-dir)     SSG_DIR="${2:?--ssg-dir needs a path}"; shift 2 ;;
+        --ssg-dir)     SSG_DIR="$(normalize_ssg_dir "${2:?--ssg-dir needs a path}")" || exit 1; shift 2 ;;
         --force)       FORCE=1; shift ;;
         -h|--help)     usage 0 ;;
         *)             die "unknown argument: $1 (try --help)" ;;
@@ -313,16 +374,22 @@ if [ -n "$SCAN_USER" ]; then
     # re-run replaces an older NOPASSWD:ALL drop-in. Validate the drop-in
     # before it lands so a syntax error can't lock sudo out.
     TRUE_BIN="$(type -P true)" || die "no true binary on PATH."
+    MKTEMP_BIN="$(type -P mktemp)" || die "no mktemp binary on PATH."
+    CHGRP_BIN="$(type -P chgrp)" || die "no chgrp binary on PATH."
+    CHMOD_BIN="$(type -P chmod)" || die "no chmod binary on PATH."
+    SCAN_GROUP="$(id -gn "$SCAN_USER")" || die "could not read $SCAN_USER's primary group."
+    require_private_group "$SCAN_USER" "$(getent group "$SCAN_GROUP" || true)" "$(getent passwd || true)"
     RM_BIN="$(type -P rm)"     || die "no rm binary on PATH."
     OSCAP_BIN="$(type -P oscap)" || die "oscap not on PATH."
     tmp_sudoers="$(mktemp)"
-    scan_sudoers "$SCAN_USER" "$TRUE_BIN" "$OSCAP_BIN" "$RM_BIN" "$SSG_DIR/$SSG_FILE" > "$tmp_sudoers" \
+    scan_sudoers "$SCAN_USER" "$SCAN_GROUP" "$TRUE_BIN" "$MKTEMP_BIN" "$CHGRP_BIN" "$CHMOD_BIN" \
+        "$OSCAP_BIN" "$RM_BIN" "$SSG_DIR/$SSG_FILE" > "$tmp_sudoers" \
         || { rm -f "$tmp_sudoers"; die "could not generate the sudoers rule."; }
     $SUDO visudo -cf "$tmp_sudoers" >/dev/null || { rm -f "$tmp_sudoers"; die "generated sudoers line failed validation."; }
     $SUDO cp "$tmp_sudoers" "/etc/sudoers.d/$SCAN_USER"
     $SUDO chmod 440 "/etc/sudoers.d/$SCAN_USER"
     rm -f "$tmp_sudoers"
-    echo "sudoers: /etc/sudoers.d/$SCAN_USER (NOPASSWD for $OSCAP_BIN scans, its temp-dir cleanup and $TRUE_BIN only)"
+    echo "sudoers: /etc/sudoers.d/$SCAN_USER (NOPASSWD for $OSCAP_BIN scans, their /var/lib/grc_audit.* dir and $TRUE_BIN only)"
 
     # Authorize a public key, if given.
     if [ -n "$PUBKEY_FILE" ]; then

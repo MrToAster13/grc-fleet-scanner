@@ -8,9 +8,13 @@ release, everything lives under **Unreleased**.
 ### Security
 - **The scan account no longer gets passwordless root for every command.**
   `grc-target-setup --scan-user` wrote `NOPASSWD:ALL`, so anyone holding the run-host key had
-  root on every audited host. The drop-in now allows only the scanner's three sudo commands
-  with their exact arguments: the `true` probe, `oscap xccdf eval` into its mktemp dir for CIS
-  level 1 or 2, and `rm -rf` of that dir. The authorized key line now carries
+  root on every audited host. The drop-in now allows only the scanner's sudo commands with
+  their exact arguments: the `true` probe, `mktemp -d /var/lib/grc_audit.XXXXXX`, `chgrp`
+  of that dir to the scan account's group and `chmod 0750`, `oscap xccdf eval` into it for CIS level 1 or 2, and `rm -rf` of it. The
+  scanner now has root create its oscap output dir in `/var/lib` instead of making it as the
+  scan account under `/tmp`, so the account cannot plant a symlink there for a root oscap
+  write to follow, and other local users cannot read the results. `--ssg-dir` with a trailing slash now names the same datastream path the
+  scanner sends. The authorized key line now carries
   `from="<run host>",restrict`, and `--pubkey` requires the new `--from` option. A re-run
   replaces an older drop-in and an older unrestricted key line. docs/validation.md shows the
   narrowed rule and a passphrase-protected, agent-held key (ELI-718).

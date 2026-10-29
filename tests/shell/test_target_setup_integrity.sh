@@ -169,7 +169,7 @@ DS=/usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
 # 12. the generated drop-in passes visudo -c.
 out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
     source "$1"
-    scan_sudoers grc-scan /usr/bin/true /usr/bin/oscap /usr/bin/rm "$2"
+    scan_sudoers grc-scan grc-scan /usr/bin/true /usr/bin/mktemp /usr/bin/chgrp /usr/bin/chmod /usr/bin/oscap /usr/bin/rm "$2"
 ' _ "$SCRIPT" "$DS" 2>/dev/null)"
 status=$?
 check "scan_sudoers writes a rule" 0 "$status" "$out" "NOPASSWD:"
