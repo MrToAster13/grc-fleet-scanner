@@ -34,6 +34,18 @@ check() {
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# MSYS ln -s (Git for Windows) copies files by default, so install.sh cannot
+# make links there and every no-reinstall case would fail. The pre-commit hook
+# runs this file, so skip on such a host. When CI is set, run the cases anyway
+# so CI on ubuntu keeps enforcing them.
+touch "$work/probe-target"
+ln -s "$work/probe-target" "$work/probe-link" 2>/dev/null
+if [ ! -L "$work/probe-link" ] && [ -z "${CI:-}" ]; then
+    echo "SKIP: ln -s does not make symlinks on this host, install links not checked (CI runs these checks)"
+    exit 0
+fi
+rm -f "$work/probe-target" "$work/probe-link"
+
 # new_case NAME: fresh fake repo and home for one case. Sets repo, dest, home.
 new_case() {
     home="$work/$1/home"

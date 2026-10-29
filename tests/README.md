@@ -80,6 +80,10 @@ host, root or network:
 - `test_install_links.sh`: `install.sh` links the launchers, so a pull
   updates them.
 - `test_run_all.sh`: `run-all.sh` itself, and that every check below calls it.
+- `test_harness_skips.sh`: on a host with no `visudo` or where `ln -s`
+  copies (Git for Windows), the two harnesses that need them print a `SKIP`
+  line and exit 0, so the pre-commit hook does not block commits. With `CI`
+  set they still fail.
 
 `tests/shell/run-all.sh` runs them all and exits non-zero if any fails. CI,
 the pre-commit hook and AGENTS.md all call it, so a new `test_*.sh` runs
