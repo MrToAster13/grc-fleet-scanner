@@ -59,7 +59,7 @@ a clean result; see the status table in §6.
 The quick path puts the single-word commands on your PATH and bootstraps everything:
 ```bash
 cd grc-fleet-scanner
-./install.sh        # copies grc-* into ~/.local/bin (no root); offers to fix PATH
+./install.sh        # symlinks grc-* into ~/.local/bin (no root); offers to fix PATH
 grc-setup           # builds .venv + deps and installs nmap on this host
 grc-demo            # offline sanity check: renders a sample report
 ```
@@ -122,8 +122,14 @@ Run 20260627T161000Z-3f9a1c complete.   # sortable UTC stamp + short random suff
 
 **List prior runs:**
 ```bash
-python -m grc_auditor history -o ./grc-output
+grc-history                             # or: python -m grc_auditor history
 ```
+`grc-history` and `grc-report` look for runs in the same place `grc-run` writes them: the
+`output_dir` of `./config.yaml` when that file exists, else `./grc-output`. Pass `-c FILE` to
+read another config (from cron or another directory, for example), or `-o DIR` to name the
+directory outright; `-o` wins over the config. A relative `output_dir` resolves against the
+directory you run the command from, as it does for `grc-run`. Neither command creates
+anything when there is no history yet.
 
 ### CLI flags (override config per-run)
 | Flag | Effect |

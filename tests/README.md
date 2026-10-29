@@ -64,17 +64,35 @@ parser returns `score=None` without erroring.
 
 ## Shell tests
 
-`grc-target-setup` is bash, not Python, and runs installer steps (apt,
-sudoers, real root paths) on a target host this suite has no seam or target
-to exercise. `tests/shell/test_target_setup_integrity.sh` covers the pure
-functions it exposes, in isolation: `verify_sha512sum()` (matching digest,
-tampered content, and an empty or missing checksum file all resolve
-correctly) and `validate_pubkey()` (a well-formed key passes; an
-unrecognized key type, non-base64 key data, and a plain path string
-mistakenly passed as `--pubkey` all die with a clear message instead of
-landing in `authorized_keys` unchecked). Run it directly, it is not part of
-`python -m pytest`:
+The launchers, `install.sh` and `grc-target-setup` are bash, not Python.
+Each `tests/shell/test_*.sh` harness covers one of them without a target
+host, root or network:
+
+- `test_target_setup_integrity.sh`: the pure functions `grc-target-setup`
+  exposes, in isolation. `verify_sha512sum()` (matching digest, tampered
+  content, and an empty or missing checksum file all resolve correctly),
+  `validate_pubkey()` (a well-formed key passes; an unrecognized key type,
+  non-base64 key data, and a plain path string mistakenly passed as
+  `--pubkey` all die with a clear message), and the scan account's sudoers
+  rule (`visudo -c`) and restricted `authorized_keys` line.
+- `test_grc_common_venv.sh`: the launchers' virtualenv bootstrap.
+- `test_grc_report.sh`: which run `grc-report` opens, and where it looks.
+- `test_install_links.sh`: `install.sh` links the launchers, so a pull
+  updates them.
+- `test_run_all.sh`: `run-all.sh` itself, and that every check below calls it.
+- `test_harness_skips.sh`: on a host with no `visudo` or where `ln -s`
+  copies (Git for Windows), the two harnesses that need them print a `SKIP`
+  line and exit 0, so the pre-commit hook does not block commits. With `CI`
+  set they still fail.
+
+`tests/shell/run-all.sh` runs them all and exits non-zero if any fails. CI,
+the pre-commit hook and AGENTS.md all call it, so a new `test_*.sh` runs
+everywhere with no other change. It is not part of `python -m pytest`:
 
 ```bash
-bash tests/shell/test_target_setup_integrity.sh
+bash tests/shell/run-all.sh
 ```
+
+`tests/test_target_setup_sudoers.py` is the pytest side of the sudoers check:
+it runs the scanner's real sudo calls against the rule `grc-target-setup`
+writes.
