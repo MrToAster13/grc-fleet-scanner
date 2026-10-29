@@ -11,6 +11,11 @@ release, everything lives under **Unreleased**.
   place. It now symlinks them, replaces copies left by an older install, and removes links
   whose launcher is gone from the repo. Re-run `install.sh` once to switch an existing
   install to links (ELI-716).
+- **`grc-history` and `grc-report` read the configured `output_dir`.** Both looked only
+  in `./grc-output`, so a config with another `output_dir`, or a call from cron in another
+  directory, reported no runs. Each now takes `-c CONFIG`, reads `./config.yaml` when it
+  exists, and keeps `-o` as the override. `history` opens `history.db` read-only and no
+  longer creates an empty `grc-output/history.db` where none existed (ELI-717).
 - **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
   checked only port 22, so a host whose sshd listens on the group's port was marked
   `unreachable` before any connect. Triage now gates only groups on port 22. For any other

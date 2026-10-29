@@ -1,18 +1,58 @@
 #!/usr/bin/env bash
-# grc-report: open the latest run's HTML report. Looks under ./grc-output by
-# default (override with -o <dir>). Opens in a browser when there's a display;
+# grc-report: open the latest run's HTML report. Looks under the output_dir of
+# ./config.yaml (or -c <file>), else ./grc-output; -o <dir> overrides both
+# (ELI-717). Opens in a browser when there's a display;
 # prints the path when headless (e.g. over SSH) so you can copy it out.
 here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 . "$here/_grc-common.sh"   # only for grc_die; no venv/env needed to read a report
 
-out="./grc-output"
+usage="usage: grc-report [-c CONFIG] [-o OUTPUT_DIR]"
+out=""
+config=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -o|--output) out="${2:?-o needs a directory}"; shift 2 ;;
-        -h|--help)   echo "usage: grc-report [-o OUTPUT_DIR]"; exit 0 ;;
-        *)           grc_die "unknown argument: $1 (usage: grc-report [-o OUTPUT_DIR])" ;;
+        -c|--config) config="${2:?-c needs a config file}"; shift 2 ;;
+        -h|--help)   echo "$usage"; exit 0 ;;
+        *)           grc_die "unknown argument: $1 ($usage)" ;;
     esac
 done
+
+# config_output_dir FILE: print the top-level output_dir value from a YAML
+# config, or nothing when the key is absent. This reads one plain or quoted
+# scalar on a single line, which is how config.example.yaml writes it, so it
+# needs no Python. Anything fancier fails with a pointer to -o.
+config_output_dir() {
+    local line val
+    line="$(grep -m1 -E '^output_dir[[:space:]]*:' "$1" || true)"
+    [ -n "$line" ] || return 0
+    val="${line#*:}"
+    val="${val#"${val%%[![:space:]]*}"}"          # strip leading space
+    case "$val" in
+        \"*) val="${val#\"}"; val="${val%%\"*}" ;;
+        \'*) val="${val#\'}"; val="${val%%\'*}" ;;
+        *)   val="${val%%[[:space:]]#*}"           # drop a trailing comment
+             val="${val%"${val##*[![:space:]]}"}" ;;  # strip trailing space
+    esac
+    case "$val" in
+        ""|[\[\{\&\*\|\>!%@\`]*)
+            grc_die "could not read output_dir from $1 -- pass -o <dir> instead." ;;
+    esac
+    printf '%s\n' "$val"
+}
+
+# Same order as grc-history: -o, else the config's output_dir (-c, or
+# ./config.yaml when it exists), else ./grc-output. A relative output_dir
+# resolves against this directory, as it does for grc-run.
+if [ -z "$out" ]; then
+    if [ -n "$config" ]; then
+        [ -f "$config" ] || grc_die "config file not found: $config"
+        out="$(config_output_dir "$config")" || exit 1
+    elif [ -f ./config.yaml ]; then
+        out="$(config_output_dir ./config.yaml)" || exit 1
+    fi
+    out="${out:-./grc-output}"
+fi
 
 # Run ids are sortable timestamps, so the lexically-last dir is the newest run.
 # A failed run leaves its dir behind without a report.html, so walk newest

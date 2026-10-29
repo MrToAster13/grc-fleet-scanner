@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import urllib.parse
 from dataclasses import dataclass
 from typing import Optional
 
@@ -121,6 +122,23 @@ class Store:
         for col, decl in self._RUN_COLUMNS_ADDED.items():
             if col not in existing_run_cols:
                 self._conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {decl}")
+
+    @classmethod
+    def open_existing(cls, output_dir: str) -> Optional["Store"]:
+        """Open output_dir's history.db read-only, or return None when it has
+        none. Creates no directory, database or runs/ dir, so a read-only
+        command run in the wrong place leaves nothing behind (ELI-717)."""
+        db_path = os.path.join(output_dir, "history.db")
+        if not os.path.isfile(db_path):
+            return None
+        store = cls.__new__(cls)
+        store.output_dir = output_dir
+        store.db_path = db_path
+        store.artifacts_root = os.path.join(output_dir, "runs")
+        uri = "file:" + urllib.parse.quote(os.path.abspath(db_path)) + "?mode=ro"
+        store._conn = sqlite3.connect(uri, uri=True)
+        store._conn.row_factory = sqlite3.Row
+        return store
 
     def close(self):
         self._conn.close()

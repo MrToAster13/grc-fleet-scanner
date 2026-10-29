@@ -61,11 +61,16 @@ class ScanScope:
     host_timeout_seconds: int = 600
 
 
+# Where history.db and runs/ live when neither the config nor -o names a
+# directory. Relative, so it resolves against the caller's working directory.
+DEFAULT_OUTPUT_DIR = "./grc-output"
+
+
 @dataclass
 class Config:
     scope: ScanScope
     credential_groups: list[CredentialGroup]
-    output_dir: str = "./grc-output"
+    output_dir: str = DEFAULT_OUTPUT_DIR
     known_hosts: Optional[str] = None        # path; None -> system + ~/.ssh/known_hosts
     cis_level: int = 1                        # global default (per spec)
     ssg_dir: str = "/usr/share/xml/scap/ssg/content"
@@ -466,7 +471,7 @@ def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
     return Config(
         scope=scope,
         credential_groups=credential_groups,
-        output_dir=_as_str(doc.get("output_dir", "./grc-output"), "output_dir"),
+        output_dir=_as_str(doc.get("output_dir", DEFAULT_OUTPUT_DIR), "output_dir"),
         known_hosts=_as_str(doc.get("known_hosts"), "known_hosts", optional=True),
         cis_level=level,
         ssg_dir=_as_str(doc.get("ssg_dir", "/usr/share/xml/scap/ssg/content"),
@@ -480,6 +485,25 @@ def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
         os_detect=_as_bool(doc.get("os_detect", False), "os_detect"),
         raw=doc,
     )
+
+
+def read_output_dir(path: str) -> str:
+    """Return the output_dir a config file names, or the default ./grc-output.
+
+    For read-only commands such as `history`, which need where the runs are
+    and nothing else. It skips the scope and credential checks that
+    load_config enforces, so a config that `run` would refuse still tells
+    `history` where the earlier runs went."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = yaml.safe_load(fh) or {}
+    except FileNotFoundError as exc:
+        raise ConfigError(f"Config file not found: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ConfigError("Top-level config must be a mapping")
+    return _as_str(doc.get("output_dir", DEFAULT_OUTPUT_DIR), "output_dir")
 
 
 def apply_overrides(cfg: Config, *, cidrs=None, exclude=None, output_dir=None,
