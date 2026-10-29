@@ -6,6 +6,11 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Fixed
+- **`git pull` now updates installed launchers.** `install.sh` copied `bin/*` into
+  `~/.local/bin`, so a pull updated the Python package but left the old launcher logic in
+  place. It now symlinks them, replaces copies left by an older install, and removes links
+  whose launcher is gone from the repo. Re-run `install.sh` once to switch an existing
+  install to links (ELI-716).
 - **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
   checked only port 22, so a host whose sshd listens on the group's port was marked
   `unreachable` before any connect. Triage now gates only groups on port 22. For any other

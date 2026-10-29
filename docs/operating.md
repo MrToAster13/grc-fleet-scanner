@@ -59,7 +59,7 @@ a clean result; see the status table in §6.
 The quick path puts the single-word commands on your PATH and bootstraps everything:
 ```bash
 cd grc-fleet-scanner
-./install.sh        # copies grc-* into ~/.local/bin (no root); offers to fix PATH
+./install.sh        # symlinks grc-* into ~/.local/bin (no root); offers to fix PATH
 grc-setup           # builds .venv + deps and installs nmap on this host
 grc-demo            # offline sanity check: renders a sample report
 ```

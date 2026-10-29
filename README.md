@@ -75,8 +75,11 @@ If you accept `install.sh`'s offer to add `~/.local/bin` to your PATH, run the `
 it prints before `grc-setup`: the PATH change is not live in the current shell until then. A
 new shell picks it up on its own.
 
-`install.sh` copies the single-word launchers into `~/.local/bin` and records where the repo
-lives (it offers to add `~/.local/bin` to your PATH if it isn't already). `grc-setup` then
+`install.sh` symlinks the single-word launchers into `~/.local/bin` and records where the repo
+lives (it offers to add `~/.local/bin` to your PATH if it isn't already). Because they are
+links, a `git pull` that changes a launcher takes effect with no reinstall. Re-run `install.sh`
+after a pull that adds a new command, or after you move the repo. An install made before
+this change holds copies, so re-run `install.sh` once to switch it to links. `grc-setup` then
 builds the `.venv`, installs the Python dependencies, and makes sure `nmap` is present:
 auto-installing it through your package manager (apt/dnf/pacman/zypper/brew) and asking for
 `sudo` only when it has to. Sanity-check it offline:
