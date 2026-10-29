@@ -5,6 +5,16 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Security
+- **The scan account no longer gets passwordless root for every command.**
+  `grc-target-setup --scan-user` wrote `NOPASSWD:ALL`, so anyone holding the run-host key had
+  root on every audited host. The drop-in now allows only the scanner's three sudo commands
+  with their exact arguments: the `true` probe, `oscap xccdf eval` into its mktemp dir for CIS
+  level 1 or 2, and `rm -rf` of that dir. The authorized key line now carries
+  `from="<run host>",restrict`, and `--pubkey` requires the new `--from` option. A re-run
+  replaces an older drop-in and an older unrestricted key line. docs/validation.md shows the
+  narrowed rule and a passphrase-protected, agent-held key (ELI-718).
+
 ### Fixed
 - **`git pull` now updates installed launchers.** `install.sh` copied `bin/*` into
   `~/.local/bin`, so a pull updated the Python package but left the old launcher logic in

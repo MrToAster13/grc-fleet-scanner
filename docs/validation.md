@@ -55,8 +55,9 @@ python smoketest.py     # renders a sample report
 > pass. Copy it to the target and run it there; the run host never modifies a target:
 > ```bash
 > scp grc-target-setup <user>@<VM_IP>:/tmp/
-> ssh <user>@<VM_IP> 'sudo bash /tmp/grc-target-setup --scan-user grc-scan --pubkey "$(cat ~/.ssh/grc_scan_ed25519.pub)"'
+> ssh <user>@<VM_IP> "sudo bash /tmp/grc-target-setup --scan-user grc-scan --pubkey '$(cat ~/.ssh/grc_scan_ed25519.pub)' --from <RUN_HOST_IP>"
 > ```
+> `--from` is required with `--pubkey`: the key then works only from the run host.
 > (`grc-provision` on the run host prints these commands and can pipe the script over SSH.)
 > The manual steps below are the same actions spelled out: do them by hand, or read them to
 > understand exactly what the script does before you trust it.
@@ -98,26 +99,55 @@ ls /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml   # match your release:
 > set `ssg_dir` in the config. (An older `oscap`, e.g. 1.2.x from `libopenscap8`, can still
 > evaluate a current datastream; if it can't, the tool reports `scan_error`, not a false pass.)
 
-### 1.2 Create the scan account (passwordless sudo: CIS reads root-only files)
+### 1.2 Create the scan account (sudo for the scanner's commands only)
+
+CIS checks read root-only files, so the scan account needs passwordless sudo. It needs it
+for three commands and nothing else: a `true` probe, `oscap xccdf eval` into the scanner's
+own `/tmp/grc_audit.XXXXXX` dir, and `rm -rf` of that dir. Do not grant `NOPASSWD:ALL`:
+anyone who gets the scan key would then have root on every audited host.
 
 ```bash
 sudo adduser --disabled-password --gecos "" grc-scan    # --gecos "" skips the Full Name prompts
-echo 'grc-scan ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/grc-scan
-sudo chmod 440 /etc/sudoers.d/grc-scan
+# Generate the rule from the script, so it names this host's binaries and datastream:
+GRC_TARGET_SETUP_TEST=1 bash -c 'source ./grc-target-setup; scan_sudoers grc-scan \
+    "$(type -P true)" "$(type -P oscap)" "$(type -P rm)" \
+    /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml' 2>/dev/null > /tmp/grc-scan.sudoers
+sudo visudo -cf /tmp/grc-scan.sudoers                    # must say "parsed OK"
+sudo install -m 440 -o root -g root /tmp/grc-scan.sudoers /etc/sudoers.d/grc-scan
 ```
+The rule looks like this. `C` stands for `[A-Za-z0-9]`, one per mktemp character, and the
+`oscap` entry repeats for CIS level 2 and for `--fetch-remote-resources`:
+```
+grc-scan ALL=(root) NOPASSWD: /usr/bin/true "", \
+    /usr/bin/oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
+      --results /tmp/grc_audit.CCCCCC/results.xml --results-arf /tmp/grc_audit.CCCCCC/arf.xml \
+      --report /tmp/grc_audit.CCCCCC/report.html /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml, \
+    ... \
+    /usr/bin/rm -rf /tmp/grc_audit.CCCCCC
+```
+The rule has no `*` or `?`, because a sudoers wildcard also matches spaces and so would let
+a caller add arguments. The datastream path must match the scanner's `ssg_dir`.
 
 ### 1.3 Authorize the run host's key
 
-On the **run host**, generate a key and print its public half:
+On the **run host**, generate a key with a passphrase and load it into ssh-agent, so a
+copied key file alone does not log in:
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/grc_scan_ed25519 -N ''   # no passphrase
+ssh-keygen -t ed25519 -f ~/.ssh/grc_scan_ed25519        # set a passphrase when asked
+ssh-add ~/.ssh/grc_scan_ed25519                          # use_agent: true picks it up
 cat ~/.ssh/grc_scan_ed25519.pub                          # copy this whole line
 ```
+With the key in the agent, the scanner authenticates through `use_agent: true`; you can
+drop `key_path` from the credential group. For cron or systemd runs, load the key into an
+agent the job can reach, or keep it on a hardware token, so the private key is never stored
+unencrypted.
 
-On the **Ubuntu target**, write that line into `grc-scan`'s `authorized_keys`:
+On the **Ubuntu target**, write that line into `grc-scan`'s `authorized_keys`, prefixed with
+`from="<run host>"` so it works only from the run host, and `restrict`, which turns off
+forwarding, PTYs and `~/.ssh/rc`. The scanner needs none of them:
 ```bash
 sudo mkdir -p /home/grc-scan/.ssh
-echo 'ssh-ed25519 AAAA...your-key... root@runhost' | sudo tee /home/grc-scan/.ssh/authorized_keys
+echo 'from="10.0.10.5",restrict ssh-ed25519 AAAA...your-key... root@runhost' | sudo tee /home/grc-scan/.ssh/authorized_keys
 sudo chown -R grc-scan:grc-scan /home/grc-scan/.ssh
 sudo chmod 700 /home/grc-scan/.ssh
 sudo chmod 600 /home/grc-scan/.ssh/authorized_keys
