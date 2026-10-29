@@ -174,13 +174,19 @@ out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
 status=$?
 check "scan_sudoers writes a rule" 0 "$status" "$out" "NOPASSWD:"
 printf '%s\n' "$out" > "$work/grc-scan.sudoers"
-VISUDO="$(command -v visudo || echo /usr/sbin/visudo)"
+# GRC_VISUDO overrides the lookup (test_harness_skips.sh uses it). A missing
+# visudo is a SKIP on a dev host, since Git for Windows ships none and the
+# pre-commit hook runs this file. When CI is set it is a FAIL, so CI on ubuntu
+# keeps enforcing the check.
+VISUDO="${GRC_VISUDO:-$(command -v visudo || echo /usr/sbin/visudo)}"
 if [ -x "$VISUDO" ]; then
     vout="$("$VISUDO" -cf "$work/grc-scan.sudoers" 2>&1)"
     check "visudo -c accepts the generated rule" 0 "$?" "$vout" "parsed OK"
-else
+elif [ -n "${CI:-}" ]; then
     echo "FAIL: visudo not found, cannot check the generated rule"
     fail=$((fail + 1))
+else
+    echo "SKIP: visudo not found, the generated rule was not checked (CI runs this check)"
 fi
 
 # 13. the drop-in grants no blanket command.
