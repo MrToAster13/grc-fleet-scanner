@@ -33,9 +33,11 @@ the Ubuntu target instead. Two ways:
   grc-provision --print | ssh <user>@<target> 'sudo bash -s -- --scan-user grc-scan'
 
 What it does on the target: installs oscap + the matching SCAP Security Guide
-datastream for that Ubuntu release, and (with --scan-user NAME) creates a
-passwordless-sudo scan account. Add --pubkey 'ssh-ed25519 AAAA... you' to
-authorize your run-host key in one shot. Idempotent; verifies at the end.
+datastream for that Ubuntu release, and (with --scan-user NAME) creates a scan
+account with passwordless sudo for the scanner's commands only. Add
+--pubkey 'ssh-ed25519 AAAA... you' --from <run host IP> to authorize your
+run-host key in one shot; the key then works only from that address.
+Idempotent; verifies at the end.
 
 Full walkthrough (host-key pinning, pre-flight AUTH_OK check): docs/validation.md.
 Print the script:  grc-provision --print

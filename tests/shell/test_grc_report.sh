@@ -113,6 +113,69 @@ check "AC2: stderr is exactly one line" \
     $([ "$(wc -l < "$work/stderr")" -eq 1 ] && echo yes || echo no) \
     "stderr '$se_out'"
 
+# --- ELI-717: output_dir from the config file -------------------------------- #
+# run_grc_report_in CWD [ARGS...]: runs grc-report from CWD with the given
+# arguments and no -o of its own. Sets rc, so_out and se_out.
+run_grc_report_in() {
+    local cwd="$1"; shift
+    (cd "$cwd" && env -u DISPLAY -u WAYLAND_DISPLAY PATH="$work/stubs:$PATH" \
+        bash "$SCRIPT" "$@" >"$work/stdout" 2>"$work/stderr")
+    rc=$?
+    so_out="$(cat "$work/stdout")"
+    se_out="$(cat "$work/stderr")"
+}
+
+cfgd="$work/cfgd"
+mkdir -p "$cfgd/cwd" "$cfgd/audits/runs/20260101T000000Z-aaaaaa" "$cfgd/etc"
+: > "$cfgd/audits/runs/20260101T000000Z-aaaaaa/report.html"
+want_cfg="$cfgd/audits/runs/20260101T000000Z-aaaaaa/report.html"
+cat > "$cfgd/etc/config.yaml" <<EOF
+scope:
+  cidrs: ["10.0.10.0/24"]
+output_dir: "$cfgd/audits"   # history.db + per-run reports
+EOF
+
+run_grc_report_in "$cfgd/cwd" -c "$cfgd/etc/config.yaml"
+check "ELI-717: -c CONFIG reads output_dir from the config" \
+    $([ "$rc" -eq 0 ] && [ "$so_out" = "$want_cfg" ] && echo yes || echo no) \
+    "exit $rc, stdout '$so_out', stderr '$se_out', wanted '$want_cfg'"
+
+cp "$cfgd/etc/config.yaml" "$cfgd/cwd/config.yaml"
+run_grc_report_in "$cfgd/cwd"
+check "ELI-717: ./config.yaml is read when no -c or -o is given" \
+    $([ "$rc" -eq 0 ] && [ "$so_out" = "$want_cfg" ] && echo yes || echo no) \
+    "exit $rc, stdout '$so_out', stderr '$se_out', wanted '$want_cfg'"
+
+run_grc_report_in "$cfgd/cwd" -o "$both"
+check "ELI-717: -o wins over the config's output_dir" \
+    $([ "$rc" -eq 0 ] && [ "$so_out" = "$want_newest" ] && echo yes || echo no) \
+    "exit $rc, stdout '$so_out', wanted '$want_newest'"
+
+# Single quotes, no comment, relative path: resolves against the caller's CWD
+# the same way grc-run does.
+mkdir -p "$cfgd/rel/out/runs/20260101T000000Z-aaaaaa"
+: > "$cfgd/rel/out/runs/20260101T000000Z-aaaaaa/report.html"
+printf "scope:\n  cidrs: ['10.0.10.0/24']\noutput_dir: './out'\n" > "$cfgd/rel/config.yaml"
+run_grc_report_in "$cfgd/rel"
+check "ELI-717: a single-quoted relative output_dir resolves from the CWD" \
+    $([ "$rc" -eq 0 ] && [ "$so_out" = "./out/runs/20260101T000000Z-aaaaaa/report.html" ] && echo yes || echo no) \
+    "exit $rc, stdout '$so_out', stderr '$se_out'"
+
+# A config with no output_dir falls back to ./grc-output.
+mkdir -p "$cfgd/noout/grc-output/runs/20260101T000000Z-aaaaaa"
+: > "$cfgd/noout/grc-output/runs/20260101T000000Z-aaaaaa/report.html"
+printf 'scope:\n  cidrs: ["10.0.10.0/24"]\n' > "$cfgd/noout/config.yaml"
+run_grc_report_in "$cfgd/noout"
+check "ELI-717: a config without output_dir falls back to ./grc-output" \
+    $([ "$rc" -eq 0 ] && [ "$so_out" = "./grc-output/runs/20260101T000000Z-aaaaaa/report.html" ] && echo yes || echo no) \
+    "exit $rc, stdout '$so_out', stderr '$se_out'"
+
+# An explicit -c that does not exist is an error, not a silent fallback.
+run_grc_report_in "$cfgd/cwd" -c "$cfgd/etc/missing.yaml"
+check "ELI-717: a missing -c file exits 1 and names the file" \
+    $([ "$rc" -eq 1 ] && printf '%s' "$se_out" | grep -qF "missing.yaml" && echo yes || echo no) \
+    "exit $rc, stderr '$se_out'"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

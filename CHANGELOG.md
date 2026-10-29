@@ -5,7 +5,31 @@ release, everything lives under **Unreleased**.
 
 ## [Unreleased]
 
+### Security
+- **The scan account no longer gets passwordless root for every command.**
+  `grc-target-setup --scan-user` wrote `NOPASSWD:ALL`, so anyone holding the run-host key had
+  root on every audited host. The drop-in now allows only the scanner's sudo commands with
+  their exact arguments: the `true` probe, `mktemp -d /var/lib/grc_audit.XXXXXX`, `chgrp`
+  of that dir to the scan account's group and `chmod 0750`, `oscap xccdf eval` into it for CIS level 1 or 2, and `rm -rf` of it. The
+  scanner now has root create its oscap output dir in `/var/lib` instead of making it as the
+  scan account under `/tmp`, so the account cannot plant a symlink there for a root oscap
+  write to follow, and other local users cannot read the results. `--ssg-dir` with a trailing slash now names the same datastream path the
+  scanner sends. The authorized key line now carries
+  `from="<run host>",restrict`, and `--pubkey` requires the new `--from` option. A re-run
+  replaces an older drop-in and an older unrestricted key line. docs/validation.md shows the
+  narrowed rule and a passphrase-protected, agent-held key (ELI-718).
+
 ### Fixed
+- **`git pull` now updates installed launchers.** `install.sh` copied `bin/*` into
+  `~/.local/bin`, so a pull updated the Python package but left the old launcher logic in
+  place. It now symlinks them, replaces copies left by an older install, and removes links
+  whose launcher is gone from the repo. Re-run `install.sh` once to switch an existing
+  install to links (ELI-716).
+- **`grc-history` and `grc-report` read the configured `output_dir`.** Both looked only
+  in `./grc-output`, so a config with another `output_dir`, or a call from cron in another
+  directory, reported no runs. Each now takes `-c CONFIG`, reads `./config.yaml` when it
+  exists, and keeps `-o` as the override. `history` opens `history.db` read-only and no
+  longer creates an empty `grc-output/history.db` where none existed (ELI-717).
 - **A credential group's `ssh_port` no longer gets its hosts gated as unreachable.** Triage
   checked only port 22, so a host whose sshd listens on the group's port was marked
   `unreachable` before any connect. Triage now gates only groups on port 22. For any other
@@ -17,6 +41,12 @@ release, everything lives under **Unreleased**.
   belongs in `scope.nmap_extra_args` (for example `["-p22,2222"]`) (ELI-640).
 
 ### Changed
+- **One entry point for the shell harnesses.** `tests/shell/run-all.sh` runs every
+  `tests/shell/test_*.sh` and fails if any fails or none exist. CI, the pre-commit hook,
+  AGENTS.md and tests/README.md all call it; before this, AGENTS.md and tests/README.md
+  named one harness of the three CI ran, and the hook ran only pytest. The README and
+  design doc no longer quote a hand-kept test count, and the README states Python 3.10+
+  like the other docs (ELI-719).
 - **Comparable-run history moved into `history.py`.** The rules for which prior runs drift
   and the trend line may compare against (finished, not a dry run, same `config_hash`) now
   live in one module, `history.RunHistory`, instead of two SQL queries in `store.py`.

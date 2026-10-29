@@ -159,6 +159,107 @@ else
     fail=$((fail + 1))
 fi
 
+# --- ELI-718: least-privilege sudoers rule and restricted key line ---------- #
+# tests/test_target_setup_sudoers.py checks that the rule covers every command
+# the scanner runs under sudo and nothing else. These cases check the syntax
+# with visudo and the key line options.
+KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJcTiTVdbLQxAaeWv5A6zBhV6h/nMGa+7T39V6EE0Bta scan@runhost'
+DS=/usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
+
+# 12. the generated drop-in passes visudo -c.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    scan_sudoers grc-scan grc-scan /usr/bin/true /usr/bin/mktemp /usr/bin/chgrp /usr/bin/chmod /usr/bin/oscap /usr/bin/rm "$2"
+' _ "$SCRIPT" "$DS" 2>/dev/null)"
+status=$?
+check "scan_sudoers writes a rule" 0 "$status" "$out" "NOPASSWD:"
+printf '%s\n' "$out" > "$work/grc-scan.sudoers"
+# GRC_VISUDO overrides the lookup (test_harness_skips.sh uses it). A missing
+# visudo is a SKIP on a dev host, since Git for Windows ships none and the
+# pre-commit hook runs this file. When CI is set it is a FAIL, so CI on ubuntu
+# keeps enforcing the check.
+VISUDO="${GRC_VISUDO:-$(command -v visudo || echo /usr/sbin/visudo)}"
+if [ -x "$VISUDO" ]; then
+    vout="$("$VISUDO" -cf "$work/grc-scan.sudoers" 2>&1)"
+    check "visudo -c accepts the generated rule" 0 "$?" "$vout" "parsed OK"
+elif [ -n "${CI:-}" ]; then
+    echo "FAIL: visudo not found, cannot check the generated rule"
+    fail=$((fail + 1))
+else
+    echo "SKIP: visudo not found, the generated rule was not checked (CI runs this check)"
+fi
+
+# 13. the drop-in grants no blanket command.
+if printf '%s' "$out" | grep -qE 'NOPASSWD: *ALL|\(ALL\)'; then
+    echo "FAIL: scan_sudoers still grants ALL"
+    echo "  output: $out"
+    fail=$((fail + 1))
+else
+    echo "PASS: scan_sudoers grants no ALL command or runas"
+    pass=$((pass + 1))
+fi
+
+# 14. the authorized_keys line carries from= and restrict.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    authorized_key_line "$2" "$3"
+' _ "$SCRIPT" "10.0.10.5" "$KEY" 2>/dev/null)"
+status=$?
+check "authorized_key_line prefixes from= and restrict" 0 "$status" "$out" \
+    "from=\"10.0.10.5\",restrict $KEY"
+
+# 15. a --from value that could break out of the quoted option dies.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_from "$2"
+' _ "$SCRIPT" '10.0.10.5",command="sh' 2>&1)"
+status=$?
+check "validate_from rejects a quote" 1 "$status" "$out" "cannot hold"
+
+# 16. an empty --from dies.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_from ""
+' _ "$SCRIPT" 2>&1)"
+status=$?
+check "validate_from rejects an empty value" 1 "$status" "$out" "needs the run host"
+
+# 17. a host list and a CIDR pass.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    validate_from "10.0.10.5,10.0.20.0/24,runhost.lab"
+' _ "$SCRIPT" 2>&1)"
+status=$?
+check "validate_from accepts hosts and a CIDR" 0 "$status" "$out"
+
+# 18. a key given without --from dies before anything is written.
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    require_from_for_key "$2" "" ""
+' _ "$SCRIPT" "$KEY" 2>&1)"
+status=$?
+check "a --pubkey without --from dies" 1 "$status" "$out" "needs --from"
+
+# 19. upsert_key_line replaces an older line for the same key (an unrestricted
+#     line from an earlier setup) and keeps other keys.
+printf '%s\n%s\n' "$KEY" 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyOtherKeyOtherKeyOtherKey other@host' \
+    > "$work/authorized_keys"
+out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
+    source "$1"
+    upsert_key_line "$2" "$(authorized_key_line 10.0.10.5 "$2")" < "$3"
+' _ "$SCRIPT" "$KEY" "$work/authorized_keys" 2>/dev/null)"
+status=$?
+want="$(printf '%s\n%s' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyOtherKeyOtherKeyOtherKey other@host' "from=\"10.0.10.5\",restrict $KEY")"
+if [ "$status" -eq 0 ] && [ "$out" = "$want" ]; then
+    echo "PASS: upsert_key_line replaces the old line for the same key and keeps others"
+    pass=$((pass + 1))
+else
+    echo "FAIL: upsert_key_line output wrong (exit $status)"
+    echo "  output: $out"
+    echo "  wanted: $want"
+    fail=$((fail + 1))
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

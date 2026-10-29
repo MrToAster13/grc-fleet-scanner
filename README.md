@@ -13,7 +13,7 @@ audit-defensible.
 > without an explicit scope and logs every action, but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (198-test suite), and validated end-to-end
+> ℹ️ **Status:** functional, tested offline (pytest suite plus shell harnesses), and validated end-to-end
 > against a real cloud Ubuntu 22.04 host: the happy path (a full CIS scan producing a real
 > score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, ...).
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
@@ -49,8 +49,8 @@ only reflects the checks that actually ran is flagged **low confidence**.
 
 ## Requirements
 
-**Run host** (where you run the tool): **Linux** (Debian/Ubuntu/Kali/WSL2), **Python 3.8+**
-(3.10+ recommended), `git`, and SSH access to the targets. `nmap` is installed for you by
+**Run host** (where you run the tool): **Linux** (Debian/Ubuntu/Kali/WSL2), **Python 3.10+**,
+`git`, and SSH access to the targets. `nmap` is installed for you by
 `grc-setup` (or on demand at the start of the first run).
 
 **Target hosts** (to be deep-scanned): **Ubuntu** (18.04/20.04/22.04/24.04) with `oscap` +
@@ -75,8 +75,11 @@ If you accept `install.sh`'s offer to add `~/.local/bin` to your PATH, run the `
 it prints before `grc-setup`: the PATH change is not live in the current shell until then. A
 new shell picks it up on its own.
 
-`install.sh` copies the single-word launchers into `~/.local/bin` and records where the repo
-lives (it offers to add `~/.local/bin` to your PATH if it isn't already). `grc-setup` then
+`install.sh` symlinks the single-word launchers into `~/.local/bin` and records where the repo
+lives (it offers to add `~/.local/bin` to your PATH if it isn't already). Because they are
+links, a `git pull` that changes a launcher takes effect with no reinstall. Re-run `install.sh`
+after a pull that adds a new command, or after you move the repo. An install made before
+this change holds copies, so re-run `install.sh` once to switch it to links. `grc-setup` then
 builds the `.venv`, installs the Python dependencies, and makes sure `nmap` is present:
 auto-installing it through your package manager (apt/dnf/pacman/zypper/brew) and asking for
 `sudo` only when it has to. Sanity-check it offline:
@@ -92,7 +95,7 @@ sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
 git clone https://github.com/MrToAster13/grc-fleet-scanner.git && cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest        # expect: 198 passed
+python -m pytest        # expect: all passed, 0 failed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
 
@@ -159,7 +162,7 @@ Released under the [MIT License](LICENSE).
 
 ## Contributing
 
-Issues and PRs welcome. Run `python -m pytest` (198 tests) before submitting; keep the
+Issues and PRs welcome. Run `python -m pytest` and `bash tests/shell/run-all.sh` before submitting; keep the
 offline `python smoketest.py` working.
 
 A pre-commit hook runs the suite for you and blocks a commit if it fails. Enable it once

@@ -62,10 +62,21 @@ _MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
 # scores ~86 vs a flat ~60), so only an opposite-story gap this large is a signal.
 _SCORE_RECONCILE_TOLERANCE = 40.0
 
-# The only shape we accept back from the target's `mktemp -d /tmp/grc_audit.XXXXXX`.
-# Anything else (a crafted path with shell metacharacters from a hostile host) is
-# refused before it can be interpolated into a sudo command. See scan_host.
-_SAFE_REMOTE_DIR = re.compile(r"^/tmp/grc_audit\.[A-Za-z0-9]{6,}$")
+# The remote dir oscap writes into. Root creates it (mktemp under sudo) inside
+# /var/lib, where only root can add entries, so the scan account can never own
+# it or plant a symlink in it for a root oscap write to follow. A dir under /tmp
+# would let anyone holding the scan key overwrite any file as root.
+# grc-target-setup's sudoers rule names these exact commands.
+REMOTE_TMP_TEMPLATE = "/var/lib/grc_audit.XXXXXX"
+
+# The only shape we accept back from that mktemp. Anything else (a crafted path
+# with shell metacharacters from a hostile host) is refused before it can be
+# interpolated into a sudo command. See scan_host.
+_SAFE_REMOTE_DIR = re.compile(r"^/var/lib/grc_audit\.[A-Za-z0-9]{6}$")
+
+# A group name safe to pass to a root chgrp, matching what grc-target-setup
+# accepts for the sudoers rule. \Z, not $, so a trailing newline is refused.
+_SAFE_GROUP = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._-]{0,31}\Z")
 
 
 # Cap on any single target-supplied string (rule id / title / severity) before it
@@ -128,7 +139,8 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
     Raises ScanFailed on a known failure. Never writes host.status or
     host.detail; ``assess.scan_verdict`` decides whether the result certifies.
     """
-    mk = conn.run("mktemp -d /tmp/grc_audit.XXXXXX", timeout=30)
+    mk = conn.run_argv(["mktemp", "-d", REMOTE_TMP_TEMPLATE], sudo=plan.sudo,
+                       timeout=30)
     remote_dir = mk.stdout.strip()
     if not mk.ok or not remote_dir:
         raise ScanFailed("could not create remote temp dir")
@@ -156,6 +168,9 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
 
     finished: Optional[ScanResult] = None
     try:
+        if plan.sudo:
+            _share_with_scan_group(conn, remote_dir)
+
         log.info("scan[%s]: evaluating CIS L%d (%s)",
                  host.ip, plan.cis_level, plan.ubuntu_version)
         res = conn.run_argv(oscap_argv, sudo=plan.sudo, timeout=timeout)
@@ -209,6 +224,31 @@ def scan_host(host: HostRecord, conn: RemoteHostProtocol, plan: ScanPlan,
             if not cleanup.ok:
                 log.warning("scan[%s]: could not remove remote temp %s (exit %d)",
                             host.ip, remote_dir, cleanup.exit_code)
+
+
+def _share_with_scan_group(conn: RemoteHostProtocol, remote_dir: str) -> None:
+    """Let the scan account read the root-made output dir, and nobody else.
+
+    mktemp made the dir 0700 root. oscap writes its files 0644 under sudo's
+    umask, so the dir mode is what keeps other local accounts away from the
+    list of failed controls. Root hands the dir to the scan account's own group
+    with mode 0750: the account can list and read it over SFTP, cannot add
+    entries (no group write), and other users get nothing. A root login
+    (plan.sudo False) reads the 0700 dir as it is and never calls this.
+    """
+    res = conn.run("id -gn", timeout=30)
+    # The group comes from the target, which may be hostile. It goes into a
+    # root command, so accept only a plain group name (no leading dash).
+    group = res.stdout.strip() if res.ok else ""
+    if not _SAFE_GROUP.match(group):
+        raise ScanFailed("could not read a usable group name for the scan account")
+    for argv in (["chgrp", group, remote_dir], ["chmod", "0750", remote_dir]):
+        step = conn.run_argv(argv, sudo=True, timeout=30)
+        if not step.ok:
+            raise ScanFailed(
+                f"could not open remote temp dir {remote_dir} to the scan "
+                f"account ({argv[0]} exit {step.exit_code})"
+            )
 
 
 def _write_local(local_dir: str, name: str, text: str) -> None:
