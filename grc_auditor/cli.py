@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from . import __version__, discovery, classify as classify_mod
 from .assess import assess_host
 from .config import (
-    ConfigError, apply_overrides, ip_in_networks, load_config,
+    DEFAULT_OUTPUT_DIR, ConfigError, apply_overrides, ip_in_networks,
+    load_config, read_output_dir,
 )
 from .logging_setup import setup_logging
 from .models import HostStatus, RunRecord
@@ -302,14 +303,38 @@ def _print_summary(run: RunRecord, paths: dict) -> None:
                   "gaps above and the banner at the top of the report for why.")
 
 
+def _history_output_dir(args) -> str:
+    """Where `history` reads runs from: -o, else the config's output_dir, else
+    ./grc-output. The config is -c when given (it must exist), or
+    ./config.yaml when that file exists, the same file `run` reads by
+    default. A relative output_dir resolves against the working directory,
+    as it does for `run`."""
+    if getattr(args, "output", None):
+        return args.output
+    config = getattr(args, "config", None)
+    if config:
+        return read_output_dir(config)
+    if os.path.isfile("config.yaml"):
+        return read_output_dir("config.yaml")
+    return DEFAULT_OUTPUT_DIR
+
+
 def cmd_history(args) -> int:
-    store = Store(args.output)
+    try:
+        output_dir = _history_output_dir(args)
+    except ConfigError as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+    store = Store.open_existing(output_dir)
+    if store is None:
+        print(f"No runs recorded yet (no history.db under {output_dir}).")
+        return 0
     try:
         runs = store.list_runs()
     finally:
         store.close()
     if not runs:
-        print("No runs recorded yet.")
+        print(f"No runs recorded yet in {output_dir}.")
         return 0
     print(f"{'RUN ID':<24}  {'STARTED':<25}  SCOPE")
     for r in runs:
@@ -395,8 +420,12 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_run)
 
     h = sub.add_parser("history", help="list prior runs")
-    h.add_argument("-o", "--output", default="./grc-output",
-                   help="output directory holding history.db")
+    h.add_argument("-c", "--config",
+                   help="read output_dir from this YAML config "
+                        "(default: ./config.yaml when it exists)")
+    h.add_argument("-o", "--output",
+                   help="output directory holding history.db (overrides the "
+                        "config; default ./grc-output)")
     h.set_defaults(func=cmd_history)
 
     rmf_p = sub.add_parser(
