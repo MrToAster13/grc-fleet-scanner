@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # install.sh: put the grc-* single-word commands on this run host. No root.
 #
-# It copies the launchers from ./bin into ~/.local/bin and records where this
+# It symlinks the launchers in ./bin into ~/.local/bin and records where this
 # repo lives (in ~/.config/grc/env) so the launchers can find the code and build
-# their virtualenv on first use. Re-runnable: running it again does not append
-# the PATH export line a second time. After this, run `grc-setup` to build the
-# venv + install nmap.
+# their virtualenv on first use. Links, not copies: a `git pull` that changes a
+# launcher or the sourced helper takes effect at once, with no reinstall
+# (ELI-716). Re-runnable: running it again replaces old copies with links and
+# does not append the PATH export line a second time. Re-run it after a pull
+# that adds a new command, or after moving the repo. After this, run
+# `grc-setup` to build the venv + install nmap.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
@@ -19,6 +22,10 @@ echo "grc install: repo at $REPO"
 
 mkdir -p "$DEST" "$ENV_DIR"
 
+# Linking bin/ into itself would replace every launcher with a link to itself.
+[ "$(cd "$DEST" && pwd -P)" != "$(cd "$BIN_SRC" && pwd -P)" ] \
+    || { echo "install.sh: GRC_BIN_DIR is the repo's own bin/ -- pick another directory." >&2; exit 1; }
+
 # Record the repo location for the launchers (owner-only: it's just a path, but
 # the config dir is the operator's).
 ( umask 077; cat > "$ENV_FILE" <<EOF
@@ -28,14 +35,27 @@ EOF
 )
 echo "grc install: wrote $ENV_FILE (GRC_HOME=$REPO)"
 
-# Copy the launchers + the sourced helper. Leading-underscore files are helpers,
-# not commands, so they're installed but not announced.
+# Link the launchers + the sourced helper. Each launcher resolves its own path
+# with readlink -f, so through the link it sources the repo's _grc-common.sh.
+# ln -sfn replaces a copy left by an older install.sh. Leading-underscore files
+# are helpers, not commands, so they're installed but not announced.
 commands=()
 for f in "$BIN_SRC"/*; do
     name="$(basename "$f")"
-    cp "$f" "$DEST/$name"
-    chmod +x "$DEST/$name"
+    ln -sfn "$f" "$DEST/$name"
     case "$name" in _*) ;; *) commands+=("$name") ;; esac
+done
+
+# A launcher removed from bin/ by a later pull leaves a dangling link. Remove
+# only links that point into this repo's bin/, never anything else in DEST.
+for link in "$DEST"/*; do
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    case "$(readlink "$link")" in
+        "$BIN_SRC"/*)
+            rm -f "$link"
+            echo "grc install: removed $link (its launcher is gone from the repo)"
+            ;;
+    esac
 done
 echo "grc install: installed ${#commands[@]} commands to $DEST:"
 printf '  %s\n' "${commands[@]}"

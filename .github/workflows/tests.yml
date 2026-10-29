@@ -38,3 +38,5 @@ jobs:
         run: bash tests/shell/test_grc_common_venv.sh
       - name: Run the grc-report run-selection test harness
         run: bash tests/shell/test_grc_report.sh
+      - name: Run the install.sh launcher link test harness
+        run: bash tests/shell/test_install_links.sh
