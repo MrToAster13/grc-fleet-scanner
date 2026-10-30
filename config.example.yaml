@@ -11,7 +11,7 @@ scope:
   exclude:
     - 10.0.10.1             # e.g. the gateway, sensitive appliances
   nmap_timing: "-T3"        # cautious by default; -T4 is faster/noisier
-  nmap_extra_args: []       # appended verbatim to the nmap command. Use ["-Pn"] when
+  nmap_extra_args: []       # allowlisted discovery, port and timing flags only. Use ["-Pn"] when
                             # hosts that drop ICMP ping (cloud VMs, firewalled hosts)
                             # never show up; see docs/operating.md section 5.
   ssh_concurrency: 10       # bounded parallel SSH/scan workers
