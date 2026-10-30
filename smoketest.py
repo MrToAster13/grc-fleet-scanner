@@ -6,12 +6,15 @@ discovery parser and classify stage, fabricates a scanned host, then persists a
 run and renders the full report so you can open the HTML and verify the
 pipeline's plumbing end-to-end without a live fleet.
 
-    python smoketest.py
+    python smoketest.py                 # render to a temp dir
+    python smoketest.py --write-sample  # also refresh docs/sample/report.html
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 import tempfile
 
 from grc_auditor.classify import classify
@@ -72,17 +75,23 @@ def fabricate_scan(host: HostRecord):
     )
 
 
-def main() -> int:
-    tmp = tempfile.mkdtemp(prefix="grc_smoke_")
+SAMPLE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "docs", "sample")
+
+
+def render_sample(out_dir: str) -> dict:
+    """Render the fabricated sample run into ``out_dir`` and return the report
+    paths. The output is deterministic, so docs/sample/report.html can be
+    checked against it."""
     run_id = "20260627T000000Z"
-    run_dir = os.path.join(tmp, "runs", run_id)
+    run_dir = os.path.join(out_dir, "runs", run_id)
     setup_logging(run_dir, verbose=True)
 
     cfg = Config(
         scope=ScanScope(cidrs=["10.0.10.0/24"]),
         credential_groups=[CredentialGroup(name="lab", ssh_user="ubuntu",
                                            targets=["default"])],
-        output_dir=tmp,
+        output_dir=out_dir,
     )
 
     hosts = parse_nmap_xml(SAMPLE_NMAP_XML)
@@ -95,12 +104,23 @@ def main() -> int:
                     finished_at="2026-06-27T00:02:00+00:00",
                     scope=cfg.scope.cidrs, config_hash=cfg.hash(), hosts=hosts)
 
-    store = Store(tmp)
+    store = Store(out_dir)
     try:
         store.save_run(run)
-        paths = write_reports(run, store, run_dir)
+        return write_reports(run, store, run_dir)
     finally:
         store.close()
+
+
+def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    tmp = tempfile.mkdtemp(prefix="grc_smoke_")
+    paths = render_sample(tmp)
+
+    if "--write-sample" in argv:
+        os.makedirs(SAMPLE_DIR, exist_ok=True)
+        shutil.copyfile(paths["html"], os.path.join(SAMPLE_DIR, "report.html"))
+        print(f"  Sample     : {os.path.join(SAMPLE_DIR, 'report.html')}")
 
     print("\nSmoke test OK.")
     print(f"  Output dir : {tmp}")

@@ -19,6 +19,16 @@ audit-defensible.
 > Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
 > production fleet run.
 
+## Sample report
+
+![Top of the sample fleet report: executive summary, coverage map, failing controls by severity](docs/sample/report-top.png)
+
+[docs/sample/report.html](docs/sample/report.html) is the full report from `grc-demo`.
+Its hosts and scan results are fabricated by `smoketest.py`, so it runs with no network,
+nmap, SSH or oscap. GitHub shows HTML as source, so download the file and open it in a
+browser. A test fails if the committed sample drifts from what the template renders;
+refresh it with `python smoketest.py --write-sample`.
+
 ---
 
 ## Pipeline
@@ -140,6 +150,7 @@ reference, scheduling, troubleshooting, and report interpretation are in the
 | Doc | Purpose |
 |---|---|
 | [docs/operating.md](docs/operating.md) | Operator runbook: setup, config reference, reading the report, scheduling, troubleshooting |
+| [docs/sample/](docs/sample/) | A sample report rendered from fabricated data, plus the README screenshot |
 | [docs/validation.md](docs/validation.md) | Validate the live scan leg against one Ubuntu VM (incl. negative-path checks) |
 | [docs/design.md](docs/design.md) | Design, decisions, coverage model, and what's out of scope |
 | [docs/adr/](docs/adr/) | Architecture decision records, one load-bearing decision per file |

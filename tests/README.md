@@ -52,6 +52,7 @@ python -m pip install pytest
 | `test_history.py` | `history.RunHistory` over a real `Store`: drift baseline (most recent earlier run, unfinished runs skipped, `config_hash` match, scope changed), dry-run exclusion by marker and by structural signature, trend point order and `n` limit, live current point, one pass rate formula (`models.pass_rate`) |
 | `test_report.py` | `report.compute_drift`, `top_failing_controls`, `write_reports` (artifacts on disk, HTML/JSON/CSV content, zero-scanned banner incl. a dry run) |
 | `test_posture.py` | `posture.zero_scanned` (gaps only, nothing discovered, one scanned, dry run, missing dry-run marker, all `non_ubuntu`), `scan_candidates`, `assessed_share` (no candidates, `discovered` counts as unassessed), `fleet_posture` ladder boundaries (pass rate exactly 75 and 90, share exactly 50 and 90, zero candidates, all `non_ubuntu`, nothing evaluable) with the exact headline strings |
+| `test_sample_report.py` | the committed `docs/sample/report.html` equals a fresh `smoketest.render_sample`, the README links it and labels the data fabricated, and the README screenshot exists |
 | `test_models.py` | `RunRecord.scanned_hosts`, `coverage_gaps`, `fleet_pass_rate` (the aggregates posture builds on) |
 
 ## Fixtures

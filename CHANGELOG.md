@@ -96,6 +96,10 @@ release, everything lives under **Unreleased**.
   stay at exit **2**: nothing was written, so that is a genuine `ConfigError`, not a scaffold.
 
 ### Added
+- **A committed sample report.** `docs/sample/report.html` and a screenshot of its top section
+  sit in the README, so a visitor sees the output without cloning. `smoketest.render_sample`
+  renders the fabricated run, `python smoketest.py --write-sample` refreshes the file, and
+  `tests/test_sample_report.py` fails if the committed sample drifts from the template (ELI-927).
 - **Zero-scanned signal.** A run that completes and writes a report while scanning
   zero hosts (every host landed in a coverage gap, or discovery found nothing) is
   now unmistakable: the console summary prints a loud warning, the HTML report
