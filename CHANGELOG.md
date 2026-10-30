@@ -6,6 +6,13 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Security
+- **`nmap_extra_args` is an allowlist, and hosts outside the scope never reach SSH.**
+  The old check refused a fixed list of flag names, so `-sC`, `-A`, `--script-args=`,
+  `-iR100`, prefix forms such as `--excludefil=`, and attached values such as `-oNfile` or
+  `-iLfile` all passed. Extra args are now limited to host discovery, port, timing and
+  verbosity flags, each matched as a whole token. After discovery the run also drops any
+  host outside `scope.cidrs` and logs the count, the same way it already re-enforced
+  `scope.exclude` (ELI-926).
 - **The scan account no longer gets passwordless root for every command.**
   `grc-target-setup --scan-user` wrote `NOPASSWD:ALL`, so anyone holding the run-host key had
   root on every audited host. The drop-in now allows only the scanner's sudo commands with
