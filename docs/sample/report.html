@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRC Fleet Audit: 20260627T000000Z</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a2029; --ink:#e6e9ef; --muted:#8b97a7;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --line:#2a313c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--ink); padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:28px 0 10px; color:var(--muted);
+       text-transform:uppercase; letter-spacing:.06em; }
+  .sub { color:var(--muted); font-size:13px; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; }
+  .big { font-size:26px; font-weight:600; }
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .muted{color:var(--muted)}
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; }
+  .s-scanned{background:#10331c;color:var(--ok)}
+  .s-gap{background:#3a2a08;color:var(--warn)}
+  .s-other{background:#2a313c;color:var(--muted)}
+  .s-lowconf{background:#3a1a1a;color:var(--bad)}
+  .exec .lowconf{margin-top:8px;padding:8px 10px;border-radius:6px;
+                 background:#3a1a1a;color:#ffb4ab}
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; }
+  .bar > span { display:block; height:100%; background:var(--ok); }
+  code { color:#9ecbff; font-size:12px; }
+  .delta-up{color:var(--ok)} .delta-down{color:var(--bad)}
+  footer { margin-top:32px; color:var(--muted); font-size:12px; }
+  /* executive summary */
+  .exec { border-left:4px solid var(--line); }
+  .exec.strong{border-left-color:var(--ok)}
+  .exec.moderate{border-left-color:var(--warn)}
+  .exec.weak,.exec.no-data,.exec.incomplete{border-left-color:var(--bad)}
+  .exec .headline { font-size:16px; font-weight:600; margin-bottom:6px; }
+  .exec ul { margin:8px 0 0; padding-left:18px; }
+  .exec li { margin:2px 0; }
+  /* severity tags + bars */
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:11px;
+         margin:1px 3px 1px 0; background:#2a313c; color:var(--muted); }
+  .sev-high{color:var(--bad);font-weight:600} .sev-medium{color:var(--warn)} .sev-low{color:var(--muted)}
+  .sevbar { display:flex; height:18px; border-radius:4px; overflow:hidden; background:var(--line); margin:8px 0; }
+  .sevbar > span { display:block; height:100%; }
+  .sev-fill-high{background:var(--bad)} .sev-fill-medium{background:var(--warn)}
+  .sev-fill-low{background:#3a6ea5} .sev-fill-unknown{background:#56606e}
+  /* sparkline */
+  .spark { font-size:20px; letter-spacing:2px; line-height:1; color:var(--ok); }
+  .hostlist { color:var(--muted); font-size:12px; }
+  .nowrap { white-space:nowrap; }
+  .zero-scanned-banner { background:#3a1a1a; border:2px solid var(--bad); border-radius:10px;
+                         padding:14px 16px; margin-bottom:18px; }
+  .zero-scanned-banner .title { font-size:17px; font-weight:700; color:#ffb4ab; }
+  .zero-scanned-banner .sub { color:#ffb4ab; margin-top:4px; }
+</style>
+</head>
+<body>
+
+<h1>GRC Fleet Audit: CIS Ubuntu Benchmark</h1>
+
+<div class="sub">
+  Run <code>20260627T000000Z</code> ·
+  started 2026-06-27T00:00:00+00:00 · finished 2026-06-27T00:02:00+00:00<br>
+  Scope: <code>10.0.10.0/24</code>
+</div>
+
+<h2>Executive summary</h2>
+<div class="card exec strong">
+  <div class="headline">Fleet compliance is strong, with only isolated gaps to close.</div>
+  <div>
+    Overall posture:
+    <strong class="ok">STRONG</strong>
+    
+      &middot; fleet pass rate <strong>90.0%</strong>
+    
+    &middot; <span class="bad">1</span> high-severity control(s) failing.
+  </div>
+  <div class="sub" style="margin-top:6px">1 of 2 discovered hosts assessed (50.0%); 0 coverage gaps remain.</div>
+  <div class="sub">No prior run to compare against (first recorded run).</div>
+  
+  
+  <div style="margin-top:8px">Biggest risks:</div>
+  <ul>
+    
+    <li>
+      <span class="sev-high">[high]</span>
+      <code>sshd_disable_root_login</code>
+      &mdash; Disable SSH root login
+      <span class="muted">(1 host)</span>
+    </li>
+    
+  </ul>
+  
+</div>
+
+<h2>Summary</h2>
+<div class="grid">
+  <div class="card"><div class="muted">Hosts discovered</div><div class="big">2</div></div>
+  <div class="card"><div class="muted">Scanned</div><div class="big ok">1</div></div>
+  <div class="card"><div class="muted">Coverage gaps</div><div class="big warn">0</div></div>
+  <div class="card">
+    <div class="muted">Pass rate (checks on scanned hosts)</div>
+    <div class="big">90.0%</div>
+    
+  </div>
+</div>
+
+<h2>Coverage map</h2>
+<table>
+  <tr><th>Status</th><th>Hosts</th><th>Meaning</th></tr>
+  
+  
+  <tr>
+    <td><span class="pill s-scanned">scanned</span></td>
+    <td>1</td>
+    <td class="muted">Audited against CIS</td>
+  </tr>
+  
+  <tr>
+    <td><span class="pill s-other">non_ubuntu</span></td>
+    <td>1</td>
+    <td class="muted">Alive, not Ubuntu (inventory only)</td>
+  </tr>
+  
+</table>
+<p class="sub">Coverage gaps are reported explicitly so partial coverage is never mistaken for a clean result.</p>
+
+<h2>Fleet trend (last 1 run)</h2>
+
+  <div class="card">
+    <span class="muted">Not enough scored runs yet to plot a trend.</span>
+    
+      Baseline fleet pass rate: <strong>90.0%</strong>.
+    
+  </div>
+
+
+<h2>Failing controls by severity</h2>
+
+  <div class="card">
+    <div class="sevbar">
+      
+        
+        <span class="sev-fill-high" style="width:50.0%" title="high: 1 finding(s)"></span>
+      
+        
+        <span class="sev-fill-medium" style="width:50.0%" title="medium: 1 finding(s)"></span>
+      
+        
+        
+      
+        
+        
+      
+    </div>
+    <table>
+      <tr><th>Severity</th><th>Distinct controls</th><th>Total host-findings</th></tr>
+      
+      <tr>
+        <td class="sev-high">high</td>
+        <td>1</td>
+        <td>1</td>
+      </tr>
+      
+      <tr>
+        <td class="sev-medium">medium</td>
+        <td>1</td>
+        <td>1</td>
+      </tr>
+      
+      <tr>
+        <td class="sev-low">low</td>
+        <td>0</td>
+        <td>0</td>
+      </tr>
+      
+      <tr>
+        <td class="sev-unknown">unknown</td>
+        <td>0</td>
+        <td>0</td>
+      </tr>
+      
+      <tr>
+        <td><strong>total</strong></td>
+        <td><strong>2</strong></td>
+        <td><strong>2</strong></td>
+      </tr>
+    </table>
+  </div>
+
+
+<h2>Top failing controls (fleet-wide)</h2>
+<p class="sub">Sorted by severity, then by number of hosts affected.</p>
+
+<table>
+  <tr><th>Control</th><th>Severity</th><th>Hosts failing</th><th>Title</th></tr>
+  
+  <tr>
+    <td><code>sshd_disable_root_login</code></td>
+    <td class="nowrap bad">high</td>
+    <td>
+      1
+      <div class="hostlist"><code>10.0.10.21</code></div>
+    </td>
+    <td>Disable SSH root login</td>
+  </tr>
+  
+  <tr>
+    <td><code>audit_rules_time_change</code></td>
+    <td class="nowrap warn">medium</td>
+    <td>
+      1
+      <div class="hostlist"><code>10.0.10.21</code></div>
+    </td>
+    <td>Record events that modify date/time</td>
+  </tr>
+  
+</table>
+
+
+<h2>Per-host detail</h2>
+<table>
+  <tr><th>Host</th><th>Status</th><th>Ubuntu</th><th>Pass/Fail</th><th>Score</th><th>Confidence</th><th>Δ vs prior</th><th>Evidence</th></tr>
+  
+  
+  
+  <tr>
+    <td>10.0.10.21<br><span class="sub">web01.lab</span></td>
+    <td><span class="pill s-scanned">scanned</span>
+        </td>
+    <td>22.04</td>
+    <td><span class="ok">180</span> / <span class="bad">20</span></td>
+    <td>
+      
+        90.0%
+        <div class="bar"><span style="width:90.0%"></span></div>
+      
+    </td>
+    <td>
+      
+        
+        
+          
+          <span class="muted">100%</span>
+          
+        
+      
+    </td>
+    <td>
+      
+      -
+    </td>
+    <td><code>(would be runs/&lt;id&gt;/10.0.10.21/report.html)</code></td>
+  </tr>
+  
+  <tr>
+    <td>10.0.10.30</td>
+    <td><span class="pill s-other">non_ubuntu</span>
+        <br><span class="sub">no Ubuntu indicator in banners/OS fingerprint</span></td>
+    <td>-</td>
+    <td>-</td>
+    <td>
+      -
+    </td>
+    <td>
+      -
+    </td>
+    <td>
+      
+      -
+    </td>
+    <td>-</td>
+  </tr>
+  
+</table>
+
+<footer>
+  Generated by GRC Fleet Auditor. Compliance verdicts produced by OpenSCAP against the
+  SCAP Security Guide CIS profile. Raw ARF/HTML evidence retained per host under the run
+  directory. 
+</footer>
+
+</body>
+</html>

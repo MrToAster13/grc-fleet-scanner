@@ -15,3 +15,7 @@ grc-target-setup text eol=lf
 # on Windows, and a `#!/usr/bin/env pwsh` shebang breaks under CRLF on Linux,
 # so pin LF now so the rule is already in place when the file lands.
 *.ps1 text eol=lf
+
+# The committed sample report is compared byte for byte with a fresh render.
+docs/sample/report.html text eol=lf
+docs/sample/*.png binary
