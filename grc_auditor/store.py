@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_findings_host ON findings(host_id);
 class RunSummary:
     """The persisted facts about one run that run history needs, without its
     hosts or findings. ``dry_run`` is the raw ``runs.dry_run`` marker (None
-    for rows written before ELI-341); ``discovered_hosts`` counts host rows
+    for rows written before the marker existed); ``discovered_hosts`` counts host rows
     still in ``HostStatus.DISCOVERED``. ``scanned``, ``passed`` and
     ``evaluated`` sum over SCANNED hosts only, the same inputs as
     ``RunRecord.fleet_pass_rate``."""
@@ -107,7 +107,7 @@ class Store:
     # Columns added after the original schema. Forward-safe migration so an
     # existing history.db gains them without being recreated.
     _HOST_COLUMNS_ADDED = {"not_checked": "INTEGER", "other": "INTEGER"}
-    # dry_run (ELI-341): explicit marker, nullable so a pre-existing runs row
+    # dry_run: explicit marker, nullable so a pre-existing runs row
     # loads as NULL ("unknown, infer structurally") rather than erroring.
     _RUN_COLUMNS_ADDED = {"dry_run": "INTEGER"}
 
@@ -127,7 +127,7 @@ class Store:
     def open_existing(cls, output_dir: str) -> Optional["Store"]:
         """Open output_dir's history.db read-only, or return None when it has
         none. Creates no directory, database or runs/ dir, so a read-only
-        command run in the wrong place leaves nothing behind (ELI-717)."""
+        command run in the wrong place leaves nothing behind."""
         db_path = os.path.join(output_dir, "history.db")
         if not os.path.isfile(db_path):
             return None

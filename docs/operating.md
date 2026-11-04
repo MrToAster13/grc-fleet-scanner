@@ -153,7 +153,7 @@ anything when there is no history yet.
 | `1` | Discovery or RMF failure. |
 | `2` | Genuine config error: `config.yaml` exists but failed to load or validate (e.g. the authorization guard refused an empty scope). Something is actually wrong; fix the file and re-run. |
 | `3` | Zero-scanned: the run completed and wrote a report, but no host reached `scanned` -- every host landed in a coverage gap (`no_credentials`, `unreachable`, `scanner_absent`, etc.), or discovery found nothing. Not raised for `--dry-run` (which never scans by design) or for a fleet that is entirely `non_ubuntu` (never scan candidates in the first place). The console summary and the report's top banner explain which. |
-| `4` | Config scaffolded: no `config.yaml` existed, so `run` just wrote a starter one and stopped. Nothing ran and nothing is broken; edit `scope.cidrs` and re-run. Distinct from `2` (`ELI-143`): a caller/CI step can now tell "we created your config for you" apart from "your config is broken". |
+| `4` | Config scaffolded: no `config.yaml` existed, so `run` just wrote a starter one and stopped. Nothing ran and nothing is broken; edit `scope.cidrs` and re-run. Distinct from `2`: a caller/CI step can now tell "we created your config for you" apart from "your config is broken". |
 
 ---
 
@@ -161,10 +161,10 @@ anything when there is no history yet.
 
 ```yaml
 scope:
-  cidrs: [10.0.10.0/24]      # REQUIRED: a list of authorized ranges. Empty => refuses to
+  cidrs: [192.0.2.0/24]      # REQUIRED: a list of authorized ranges. Empty => refuses to
                              #   run unless --cidr supplies the scope.
                              #   Refused if wider than /16 (blast-radius guard).
-  exclude: [10.0.10.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
+  exclude: [192.0.2.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
   nmap_timing: "-T3"         # cautious default; only -T0..-T5 accepted
   nmap_extra_args: []        # allowlist: discovery, port, timing, verbosity flags (-Pn, -p22, --open, ...)
   ssh_concurrency: 10        # bounded parallel SSH/scan workers (1..100)
@@ -184,7 +184,7 @@ os_detect: false             # default false; nmap -O OS detection (feeds the cl
 
 credential_groups:           # first matching group (top-down) wins
   - name: prod
-    targets: [10.0.10.0/24]  # CIDRs / exact IPs / ["default"] catch-all. Omitted =>
+    targets: [192.0.2.0/24]  # CIDRs / exact IPs / ["default"] catch-all. Omitted =>
                              #   catch-all; an empty list [] is refused.
     ssh_user: grc-scan
     key_path: "~/.ssh/grc_scan_ed25519"   # omit => rely on ssh-agent

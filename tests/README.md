@@ -19,7 +19,7 @@ Equivalently, with the import path wired explicitly (works from any directory):
 
 ```bash
 # Windows PowerShell
-$env:PYTHONPATH = "C:\Users\Elijah\grc-fleet-scanner"; python -m pytest C:\Users\Elijah\grc-fleet-scanner\tests
+$env:PYTHONPATH = "<path-to>\grc-fleet-scanner"; python -m pytest <path-to>\grc-fleet-scanner\tests
 
 # bash / Linux
 PYTHONPATH=/path/to/grc-fleet-scanner python -m pytest tests

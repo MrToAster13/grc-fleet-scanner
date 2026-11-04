@@ -33,7 +33,7 @@ from .store import RunSummary, Store
 def is_dry_run(summary: RunSummary) -> bool:
     """Whether a persisted run was a ``--dry-run`` pass.
 
-    The explicit ``runs.dry_run`` marker (ELI-341) wins whenever it was
+    The explicit ``runs.dry_run`` marker wins whenever it was
     recorded. A dry run that discovered zero candidates leaves no host rows at
     all, so the structural signature below cannot see it; only the marker can.
 
