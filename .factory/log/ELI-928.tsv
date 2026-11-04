@@ -20,3 +20,7 @@ ts	phase	decision	why	evidence	result
 2026-11-04T23:51:23Z	review	removed ELI ids from docs/operating.md and docs/design.md, with a failing regression test first	operator docs are what a reviewer reads first	tests/test_public_tree.py::test_operator_docs_carry_no_tracker_ids	red then green
 2026-11-04T23:51:23Z	review	widened the home-path regex to forward-slash and escaped forms; grc-3 and pending checks now match per sentence	reviewer showed the old checks missed variants and could fail on unrelated words	tests/test_public_tree.py	8 of 8 pass
 2026-11-04T23:51:23Z	green	full suite after review fixes	prove nothing regressed	pytest junit 422 tests 61 fail, same env set as baseline	green apart from env failures
+2026-11-04T23:53:18Z	ship	pushed 4 commits as MrToAster13 noreply and opened PR #40, linked vault PR #9	brief: commit identity, separate vault PR	grc-fleet-scanner PR #40, commits 32fadf1 6ce662a 5b24100 983e08e	open
+2026-11-04T23:53:18Z	ship	posted the PR links and the range-scope choice to ELI-928	tickets record choices with their steelman	Tickets/ELI-928.md comment	posted
+2026-11-04T23:53:18Z	trail	skipped the cross-model trail review	only Claude models are enabled and the owner's rule is Opus only, so no other model family exists here	pstack-models rule, show-me-your-work Cross-model review section	skipped, flagged
+2026-11-04T23:53:18Z	ship	merge waits for green CI and the verifier PASS at the head SHA; not merged by this run	full-send merge gate in the brief	gh pr checks 40	open
