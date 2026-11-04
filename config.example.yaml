@@ -6,10 +6,10 @@
 # ---------------------------------------------------------------------------
 scope:
   cidrs:
-    - 10.0.10.0/24          # the network(s) you are authorized to scan
-    - 10.0.20.0/24
+    - 192.0.2.0/24          # the network(s) you are authorized to scan
+    - 198.51.100.0/24
   exclude:
-    - 10.0.10.1             # e.g. the gateway, sensitive appliances
+    - 192.0.2.1             # e.g. the gateway, sensitive appliances
   nmap_timing: "-T3"        # cautious by default; -T4 is faster/noisier
   nmap_extra_args: []       # allowlisted discovery, port and timing flags only. Use ["-Pn"] when
                             # hosts that drop ICMP ping (cloud VMs, firewalled hosts)
@@ -46,7 +46,7 @@ low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer t
 credential_groups:
   - name: prod-servers
     targets:
-      - 10.0.10.0/24
+      - 192.0.2.0/24
     ssh_user: grc-scan
     key_path: "~/.ssh/grc_scan_ed25519"   # omit to rely purely on ssh-agent
     use_agent: true

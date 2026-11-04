@@ -26,10 +26,10 @@ def _write(tmp_path, text):
 VALID_YAML = """
     scope:
       cidrs:
-        - 10.0.10.0/24
-        - 10.0.20.0/24
+        - 192.0.2.0/24
+        - 198.51.100.0/24
       exclude:
-        - 10.0.10.1
+        - 192.0.2.1
       ssh_concurrency: 8
     output_dir: ./out
     cis_level: 2
@@ -37,7 +37,7 @@ VALID_YAML = """
       - name: prod
         ssh_user: grc-scan
         targets:
-          - 10.0.10.0/24
+          - 192.0.2.0/24
         cis_level: 2
       - name: lab
         ssh_user: ubuntu
@@ -49,8 +49,8 @@ def test_valid_config_parses(tmp_path):
     cfg = load_config(_write(tmp_path, VALID_YAML))
 
     assert isinstance(cfg, Config)
-    assert cfg.scope.cidrs == ["10.0.10.0/24", "10.0.20.0/24"]
-    assert cfg.scope.exclude == ["10.0.10.1"]
+    assert cfg.scope.cidrs == ["192.0.2.0/24", "198.51.100.0/24"]
+    assert cfg.scope.exclude == ["192.0.2.1"]
     assert cfg.scope.ssh_concurrency == 8
     assert cfg.output_dir == "./out"
     assert cfg.cis_level == 2
@@ -84,7 +84,7 @@ def test_bastion_key_raises_config_error_naming_the_workaround(tmp_path):
     yaml_text = """
         scope:
           cidrs:
-            - 10.0.10.0/24
+            - 192.0.2.0/24
         credential_groups:
           - name: prod
             ssh_user: grc-scan
@@ -117,24 +117,24 @@ def test_missing_config_file_raises():
 
 
 def test_credential_group_for_matches_by_cidr_then_default():
-    prod = CredentialGroup(name="prod", ssh_user="u", targets=["10.0.10.0/24"])
+    prod = CredentialGroup(name="prod", ssh_user="u", targets=["192.0.2.0/24"])
     fallback = CredentialGroup(name="lab", ssh_user="u", targets=["default"])
     cfg = Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        scope=ScanScope(cidrs=["192.0.2.0/24"]),
         credential_groups=[prod, fallback],
     )
 
     # in-CIDR host hits the specific group (first match wins, top-down)
-    assert cfg.credential_group_for("10.0.10.5").name == "prod"
+    assert cfg.credential_group_for("192.0.2.5").name == "prod"
     # out-of-CIDR host falls through to the "default" catch-all
     assert cfg.credential_group_for("10.99.0.5").name == "lab"
 
 
 def test_credential_group_for_returns_none_when_nothing_matches():
     cfg = Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        scope=ScanScope(cidrs=["192.0.2.0/24"]),
         credential_groups=[
-            CredentialGroup(name="prod", ssh_user="u", targets=["10.0.10.0/24"]),
+            CredentialGroup(name="prod", ssh_user="u", targets=["192.0.2.0/24"]),
         ],
     )
     assert cfg.credential_group_for("10.99.0.5") is None
@@ -207,7 +207,7 @@ def test_non_numeric_threshold_in_yaml_raises(tmp_path):
     yaml_text = """
         scope:
           cidrs:
-            - 10.0.10.0/24
+            - 192.0.2.0/24
         low_confidence_threshold: "not a number"
         credential_groups: []
     """
@@ -259,7 +259,7 @@ def test_nmap_extra_args_rejects_targets_and_dangerous_flags(tmp_path):
     for bad in ("203.0.113.0/24", "-iL", "--exclude=10.0.0.5", "-oN"):
         yaml_text = f"""
             scope:
-              cidrs: [10.0.10.0/24]
+              cidrs: [192.0.2.0/24]
               nmap_extra_args: [{bad!r}]
             credential_groups: []
         """
@@ -268,10 +268,10 @@ def test_nmap_extra_args_rejects_targets_and_dangerous_flags(tmp_path):
 
 
 def test_ip_in_networks_helper():
-    nets = ["10.0.10.0/24", "192.168.1.5"]
-    assert ip_in_networks("10.0.10.7", nets) is True
+    nets = ["192.0.2.0/24", "192.168.1.5"]
+    assert ip_in_networks("192.0.2.7", nets) is True
     assert ip_in_networks("192.168.1.5", nets) is True
-    assert ip_in_networks("10.0.20.7", nets) is False
+    assert ip_in_networks("198.51.100.7", nets) is False
 
 
 def test_hash_is_stable_for_equal_inputs(tmp_path):

@@ -20,22 +20,22 @@ def _run(hosts):
 
 def test_scanned_hosts_needs_both_the_status_and_a_scan_result():
     # A host marked SCANNED with no ScanResult attached is not counted.
-    bare = HostRecord(ip="10.0.10.10", status=HostStatus.SCANNED)
-    real = fabricate_scanned_host(ip="10.0.10.11")
+    bare = HostRecord(ip="192.0.2.10", status=HostStatus.SCANNED)
+    real = fabricate_scanned_host(ip="192.0.2.11")
     assert _run([bare, real]).scanned_hosts() == [real]
 
 
 def test_coverage_gaps_exclude_scanned_and_non_ubuntu_hosts():
     hosts = [
-        fabricate_scanned_host(ip="10.0.10.10"),
-        HostRecord(ip="10.0.10.11", status=HostStatus.NON_UBUNTU),
-        HostRecord(ip="10.0.10.12", status=HostStatus.NO_CREDENTIALS),
+        fabricate_scanned_host(ip="192.0.2.10"),
+        HostRecord(ip="192.0.2.11", status=HostStatus.NON_UBUNTU),
+        HostRecord(ip="192.0.2.12", status=HostStatus.NO_CREDENTIALS),
     ]
-    assert [h.ip for h in _run(hosts).coverage_gaps()] == ["10.0.10.12"]
+    assert [h.ip for h in _run(hosts).coverage_gaps()] == ["192.0.2.12"]
 
 
 def test_fleet_pass_rate_is_none_when_nothing_was_scanned():
-    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.UNREACHABLE)]
+    hosts = [HostRecord(ip="192.0.2.10", status=HostStatus.UNREACHABLE)]
     assert _run(hosts).fleet_pass_rate() is None
     assert _run([]).fleet_pass_rate() is None
 

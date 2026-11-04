@@ -59,9 +59,9 @@ def test_posture_module_exposes_the_fleet_posture_rules():
 
 def test_zero_scanned_true_when_no_host_reached_scanned():
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        HostRecord(ip="10.0.10.11", status=HostStatus.UNREACHABLE),
-        HostRecord(ip="10.0.10.12", status=HostStatus.SCANNER_ABSENT),
+        HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS),
+        HostRecord(ip="192.0.2.11", status=HostStatus.UNREACHABLE),
+        HostRecord(ip="192.0.2.12", status=HostStatus.SCANNER_ABSENT),
     ]
     assert posture.zero_scanned(_run(hosts)) is True
 
@@ -72,8 +72,8 @@ def test_zero_scanned_true_when_no_hosts_discovered_at_all():
 
 def test_zero_scanned_false_when_at_least_one_host_scanned():
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        fabricate_scanned_host(ip="10.0.10.11"),
+        HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS),
+        fabricate_scanned_host(ip="192.0.2.11"),
     ]
     assert posture.zero_scanned(_run(hosts)) is False
 
@@ -83,7 +83,7 @@ def test_zero_scanned_false_when_one_scanned_and_forty_are_gaps():
     # *nothing* being scanned, not about a low scan rate.
     gaps = [HostRecord(ip=f"10.0.10.{i}", status=HostStatus.UNREACHABLE)
             for i in range(40)]
-    hosts = [fabricate_scanned_host(ip="10.0.10.99")] + gaps
+    hosts = [fabricate_scanned_host(ip="192.0.2.99")] + gaps
     assert posture.zero_scanned(_run(hosts)) is False
 
 
@@ -92,8 +92,8 @@ def test_zero_scanned_false_for_a_dry_run_even_with_every_host_gated():
     # left DISCOVERED (the dry-run outcome) or already gated by classify must
     # not trip the alarm meant for a real run that scanned nothing.
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED),
-        HostRecord(ip="10.0.10.11", status=HostStatus.NO_CREDENTIALS),
+        HostRecord(ip="192.0.2.10", status=HostStatus.DISCOVERED),
+        HostRecord(ip="192.0.2.11", status=HostStatus.NO_CREDENTIALS),
     ]
     assert posture.zero_scanned(_run(hosts, dry_run=True)) is False
 
@@ -105,7 +105,7 @@ def test_zero_scanned_false_for_a_dry_run_that_discovered_nothing():
 def test_zero_scanned_treats_a_missing_dry_run_marker_as_a_real_run():
     # A run loaded from before the marker existed has dry_run=None. It reads
     # the same as an explicit False, which was the old default.
-    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
+    hosts = [HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS)]
     assert posture.zero_scanned(_run(hosts, dry_run=None)) is True
     assert posture.zero_scanned(_run(hosts, dry_run=False)) is True
 
@@ -115,8 +115,8 @@ def test_zero_scanned_false_when_fleet_is_entirely_non_ubuntu():
     # the tool working as designed, not the same failure as every credential
     # or SSH path being wrong across the fleet.
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NON_UBUNTU),
-        HostRecord(ip="10.0.10.11", status=HostStatus.NON_UBUNTU),
+        HostRecord(ip="192.0.2.10", status=HostStatus.NON_UBUNTU),
+        HostRecord(ip="192.0.2.11", status=HostStatus.NON_UBUNTU),
     ]
     assert posture.zero_scanned(_run(hosts)) is False
 

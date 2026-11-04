@@ -70,7 +70,7 @@ class _FakeKey:
 # fake exec_command stream drive it offline.
 # --------------------------------------------------------------------------- #
 def test_connect_timeout_is_classified_as_connection_failed():
-    err = _classify_connect_error(socket.timeout("timed out"), "10.0.10.21")
+    err = _classify_connect_error(socket.timeout("timed out"), "192.0.2.21")
 
     assert isinstance(err, ConnectionFailed)
     assert isinstance(err, RemoteError)
@@ -105,7 +105,7 @@ def test_connect_timeout_raises_connection_failed_and_tears_down_client(monkeypa
     monkeypatch.setattr(remote_mod.paramiko, "SSHClient", lambda: fake_client)
 
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
 
     with pytest.raises(ConnectionFailed):
         rh.connect()
@@ -146,7 +146,7 @@ class _FakeConnectedClient:
 
 def test_run_command_timeout_mid_run_raises_remote_error_not_a_hang():
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
     rh._client = _FakeConnectedClient()
 
     with pytest.raises(RemoteError, match="timed out"):

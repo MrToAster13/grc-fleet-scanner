@@ -39,10 +39,10 @@ from .store import Store
 # 2 = genuine ConfigError: the config exists but failed to load/validate
 #     (e.g. the authorization guard refused an empty scope), or the config
 #     didn't exist and scaffolding it also failed (no config.example.yaml
-#     to scaffold from, or an OSError while writing the starter) (ELI-341).
+#     to scaffold from, or an OSError while writing the starter).
 # 4 = config scaffolded: no config existed, `run` wrote a starter one, and
 #     stopped -- nothing ran, and there is nothing wrong to fix beyond filling
-#     in scope.cidrs. Distinct from 2 (ELI-143): a scaffold is an expected
+#     in scope.cidrs. Distinct from 2: a scaffold is an expected
 #     first-run outcome, a ConfigError is a real failure; a caller/CI step
 #     needs to tell them apart.
 # 3 = zero-scanned: the run completed and wrote a report, but no host reached
@@ -82,7 +82,7 @@ def _starter_config_text(example: str) -> str:
     comments, but with an EMPTY ``scope.cidrs``.
 
     The point is safety. A verbatim copy would carry the example's sample range
-    (10.0.10.0/24), so a blind re-run would actively scan a network the operator
+    (192.0.2.0/24), so a blind re-run would actively scan a network the operator
     never chose. Emptying the scope makes a blind re-run hit the existing
     authorization guard (empty cidrs -> refuse) instead. The operator must type
     their authorized range in by hand -- exactly the intended friction.
@@ -95,7 +95,7 @@ def _starter_config_text(example: str) -> str:
         if not replaced and line.strip().startswith("cidrs:"):
             indent = line[: len(line) - len(line.lstrip())]
             out.append(f"{indent}cidrs: []   # SET THIS to your AUTHORIZED range(s), "
-                       f"e.g. [10.0.10.0/24]. Empty => refused (authorization guard).")
+                       f"e.g. [192.0.2.0/24]. Empty => refused (authorization guard).")
             # Drop the sample list items that belonged to this key (the
             # more-indented "- ..." lines immediately following it).
             item_floor = len(indent)
@@ -121,13 +121,13 @@ def _scaffold_config(dest: str) -> int:
     """Write a starter config to ``dest`` and exit asking for an authorized
     scope. Returns EXIT_CONFIG_SCAFFOLDED when it actually writes a starter
     (nothing ran) -- so a scheduled job that finds no config stops cleanly
-    instead of scanning a template scope. Distinct from EXIT_CONFIG_ERROR
-    (ELI-143): that path means "we just created your config for you", not
+    instead of scanning a template scope. Distinct from EXIT_CONFIG_ERROR:
+    that path means "we just created your config for you", not
     "your config is broken". The two failure paths below -- no
     config.example.yaml to scaffold from, or an OSError while writing the
     scaffold -- are themselves genuine ConfigErrors (nothing was written,
     the operator's config state is unchanged and broken), so they return
-    EXIT_CONFIG_ERROR, not EXIT_CONFIG_SCAFFOLDED (ELI-341)."""
+    EXIT_CONFIG_ERROR, not EXIT_CONFIG_SCAFFOLDED."""
     example = _example_config_path()
     if example is None:
         print(f"config error: {dest} not found, and no config.example.yaml was "

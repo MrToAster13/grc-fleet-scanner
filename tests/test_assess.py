@@ -24,7 +24,7 @@ from grc_auditor.remote import (
 
 from conftest import FakeRemoteHost, fixture_path, make_config
 
-_IP = "10.0.10.21"
+_IP = "192.0.2.21"
 _PROFILE = "xccdf_org.ssgproject.content_profile_cis_level1_server"
 _UBUNTU_OSR = 'ID=ubuntu\nVERSION_ID="22.04"\n'
 _TMP = "/var/lib/grc_audit.Ab3xZ9"
@@ -251,7 +251,7 @@ def test_assess_reach_timeout_lands_in_unreachable_bucket():
     # is a RemoteError subclass; it must still land the host in UNREACHABLE,
     # not fall through to the generic/unexpected-error branch.
     host, connect = _assess(
-        enter_exc=ConnectionFailed("connection to 10.0.10.21 timed out"),
+        enter_exc=ConnectionFailed("connection to 192.0.2.21 timed out"),
     )
 
     assert connect.conn.commands == []
@@ -261,12 +261,12 @@ def test_assess_reach_timeout_lands_in_unreachable_bucket():
 
 def test_assess_host_key_mismatch_stops_detect_and_scan():
     host, connect = _assess(
-        enter_exc=HostKeyMismatch("host-key MISMATCH for 10.0.10.21"),
+        enter_exc=HostKeyMismatch("host-key MISMATCH for 192.0.2.21"),
     )
 
     assert connect.conn.commands == []
     assert host.status is HostStatus.HOST_KEY_MISMATCH
-    assert host.detail == "host-key MISMATCH for 10.0.10.21"
+    assert host.detail == "host-key MISMATCH for 192.0.2.21"
 
 
 def test_assess_detect_failure_stops_scan():

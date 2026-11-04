@@ -17,7 +17,7 @@ def _make_run(run_id, started_at, hosts, config_hash="deadbeefcafef00d",
               dry_run=None):
     return RunRecord(
         run_id=run_id, started_at=started_at, finished_at=started_at,
-        scope=["10.0.10.0/24"], config_hash=config_hash, hosts=hosts,
+        scope=["192.0.2.0/24"], config_hash=config_hash, hosts=hosts,
         dry_run=dry_run,
     )
 
@@ -26,7 +26,7 @@ def _dry_signature_run(run_id, started_at, config_hash):
     """A dry run as persisted before the ELI-341 marker: no marker, and a
     candidate host left in DISCOVERED."""
     return _make_run(run_id, started_at,
-                     [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
+                     [HostRecord(ip="192.0.2.21", status=HostStatus.DISCOVERED)],
                      config_hash=config_hash)
 
 
@@ -68,7 +68,7 @@ def test_unfinished_run_is_neither_baseline_nor_trend_point(store):
     store.save_run(_make_run("20260101T000000Z", "2026-01-01T00:00:00+00:00", []))
     store.begin_run(RunRecord(
         run_id="20260102T000000Z", started_at="2026-01-02T00:00:00+00:00",
-        scope=["10.0.10.0/24"], config_hash="deadbeefcafef00d", hosts=[],
+        scope=["192.0.2.0/24"], config_hash="deadbeefcafef00d", hosts=[],
     ))
     current = _make_run("20260103T000000Z", "2026-01-03T00:00:00+00:00", [])
     history = RunHistory(store)
@@ -210,7 +210,7 @@ def test_current_point_comes_from_the_live_run(store):
     host = fabricate_scanned_host()
     current = RunRecord(run_id="20260701T000000Z",
                         started_at="2026-07-01T00:00:00+00:00",
-                        scope=["10.0.10.0/24"], config_hash="deadbeefcafef00d",
+                        scope=["192.0.2.0/24"], config_hash="deadbeefcafef00d",
                         hosts=[host])
 
     point = RunHistory(store).trend(current)[-1]
@@ -227,7 +227,7 @@ def test_prior_point_pass_rate_matches_the_run_model(store):
     the same models.pass_rate formula, so they must agree."""
     prior = _make_run("20260701T000000Z", "2026-07-01T00:00:00+00:00",
                       [fabricate_scanned_host(), fabricate_scanned_host()])
-    prior.hosts[1].ip = "10.0.10.22"
+    prior.hosts[1].ip = "192.0.2.22"
     prior.hosts[1].scan.passed, prior.hosts[1].scan.failed = 40, 10
     store.save_run(prior)
     current = _make_run("20260702T000000Z", "2026-07-02T00:00:00+00:00", [])

@@ -34,7 +34,7 @@ def _scanned_host(ip, passed, failed, score, failed_rules=None):
 def _run(run_id, started_at, hosts, config_hash="hash"):
     return RunRecord(
         run_id=run_id, started_at=started_at, finished_at=started_at,
-        scope=["10.0.10.0/24"], config_hash=config_hash, hosts=hosts,
+        scope=["192.0.2.0/24"], config_hash=config_hash, hosts=hosts,
     )
 
 
@@ -45,12 +45,12 @@ def test_compute_drift_per_host_and_fleet_delta(tmp_path):
     try:
         # prior run: host at 90% (180/200)
         prev = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 180, 20, 90.0)])
+                    [_scanned_host("192.0.2.21", 180, 20, 90.0)])
         store.save_run(prev)
 
         # current run: same host improved to 95% (190/200)
         curr = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 190, 10, 95.0)])
+                    [_scanned_host("192.0.2.21", 190, 10, 95.0)])
         store.save_run(curr)
 
         drift = compute_drift(curr, store)
@@ -62,7 +62,7 @@ def test_compute_drift_per_host_and_fleet_delta(tmp_path):
 
         assert len(drift.per_host) == 1
         hd = drift.per_host[0]
-        assert hd.ip == "10.0.10.21"
+        assert hd.ip == "192.0.2.21"
         assert hd.prev_score == 90.0
         assert hd.curr_score == 95.0
         assert hd.delta == 5.0
@@ -74,7 +74,7 @@ def test_compute_drift_first_run_has_no_prior(tmp_path):
     store = Store(str(tmp_path))
     try:
         curr = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 180, 20, 90.0)])
+                    [_scanned_host("192.0.2.21", 180, 20, 90.0)])
         store.save_run(curr)
 
         drift = compute_drift(curr, store)
@@ -91,17 +91,17 @@ def test_compute_drift_new_host_has_no_prev_score(tmp_path):
     store = Store(str(tmp_path))
     try:
         store.save_run(_run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                            [_scanned_host("10.0.10.21", 180, 20, 90.0)]))
+                            [_scanned_host("192.0.2.21", 180, 20, 90.0)]))
         # current run adds a brand-new host not present before
         curr = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 180, 20, 90.0),
-                     _scanned_host("10.0.10.22", 100, 0, 100.0)])
+                    [_scanned_host("192.0.2.21", 180, 20, 90.0),
+                     _scanned_host("192.0.2.22", 100, 0, 100.0)])
         store.save_run(curr)
 
         drift = compute_drift(curr, store)
         by_ip = {hd.ip: hd for hd in drift.per_host}
-        assert by_ip["10.0.10.22"].prev_score is None
-        assert by_ip["10.0.10.22"].delta is None  # no prior -> no delta
+        assert by_ip["192.0.2.22"].prev_score is None
+        assert by_ip["192.0.2.22"].delta is None  # no prior -> no delta
     finally:
         store.close()
 
@@ -112,12 +112,12 @@ def test_compute_drift_matching_config_hash_produces_delta(tmp_path):
     store = Store(str(tmp_path))
     try:
         prev = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                    [_scanned_host("192.0.2.21", 180, 20, 90.0)],
                     config_hash="scope-a")
         store.save_run(prev)
 
         curr = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    [_scanned_host("192.0.2.21", 190, 10, 95.0)],
                     config_hash="scope-a")
         store.save_run(curr)
 
@@ -136,12 +136,12 @@ def test_compute_drift_differing_config_hash_produces_no_delta(tmp_path):
     store = Store(str(tmp_path))
     try:
         narrowed = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                        [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                        [_scanned_host("192.0.2.21", 180, 20, 90.0)],
                         config_hash="narrowed-cidr")
         store.save_run(narrowed)
 
         full = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    [_scanned_host("192.0.2.21", 190, 10, 95.0)],
                     config_hash="full-scope")
         store.save_run(full)
 
@@ -210,12 +210,12 @@ def test_fleet_trend_excludes_runs_with_differing_config_hash(tmp_path):
     store = Store(str(tmp_path))
     try:
         narrowed = _run("20260601T000000Z", "2026-06-01T00:00:00+00:00",
-                        [_scanned_host("10.0.10.21", 180, 20, 90.0)],
+                        [_scanned_host("192.0.2.21", 180, 20, 90.0)],
                         config_hash="narrowed-cidr")
         store.save_run(narrowed)
 
         full = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-                    [_scanned_host("10.0.10.21", 190, 10, 95.0)],
+                    [_scanned_host("192.0.2.21", 190, 10, 95.0)],
                     config_hash="full-scope")
         store.save_run(full)
 
@@ -380,8 +380,8 @@ def test_top_failing_controls_aggregates_across_hosts():
         "xccdf_org.ssgproject.content_rule_audit_rules_time_change",
         "fail", "medium", "Record events that modify date/time")
 
-    h1 = _scanned_host("10.0.10.21", 180, 20, 90.0, failed_rules=[shared, only_one])
-    h2 = _scanned_host("10.0.10.22", 170, 30, 85.0, failed_rules=[shared])
+    h1 = _scanned_host("192.0.2.21", 180, 20, 90.0, failed_rules=[shared, only_one])
+    h2 = _scanned_host("192.0.2.22", 170, 30, 85.0, failed_rules=[shared])
     run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [h1, h2])
 
     top = top_failing_controls(run)
@@ -403,7 +403,7 @@ def test_top_failing_controls_aggregates_across_hosts():
 
 def test_top_failing_controls_empty_when_no_scans():
     run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
-               [HostRecord(ip="10.0.10.30", status=HostStatus.NON_UBUNTU)])
+               [HostRecord(ip="192.0.2.30", status=HostStatus.NON_UBUNTU)])
     assert top_failing_controls(run) == []
 
 
@@ -412,8 +412,8 @@ def test_top_failing_controls_empty_when_no_scans():
 def test_write_reports_produces_all_artifacts(tmp_path):
     store = Store(str(tmp_path))
     try:
-        host = fabricate_scanned_host(ip="10.0.10.21")
-        gap = HostRecord(ip="10.0.10.40", status=HostStatus.NO_CREDENTIALS,
+        host = fabricate_scanned_host(ip="192.0.2.21")
+        gap = HostRecord(ip="192.0.2.40", status=HostStatus.NO_CREDENTIALS,
                          is_ubuntu=True, detail="no credential group")
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host, gap])
         store.save_run(run)
@@ -431,7 +431,7 @@ def test_write_reports_produces_all_artifacts(tmp_path):
 
         # HTML mentions a scanned host IP
         html = open(paths["html"], encoding="utf-8").read()
-        assert "10.0.10.21" in html
+        assert "192.0.2.21" in html
 
         # JSON carries the run + computed summary
         payload = json.loads(open(paths["json"], encoding="utf-8").read())
@@ -443,12 +443,12 @@ def test_write_reports_produces_all_artifacts(tmp_path):
         # findings.csv has a row for each failed rule of the scanned host
         findings = open(paths["findings_csv"], encoding="utf-8").read()
         assert "sshd_disable_root_login" in findings
-        assert "10.0.10.21" in findings
+        assert "192.0.2.21" in findings
 
         # hosts.csv lists both hosts including the coverage gap
         hosts_csv = open(paths["hosts_csv"], encoding="utf-8").read()
-        assert "10.0.10.21" in hosts_csv
-        assert "10.0.10.40" in hosts_csv
+        assert "192.0.2.21" in hosts_csv
+        assert "192.0.2.40" in hosts_csv
         assert "no_credentials" in hosts_csv
     finally:
         store.close()
@@ -460,9 +460,9 @@ def test_report_shows_zero_scanned_banner_when_nothing_scanned(tmp_path):
     store = Store(str(tmp_path))
     try:
         gaps = [
-            HostRecord(ip="10.0.10.40", status=HostStatus.NO_CREDENTIALS,
+            HostRecord(ip="192.0.2.40", status=HostStatus.NO_CREDENTIALS,
                       is_ubuntu=True, detail="no credential group"),
-            HostRecord(ip="10.0.10.41", status=HostStatus.UNREACHABLE,
+            HostRecord(ip="192.0.2.41", status=HostStatus.UNREACHABLE,
                       is_ubuntu=True, detail="ssh refused"),
         ]
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", gaps)
@@ -478,7 +478,7 @@ def test_report_shows_zero_scanned_banner_when_nothing_scanned(tmp_path):
 def test_report_omits_zero_scanned_banner_when_a_host_was_scanned(tmp_path):
     store = Store(str(tmp_path))
     try:
-        host = fabricate_scanned_host(ip="10.0.10.21")
+        host = fabricate_scanned_host(ip="192.0.2.21")
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
         paths = write_reports(run, store, run_dir)
@@ -494,7 +494,7 @@ def test_report_omits_zero_scanned_banner_for_a_dry_run(tmp_path):
     # marker through posture.zero_scanned.
     store = Store(str(tmp_path))
     try:
-        hosts = [HostRecord(ip="10.0.10.40", status=HostStatus.DISCOVERED,
+        hosts = [HostRecord(ip="192.0.2.40", status=HostStatus.DISCOVERED,
                             is_ubuntu=True)]
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", hosts)
         run.dry_run = True
@@ -513,14 +513,14 @@ def test_low_confidence_host_is_flagged(tmp_path):
     store = Store(str(tmp_path))
     try:
         # 100% score, but 190 of 200 checks never ran -> must be flagged.
-        host = _scanned_host("10.0.10.21", 10, 0, 100.0)
+        host = _scanned_host("192.0.2.21", 10, 0, 100.0)
         host.scan.not_checked = 190
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         store.save_run(run)
 
         low = low_confidence_hosts(run)
         assert len(low) == 1
-        assert low[0]["ip"] == "10.0.10.21"
+        assert low[0]["ip"] == "192.0.2.21"
         assert low[0]["confidence"] == 5.0
 
         run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
@@ -544,7 +544,7 @@ def test_fully_assessed_host_not_flagged(tmp_path):
     store = Store(str(tmp_path))
     try:
         # 180/200 with nothing notchecked -> confidence high, no flag.
-        host = _scanned_host("10.0.10.21", 180, 20, 90.0)
+        host = _scanned_host("192.0.2.21", 180, 20, 90.0)
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         assert low_confidence_hosts(run) == []
     finally:
@@ -553,7 +553,7 @@ def test_fully_assessed_host_not_flagged(tmp_path):
 
 def test_low_confidence_threshold_is_configurable():
     # 80 of 100 checks ran -> 80% confidence.
-    host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+    host = _scanned_host("192.0.2.21", 80, 0, 100.0)
     host.scan.not_checked = 20
     run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
 
@@ -569,7 +569,7 @@ def test_write_reports_honors_threshold(tmp_path):
     # guard for the CLI --low-confidence-threshold wiring).
     store = Store(str(tmp_path))
     try:
-        host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+        host = _scanned_host("192.0.2.21", 80, 0, 100.0)
         host.scan.not_checked = 20
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         store.save_run(run)
@@ -592,7 +592,7 @@ def test_report_html_escapes_malicious_host_strings(tmp_path):
     # must be HTML-escaped, not rendered as live markup (stored XSS).
     store = Store(str(tmp_path))
     try:
-        host = _scanned_host("10.0.10.21", 180, 20, 90.0)
+        host = _scanned_host("192.0.2.21", 180, 20, 90.0)
         host.hostname = "<script>alert('xss')</script>"
         host.detail = "<img src=x onerror=alert(1)>"
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
@@ -613,7 +613,7 @@ def test_csv_formula_injection_is_neutralized(tmp_path):
     # quote-prefixed so a spreadsheet does not execute them.
     store = Store(str(tmp_path))
     try:
-        host = _scanned_host("10.0.10.21", 180, 20, 90.0, failed_rules=[
+        host = _scanned_host("192.0.2.21", 180, 20, 90.0, failed_rules=[
             RuleResult("=cmd|'/c calc'!A1", "fail", "high",
                        "=HYPERLINK('http://evil','x')"),
         ])
@@ -639,7 +639,7 @@ def test_manifest_seals_report_artifacts(tmp_path):
 
     store = Store(str(tmp_path))
     try:
-        host = fabricate_scanned_host(ip="10.0.10.21")
+        host = fabricate_scanned_host(ip="192.0.2.21")
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         store.save_run(run)
         run_dir = os.path.join(str(tmp_path), "runs", run.run_id)
@@ -662,7 +662,7 @@ def test_json_export_carries_per_host_confidence(tmp_path):
     # in the per-host scan object so JSON matches the CSV export.
     store = Store(str(tmp_path))
     try:
-        host = _scanned_host("10.0.10.21", 80, 0, 100.0)
+        host = _scanned_host("192.0.2.21", 80, 0, 100.0)
         host.scan.not_checked = 20
         run = _run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [host])
         store.save_run(run)

@@ -9,7 +9,7 @@ from grc_auditor.models import HostRecord, HostStatus
 from conftest import make_config
 
 
-def _ubuntu_ssh_host(ip="10.0.10.21"):
+def _ubuntu_ssh_host(ip="192.0.2.21"):
     return HostRecord(
         ip=ip,
         hostname="web01.lab",
@@ -31,7 +31,7 @@ def test_ubuntu_with_matching_group_stays_discovered(config_factory):
 def test_non_ubuntu_marked_non_ubuntu(config_factory):
     cfg = config_factory()
     host = HostRecord(
-        ip="10.0.10.30",
+        ip="192.0.2.30",
         open_ports=[22],
         banners={"22/tcp": "OpenSSH 9.2p1 Debian"},  # no "ubuntu" anywhere
     )
@@ -46,7 +46,7 @@ def test_ubuntu_without_ssh_port_is_unreachable(config_factory):
     # Ubuntu hint present but no open SSH port (22) -> cannot deep-dive.
     cfg = config_factory()
     host = HostRecord(
-        ip="10.0.10.21",
+        ip="192.0.2.21",
         open_ports=[80],
         banners={"80/tcp": "nginx 1.18.0 (Ubuntu)"},  # ubuntu hint, but on 80
     )
@@ -64,13 +64,13 @@ def test_ubuntu_with_no_matching_group_is_no_credentials():
     from grc_auditor.config import Config, ScanScope
 
     cfg = Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        scope=ScanScope(cidrs=["192.0.2.0/24"]),
         credential_groups=[
             CredentialGroup(name="other", ssh_user="ubuntu",
                             targets=["10.99.0.0/24"]),
         ],
     )
-    host = _ubuntu_ssh_host(ip="10.0.10.21")
+    host = _ubuntu_ssh_host(ip="192.0.2.21")
     classify([host], cfg)
 
     assert host.is_ubuntu is True
@@ -87,7 +87,7 @@ def test_classify_returns_the_same_list_mutated_in_place(config_factory):
 
 # --- treat_unknown_linux_as_ubuntu (optional candidate promotion) ---------- #
 
-def _linux_only_host(ip="10.0.10.40"):
+def _linux_only_host(ip="192.0.2.40"):
     # Generic Linux SSH banner with NO Ubuntu marker anywhere.
     return HostRecord(
         ip=ip, open_ports=[22],
@@ -125,7 +125,7 @@ def test_promotion_never_touches_clearly_non_linux():
     # Even with promotion enabled, a clearly non-Linux fingerprint is never made
     # an Ubuntu candidate.
     cfg = _promoting_cfg()
-    host = HostRecord(ip="10.0.10.50", open_ports=[22],
+    host = HostRecord(ip="192.0.2.50", open_ports=[22],
                       banners={"22/tcp": "Microsoft Windows Server 2019"})
     classify([host], cfg)
     assert host.is_ubuntu is False
@@ -139,7 +139,7 @@ def _ssh_port_cfg(port):
     from grc_auditor.config import Config, ScanScope
 
     return Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        scope=ScanScope(cidrs=["192.0.2.0/24"]),
         credential_groups=[
             CredentialGroup(name="lab", ssh_user="ubuntu",
                             targets=["default"], ssh_port=port),
@@ -151,7 +151,7 @@ def test_group_ssh_port_open_is_discovered_without_port_22():
     # AC1: sshd on 2222 only. The group says 2222, so the host is reachable.
     cfg = _ssh_port_cfg(2222)
     host = HostRecord(
-        ip="10.0.10.21", open_ports=[2222, 80],
+        ip="192.0.2.21", open_ports=[2222, 80],
         banners={"80/tcp": "nginx 1.18.0 (Ubuntu)"},
     )
     classify([host], cfg)
@@ -165,7 +165,7 @@ def test_group_ssh_port_banner_key_counts_as_ssh_evidence():
     # AC2: the only SSH evidence is a banner keyed on the group's port.
     cfg = _ssh_port_cfg(2222)
     host = HostRecord(
-        ip="10.0.10.21", open_ports=[],
+        ip="192.0.2.21", open_ports=[],
         banners={"2222/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
     )
     classify([host], cfg)
@@ -179,7 +179,7 @@ def test_group_port_unseen_by_nmap_is_left_for_the_reach_stage():
     # must not gate on it; the SSH reach stage decides with a real connect.
     cfg = _ssh_port_cfg(2222)
     host = HostRecord(
-        ip="10.0.10.21", open_ports=[22, 80],
+        ip="192.0.2.21", open_ports=[22, 80],
         banners={"22/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
     )
     classify([host], cfg)
@@ -202,7 +202,7 @@ def test_default_group_only_port_2222_open_is_unreachable():
     # AC5: default group checks 22. An open 2222 does not count.
     cfg = _ssh_port_cfg(22)
     host = HostRecord(
-        ip="10.0.10.21", open_ports=[2222],
+        ip="192.0.2.21", open_ports=[2222],
         banners={"2222/tcp": "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6"},
     )
     classify([host], cfg)
@@ -214,7 +214,7 @@ def test_non_ubuntu_host_with_open_2222_stays_non_ubuntu():
     # AC6: the port change does not touch the Ubuntu hint.
     cfg = _ssh_port_cfg(2222)
     host = HostRecord(
-        ip="10.0.10.30", open_ports=[2222],
+        ip="192.0.2.30", open_ports=[2222],
         banners={"2222/tcp": "OpenSSH 9.2p1 Debian"},
     )
     classify([host], cfg)

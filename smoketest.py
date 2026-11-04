@@ -29,7 +29,7 @@ SAMPLE_NMAP_XML = """<?xml version="1.0"?>
 <nmaprun>
   <host>
     <status state="up"/>
-    <address addr="10.0.10.21" addrtype="ipv4"/>
+    <address addr="192.0.2.21" addrtype="ipv4"/>
     <hostnames><hostname name="web01.lab"/></hostnames>
     <ports>
       <port protocol="tcp" portid="22">
@@ -44,7 +44,7 @@ SAMPLE_NMAP_XML = """<?xml version="1.0"?>
   </host>
   <host>
     <status state="up"/>
-    <address addr="10.0.10.30" addrtype="ipv4"/>
+    <address addr="192.0.2.30" addrtype="ipv4"/>
     <ports>
       <port protocol="tcp" portid="22">
         <state state="open"/>
@@ -71,7 +71,7 @@ def fabricate_scan(host: HostRecord):
             RuleResult("xccdf_org.ssgproject.content_rule_audit_rules_time_change",
                        "fail", "medium", "Record events that modify date/time"),
         ],
-        html_path="(would be runs/<id>/10.0.10.21/report.html)",
+        html_path="(would be runs/<id>/192.0.2.21/report.html)",
     )
 
 
@@ -88,7 +88,7 @@ def render_sample(out_dir: str) -> dict:
     setup_logging(run_dir, verbose=True)
 
     cfg = Config(
-        scope=ScanScope(cidrs=["10.0.10.0/24"]),
+        scope=ScanScope(cidrs=["192.0.2.0/24"]),
         credential_groups=[CredentialGroup(name="lab", ssh_user="ubuntu",
                                            targets=["default"])],
         output_dir=out_dir,
@@ -97,7 +97,7 @@ def render_sample(out_dir: str) -> dict:
     hosts = parse_nmap_xml(SAMPLE_NMAP_XML)
     classify(hosts, cfg)
     for h in hosts:
-        if h.ip == "10.0.10.21":
+        if h.ip == "192.0.2.21":
             fabricate_scan(h)
 
     run = RunRecord(run_id=run_id, started_at="2026-06-27T00:00:00+00:00",

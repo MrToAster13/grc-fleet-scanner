@@ -20,7 +20,7 @@ def _seed_run(output_dir: str) -> None:
     store = Store(output_dir)
     store.save_run(RunRecord(
         run_id=RUN_ID, started_at=STARTED, finished_at=STARTED,
-        scope=["10.0.10.0/24"], config_hash="deadbeefcafef00d", hosts=[],
+        scope=["192.0.2.0/24"], config_hash="deadbeefcafef00d", hosts=[],
         dry_run=False,
     ))
     store.close()
@@ -29,7 +29,7 @@ def _seed_run(output_dir: str) -> None:
 def _write_config(path, output_dir: str) -> None:
     path.write_text(
         "scope:\n"
-        "  cidrs: [\"10.0.10.0/24\"]\n"
+        "  cidrs: [\"192.0.2.0/24\"]\n"
         f"output_dir: \"{output_dir}\"  # history.db lives here\n",
         encoding="utf-8",
     )

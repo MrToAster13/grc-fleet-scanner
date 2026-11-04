@@ -164,7 +164,7 @@ On the **Ubuntu target**, write that line into `grc-scan`'s `authorized_keys`, p
 forwarding, PTYs and `~/.ssh/rc`. The scanner needs none of them:
 ```bash
 sudo mkdir -p /home/grc-scan/.ssh
-echo 'from="10.0.10.5",restrict ssh-ed25519 AAAA...your-key... root@runhost' | sudo tee /home/grc-scan/.ssh/authorized_keys
+echo 'from="192.0.2.5",restrict ssh-ed25519 AAAA...your-key... root@runhost' | sudo tee /home/grc-scan/.ssh/authorized_keys
 sudo chown -R grc-scan:grc-scan /home/grc-scan/.ssh
 sudo chmod 700 /home/grc-scan/.ssh
 sudo chmod 600 /home/grc-scan/.ssh/authorized_keys

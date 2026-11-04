@@ -26,7 +26,7 @@ def _cfg():
 
 
 def _host():
-    return HostRecord(ip="10.0.10.5")
+    return HostRecord(ip="192.0.2.5")
 
 
 def _assert_verdict(result, host, status, detail_part):

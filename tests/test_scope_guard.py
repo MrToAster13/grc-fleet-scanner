@@ -26,7 +26,7 @@ def _cfg_with_args(tmp_path, arg):
     path = tmp_path / "config.yaml"
     path.write_text(textwrap.dedent(f"""
         scope:
-          cidrs: [10.0.10.0/24]
+          cidrs: [192.0.2.0/24]
           nmap_extra_args: [{arg!r}]
         credential_groups: []
     """), encoding="utf-8")
@@ -62,13 +62,13 @@ def test_cmd_run_drops_hosts_outside_scope_before_ssh(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     _scaffold_config(str(cfg_path))
     doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["scope"]["cidrs"] = ["192.0.2.0/29"]
     doc["output_dir"] = str(tmp_path / "out")
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def fake_discover(scope, want_os=False):
         return [
-            HostRecord(ip="10.0.10.3", status=HostStatus.DISCOVERED),
+            HostRecord(ip="192.0.2.3", status=HostStatus.DISCOVERED),
             HostRecord(ip="198.51.100.7", status=HostStatus.DISCOVERED),
         ]
 
@@ -91,7 +91,7 @@ def test_cmd_run_drops_hosts_outside_scope_before_ssh(tmp_path, monkeypatch):
     )
     cmd_run(args)
 
-    assert assessed == ["10.0.10.3"]
+    assert assessed == ["192.0.2.3"]
     run_dir = next((tmp_path / "out" / "runs").iterdir())
     log_text = (run_dir / "audit.log").read_text(encoding="utf-8")
     assert "outside scope.cidrs" in log_text
