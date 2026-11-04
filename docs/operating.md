@@ -180,7 +180,7 @@ fetch_remote_resources: false # default false; if true, oscap fetches off-box OV
                              #   content (higher coverage; target reaches out).
 os_detect: false             # default false; nmap -O OS detection (feeds the classify hint).
                              #   Part of config_hash. Also settable via --os-detect.
-# known_hosts: "~/.ssh/known_hosts"          # omit => system + user known_hosts
+# known_hosts: "~/.ssh/known_hosts"          # omit => ~/.ssh/known_hosts; set => only this file
 
 credential_groups:           # first matching group (top-down) wins
   - name: prod
