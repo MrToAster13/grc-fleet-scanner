@@ -17,7 +17,7 @@ import grc_auditor.remote as remote_mod
 from grc_auditor.config import CredentialGroup
 from grc_auditor.remote import (
     CommandResult, ConnectionFailed, HostKeyMismatch,
-    RemoteError, RemoteHost, _classify_connect_error,
+    RemoteError, RemoteHost, UnknownHostKey, _classify_connect_error,
 )
 
 
@@ -113,19 +113,77 @@ def test_connect_timeout_raises_connection_failed_and_tears_down_client(monkeypa
     assert fake_client.closed is True
 
 
-class _RaisingStream:
-    """A paramiko command-output stream whose read() always times out, as if
-    the command wedged mid-run and the channel's own timeout tripped."""
-
-    class _Channel:
-        def close(self):
-            pass
+class _FakeClock:
+    """Stands in for the time module in remote.py, so deadline tests run
+    instantly. Each sleep and each chunk the target sends moves it forward."""
 
     def __init__(self):
-        self.channel = self._Channel()
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class _ScriptedChannel:
+    """A paramiko channel for a target that sends ``chunks`` copies of
+    ``chunk`` on one stream, then exits. Each chunk costs ``seconds_per_chunk``
+    on the fake clock. ``chunks=0`` with ``exits=False`` is a command that
+    hangs silently."""
+
+    def __init__(self, chunk=b"", chunks=0, stream="out", clock=None,
+                 seconds_per_chunk=0.0, exits=True):
+        self.chunk = chunk
+        self.left = chunks
+        self.stream = stream
+        self.clock = clock
+        self.seconds_per_chunk = seconds_per_chunk
+        self.exits = exits
+        self.closed = False
+
+    def _send(self):
+        self.left -= 1
+        if self.clock is not None:
+            self.clock.now += self.seconds_per_chunk
+        return self.chunk
+
+    def recv_ready(self):
+        return self.stream == "out" and self.left > 0
+
+    def recv(self, n):
+        return self._send()
+
+    def recv_stderr_ready(self):
+        return self.stream == "err" and self.left > 0
+
+    def recv_stderr(self, n):
+        return self._send()
+
+    def exit_status_ready(self):
+        return self.exits and self.left <= 0
+
+    def recv_exit_status(self):
+        return 0
+
+    def close(self):
+        self.closed = True
+
+
+class _ChannelStream:
+    """The file-style stdout/stderr object exec_command returns, backed by a
+    _ScriptedChannel."""
+
+    def __init__(self, channel, stream):
+        self.channel = channel
+        self._stream = stream
 
     def read(self, n):
-        raise socket.timeout("timed out")
+        ch = self.channel
+        if ch.stream != self._stream or ch.left <= 0:
+            return b""
+        return ch._send()
 
 
 class _FakeStdin:
@@ -136,18 +194,257 @@ class _FakeStdin:
     channel = _Channel()
 
 
-class _FakeConnectedClient:
-    """A connected paramiko client whose exec_command hands back a stream that
-    times out on read, simulating a command that hangs mid-run."""
+class _ChannelClient:
+    def __init__(self, channel):
+        self.channel = channel
 
     def exec_command(self, command, timeout=None):
-        return _FakeStdin(), _RaisingStream(), _RaisingStream()
+        return (_FakeStdin(), _ChannelStream(self.channel, "out"),
+                _ChannelStream(self.channel, "err"))
 
 
-def test_run_command_timeout_mid_run_raises_remote_error_not_a_hang():
+def _host_on(channel):
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
     rh = RemoteHost("10.0.10.21", group, known_hosts=None)
-    rh._client = _FakeConnectedClient()
+    rh._client = _ChannelClient(channel)
+    return rh
+
+
+def test_run_command_timeout_mid_run_raises_remote_error_not_a_hang(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(remote_mod, "time", clock, raising=False)
+    channel = _ScriptedChannel(exits=False)
+    rh = _host_on(channel)
 
     with pytest.raises(RemoteError, match="timed out"):
         rh.run("some-long-running-command", timeout=5)
+    assert channel.closed
+
+
+# --------------------------------------------------------------------------- #
+# Hostile output (ELI-929). A target controls what a command prints and how
+# fast. run() must not buffer more than a fixed cap, and `timeout` is a total
+# deadline, so a target that never stops sending still fails the command.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("stream", ["out", "err"])
+def test_run_refuses_output_past_the_cap(stream):
+    chunk = b"x" * 65536
+    channel = _ScriptedChannel(chunk=chunk, chunks=512, stream=stream)
+    rh = _host_on(channel)
+
+    with pytest.raises(RemoteError, match="output"):
+        rh.run("cat /dev/zero", timeout=600)
+    assert 512 * len(chunk) > remote_mod.MAX_COMMAND_OUTPUT_BYTES
+    assert channel.left > 0, "read the whole flood instead of stopping at the cap"
+    assert channel.closed
+
+
+def test_run_deadline_is_total_not_per_read(monkeypatch):
+    # One byte per second keeps every single read inside any idle timeout.
+    clock = _FakeClock()
+    monkeypatch.setattr(remote_mod, "time", clock, raising=False)
+    channel = _ScriptedChannel(chunk=b".", chunks=1000, clock=clock,
+                               seconds_per_chunk=1.0)
+    rh = _host_on(channel)
+
+    with pytest.raises(RemoteError, match="timed out"):
+        rh.run("yes", timeout=5)
+    assert clock.now < 10
+    assert channel.closed
+
+
+def test_run_returns_output_and_exit_code_under_the_limits():
+    channel = _ScriptedChannel(chunk=b"ok\n", chunks=3)
+    result = _host_on(channel).run("printf ok", timeout=30)
+
+    assert result == CommandResult(0, "ok\nok\nok\n", "")
+
+
+# --------------------------------------------------------------------------- #
+# Evidence size cap during SFTP (ELI-929). The target's stat() can lie, so the
+# cap is enforced on the bytes actually received.
+# --------------------------------------------------------------------------- #
+class _FakeSFTP:
+    """An SFTP session serving one remote file of ``size`` bytes whose stat()
+    claims 100 bytes, as a hostile target could."""
+
+    class _File:
+        def __init__(self, sftp):
+            self.sftp = sftp
+
+        def read(self, n):
+            return self.sftp._serve(n)
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    class _Channel:
+        def settimeout(self, t):
+            pass
+
+    def __init__(self, size):
+        self.size = size
+        self.served = 0
+
+    def _serve(self, n):
+        n = min(n, 32768, self.size - self.served)
+        self.served += n
+        return b"x" * n
+
+    def get_channel(self):
+        return self._Channel()
+
+    def stat(self, path):
+        return type("Attrs", (), {"st_size": 100})()
+
+    def open(self, path, mode="r", bufsize=-1):
+        return self._File(self)
+
+    def get(self, remotepath, localpath, callback=None, prefetch=True,
+            max_concurrent_prefetch_requests=None):
+        with open(localpath, "wb") as fh:
+            while self.served < self.size:
+                fh.write(self._serve(32768))
+
+    def close(self):
+        pass
+
+
+class _SFTPClient:
+    def __init__(self, sftp):
+        self.sftp = sftp
+
+    def open_sftp(self):
+        return self.sftp
+
+
+def _host_with_sftp(sftp):
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh._client = _SFTPClient(sftp)
+    return rh
+
+
+def test_get_file_refuses_an_oversized_file_during_the_download(tmp_path, monkeypatch):
+    cap = 1 << 20
+    monkeypatch.setattr(remote_mod, "MAX_EVIDENCE_BYTES", cap, raising=False)
+    sftp = _FakeSFTP(size=4 * cap)
+    local = tmp_path / "ev" / "results.xml"
+
+    with pytest.raises(RemoteError, match="larger than"):
+        _host_with_sftp(sftp).get_file("/var/lib/grc_audit.Ab3xZ9/results.xml", str(local))
+    assert sftp.served <= cap + 65536, "downloaded past the cap before refusing"
+    assert not local.exists(), "left a truncated evidence file behind"
+
+
+def test_get_file_copies_a_file_under_the_cap(tmp_path):
+    sftp = _FakeSFTP(size=70000)
+    local = tmp_path / "ev" / "results.xml"
+
+    _host_with_sftp(sftp).get_file("/var/lib/grc_audit.Ab3xZ9/results.xml", str(local))
+    assert local.read_bytes() == b"x" * 70000
+
+
+def test_scan_parser_cap_is_the_evidence_cap():
+    from grc_auditor import scan
+    assert scan._MAX_RESULTS_BYTES == remote_mod.MAX_EVIDENCE_BYTES
+
+
+# --------------------------------------------------------------------------- #
+# Host-key pinning (ELI-929). A real paramiko server runs in-process over a
+# socketpair, so the host-key check is paramiko's own, not a mock of it.
+# --------------------------------------------------------------------------- #
+TARGET = "10.0.10.21"
+
+
+@pytest.fixture(scope="module")
+def server_key():
+    return paramiko.RSAKey.generate(2048)
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return home
+
+
+def _known_hosts_line(host, key):
+    return f"{host} {key.get_name()} {key.get_base64()}\n"
+
+
+def _connect_to_in_process_server(monkeypatch, server_key, known_hosts):
+    """RemoteHost.connect() against a paramiko server on a socketpair. Returns
+    the RemoteError it raised. The server allows no auth method, so a host
+    key that passes still ends in an error, just not a host-key one."""
+    import threading
+
+    client_sock, server_sock = socket.socketpair()
+
+    def serve():
+        t = paramiko.Transport(server_sock)
+        t.add_server_key(server_key)
+        try:
+            t.start_server(server=paramiko.ServerInterface())
+            t.accept(timeout=5)
+        except Exception:
+            pass
+        finally:
+            t.close()
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+
+    real_client = paramiko.SSHClient
+
+    class _SocketpairClient(real_client):
+        def connect(self, **kwargs):
+            kwargs["sock"] = client_sock
+            return super().connect(**kwargs)
+
+    monkeypatch.setattr(remote_mod.paramiko, "SSHClient", _SocketpairClient)
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"],
+                            use_agent=False)
+    try:
+        with pytest.raises(RemoteError) as exc_info:
+            RemoteHost(TARGET, group, known_hosts=known_hosts,
+                       connect_timeout=10).connect()
+    finally:
+        client_sock.close()
+        server.join(timeout=10)
+    return exc_info.value
+
+
+def test_configured_known_hosts_rejects_a_key_only_in_the_user_file(
+        tmp_path, home, monkeypatch, server_key):
+    (home / ".ssh" / "known_hosts").write_text(_known_hosts_line(TARGET, server_key))
+    pinned = tmp_path / "fleet_known_hosts"
+    pinned.write_text(_known_hosts_line("10.0.10.99", paramiko.RSAKey.generate(1024)))
+
+    err = _connect_to_in_process_server(monkeypatch, server_key, str(pinned))
+    assert isinstance(err, UnknownHostKey), err
+
+
+def test_configured_known_hosts_accepts_its_own_pin(
+        tmp_path, home, monkeypatch, server_key):
+    pinned = tmp_path / "fleet_known_hosts"
+    pinned.write_text(_known_hosts_line(TARGET, server_key))
+
+    err = _connect_to_in_process_server(monkeypatch, server_key, str(pinned))
+    assert not isinstance(err, (UnknownHostKey, HostKeyMismatch)), err
+
+
+def test_user_known_hosts_is_used_when_none_is_configured(
+        home, monkeypatch, server_key):
+    (home / ".ssh" / "known_hosts").write_text(_known_hosts_line(TARGET, server_key))
+
+    err = _connect_to_in_process_server(monkeypatch, server_key, None)
+    assert not isinstance(err, (UnknownHostKey, HostKeyMismatch)), err

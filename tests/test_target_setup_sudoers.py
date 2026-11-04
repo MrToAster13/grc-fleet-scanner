@@ -373,3 +373,82 @@ def test_unsafe_datastream_path_is_refused(bad):
     res = _scan_sudoers(bad)
     assert res.returncode != 0
     assert res.stdout == ""
+
+
+# --- ELI-929: names sudo would skip, and a datastream the scan user can swap - #
+def _validate_scan_user(name: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [BASH, "-c", 'source "$1"; validate_scan_user "$2"', "_", SCRIPT, name],
+        env={**os.environ, "GRC_TARGET_SETUP_TEST": "1"},
+        capture_output=True, text=True,
+    )
+
+
+@pytest.mark.parametrize("bad", ["grc.scan", "grc-scan~"])
+def test_scan_user_sudo_would_skip_is_refused(bad):
+    # sudo ignores /etc/sudoers.d files whose names contain a dot or end in
+    # ~, and the drop-in is named after the scan user.
+    res = _validate_scan_user(bad)
+    assert res.returncode == 1
+    assert "sudo ignores" in res.stderr, res.stderr
+
+
+@pytest.mark.parametrize("good", ["grc-scan", "grc_scan", "scan1"])
+def test_plain_scan_user_is_accepted(good):
+    res = _validate_scan_user(good)
+    assert res.returncode == 0, res.stderr
+
+
+def test_scan_user_option_is_validated_when_parsed():
+    with open(SCRIPT, encoding="utf-8") as fh:
+        text = fh.read()
+    assert re.search(r'--scan-user\)\s+SCAN_USER="[^\n]*validate_scan_user "\$SCAN_USER"', text)
+
+
+SSG = "/opt/ssg"
+SSG_DS = "/opt/ssg/ssg-ubuntu2204-ds.xml"
+
+
+def _require_root_only_ssg(writable, user_runs=True) -> subprocess.CompletedProcess:
+    """Runs require_root_only_ssg_dir with as_user stubbed: as grc-scan, `test
+    -w P` succeeds only for P in ``writable``, and ``true`` succeeds only when
+    ``user_runs``."""
+    stub = (
+        'as_user() { [ "$1" = grc-scan ] || return 99; shift; '
+        'case "$1" in true) [ "$RUNS" = 1 ]; return ;; esac; '
+        '[ "$1 $2" = "test -w" ] || return 98; '
+        'case " $W " in *" $3 "*) return 0 ;; esac; return 1; }; '
+    )
+    return subprocess.run(
+        [BASH, "-c", 'source "$1"; ' + stub + 'require_root_only_ssg_dir grc-scan "$2" "$3"',
+         "_", SCRIPT, SSG, SSG_DS],
+        env={**os.environ, "GRC_TARGET_SETUP_TEST": "1",
+             "W": " ".join(writable), "RUNS": "1" if user_runs else "0"},
+        capture_output=True, text=True,
+    )
+
+
+@pytest.mark.parametrize("writable", [[SSG], ["/opt"], ["/"], [SSG_DS]])
+def test_ssg_path_the_scan_user_can_write_is_refused(writable):
+    res = _require_root_only_ssg(writable)
+    assert res.returncode == 1
+    assert "can write" in res.stderr and writable[0] in res.stderr, res.stderr
+
+
+def test_root_only_ssg_path_is_accepted():
+    res = _require_root_only_ssg([])
+    assert res.returncode == 0, res.stderr
+
+
+def test_ssg_check_fails_closed_when_it_cannot_run_as_the_scan_user():
+    res = _require_root_only_ssg([], user_runs=False)
+    assert res.returncode == 1
+    assert "could not run a command as grc-scan" in res.stderr, res.stderr
+
+
+def test_setup_checks_the_ssg_dir_before_writing_sudoers():
+    with open(SCRIPT, encoding="utf-8") as fh:
+        text = fh.read()
+    check = text.find('require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR" "$SSG_DIR/$SSG_FILE"')
+    write = text.find('scan_sudoers "$SCAN_USER"')
+    assert 0 < check < write

@@ -172,13 +172,6 @@ def cmd_run(args) -> int:
         print(f"config error: {exc}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
-    # Restrict permissions on everything this run creates (dirs 0700, files 0600).
-    # The evidence/logs/report encode the fleet's full internal posture + scope; on
-    # a shared jump host (the design's stated run host) default 0644/0755 would let
-    # any other local user read it. umask is process-global and this is a one-shot
-    # CLI, so setting it here covers makedirs + open + SFTP-written evidence.
-    os.umask(0o077)
-
     run_id = _run_id()
     run_dir = os.path.join(cfg.output_dir, "runs", run_id)
     log = setup_logging(run_dir, verbose=args.verbose)
@@ -258,12 +251,14 @@ def cmd_run(args) -> int:
                 for fut in as_completed(futures):
                     store.save_host(run.run_id, fut.result())  # never raises
 
+        # Stage 8: report, then stamp the run finished. If reporting raises,
+        # the run stays unfinished in history instead of finished with no
+        # report. Drift and trend skip the current run's row, so they don't
+        # need the stamp.
         run.finished_at = _utcnow()
-        store.finish_run(run.run_id, run.finished_at)
-
-        # Stage 8: report (drift needs the store, after this run is saved)
         paths = write_reports(run, store, run_dir,
                               low_confidence_threshold=cfg.low_confidence_threshold)
+        store.finish_run(run.run_id, run.finished_at)
     finally:
         store.close()
 
@@ -448,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Everything this tool writes is private (dirs 0700, files 0600): run
+    # evidence, logs and reports, and rmf rollups, all of which encode the
+    # fleet's internal posture and scope. On a shared jump host (the design's
+    # stated run host) the default 0644/0755 would let any other local user
+    # read them. umask is process-global and this is a one-shot CLI, so one
+    # call covers makedirs, open and SFTP-written evidence for every command.
+    os.umask(0o077)
     return args.func(args)
 
 

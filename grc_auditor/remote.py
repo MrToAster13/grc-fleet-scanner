@@ -37,7 +37,8 @@ Recommended one-time bootstrap, performed from the SAME run host over a
 trusted/maintenance window:
 
   1. Collect keys for the in-scope hosts into the configured known_hosts file
-     (``config.known_hosts``; defaults to the system files + ``~/.ssh/known_hosts``)::
+     (``config.known_hosts``; when unset, ``~/.ssh/known_hosts`` is used, and
+     when set, that file is the only one trusted)::
 
          ssh-keyscan -t ed25519,rsa -f authorized_targets.txt \\
              >> /path/to/fleet_known_hosts
@@ -60,6 +61,7 @@ from __future__ import annotations
 import os
 import shlex
 import socket
+import time
 from dataclasses import dataclass
 from typing import Optional, Protocol, runtime_checkable
 
@@ -74,6 +76,14 @@ from .config import CredentialGroup
 from .logging_setup import get_logger
 
 log = get_logger()
+
+# The target controls what a command prints and what a file holds, so neither
+# is trusted to be small. oscap's own stdout for a CIS scan is well under 1 MiB;
+# the reports go over SFTP, not stdout.
+MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024  # stdout + stderr, per command
+MAX_EVIDENCE_BYTES = 256 * 1024 * 1024       # per file pulled over SFTP
+_READ_CHUNK = 65536
+_POLL_SECONDS = 0.05
 
 
 class RemoteError(Exception):
@@ -171,12 +181,13 @@ def sudo_password_required(result: "CommandResult") -> bool:
 
 
 def _load_host_keys(client: "paramiko.SSHClient", known_hosts: Optional[str]):
-    client.load_system_host_keys()
-    default_user_kh = os.path.expanduser("~/.ssh/known_hosts")
+    # A configured file is the audit-controlled pin, so it is the only source:
+    # paramiko's "system" keys are ~/.ssh/known_hosts, which anyone with the
+    # run account can append to.
     if known_hosts:
         client.load_host_keys(os.path.expanduser(known_hosts))
-    elif os.path.exists(default_user_kh):
-        client.load_host_keys(default_user_kh)
+    else:
+        client.load_system_host_keys()
     # Reject anything not already trusted - host identity must be verified.
     # See the module docstring for the bootstrap workflow that populates these.
     client.set_missing_host_key_policy(paramiko.RejectPolicy())
@@ -297,11 +308,10 @@ class RemoteHost:
             timeout: Optional[int] = None) -> CommandResult:
         """Run a command and return its exit code + captured stdout/stderr.
 
-        Safe for large/verbose output (oscap can emit a lot): output is drained
-        from both streams rather than assuming it fits a single read, and the
-        channel carries a hard ``timeout`` so a hung command cannot block
-        forever - a stalled read raises :class:`RemoteError` rather than wedging
-        the run. With ``sudo=True`` the command is wrapped in ``sudo -n``
+        stdout and stderr are read together, up to MAX_COMMAND_OUTPUT_BYTES
+        combined, and ``timeout`` is a total deadline for the whole command. A
+        target that floods output, trickles it, or never exits raises
+        :class:`RemoteError`. With ``sudo=True`` the command is wrapped in ``sudo -n``
         (passwordless); a password prompt is surfaced as recognisable stderr
         (see :func:`sudo_password_required`) rather than blocking on a prompt.
         """
@@ -326,26 +336,56 @@ class RemoteHost:
             pass
 
         channel = stdout.channel
-        # The channel timeout (set via exec_command above) guards the blocking
-        # reads: a stalled command raises socket.timeout out of read() instead of
-        # hanging indefinitely.
         try:
-            out_bytes = self._drain(stdout)
-            err_bytes = self._drain(stderr)
+            out_bytes, err_bytes = self._collect(channel, command, timeout)
             code = channel.recv_exit_status()
-        except socket.timeout as exc:
+        except (RemoteError, socket.timeout) as exc:
             try:
                 channel.close()
             except Exception:  # pragma: no cover - best effort
                 pass
+            if isinstance(exc, RemoteError):
+                raise
             raise RemoteError(
-                f"command on {self.ip} timed out after {timeout}s "
-                f"(no output/exit within the limit): {command}"
+                f"command on {self.ip} timed out after {timeout}s: {command}"
             ) from exc
 
         out = out_bytes.decode("utf-8", errors="replace")
         err = err_bytes.decode("utf-8", errors="replace")
         return CommandResult(code, out, err)
+
+    def _collect(self, channel, command: str, timeout: Optional[int]):
+        """Read stdout and stderr until the command exits.
+
+        Both streams are read in one loop, because they share the channel's
+        flow-control window: a target that fills stderr would otherwise stall
+        a stdout read. Only bytes paramiko already holds are read, so no call
+        blocks, and the cap and the deadline are checked on every pass.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        out, err = bytearray(), bytearray()
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise RemoteError(
+                    f"command on {self.ip} timed out after {timeout}s: {command}")
+            got = False
+            if channel.recv_ready():
+                out += channel.recv(_READ_CHUNK)
+                got = True
+            if channel.recv_stderr_ready():
+                err += channel.recv_stderr(_READ_CHUNK)
+                got = True
+            if len(out) + len(err) > MAX_COMMAND_OUTPUT_BYTES:
+                raise RemoteError(
+                    f"command on {self.ip} sent more than "
+                    f"{MAX_COMMAND_OUTPUT_BYTES} bytes of output; refusing the "
+                    f"rest: {command}")
+            if not got:
+                # paramiko queues data ahead of the exit status, so once the
+                # status is in and both buffers are empty, all output is read.
+                if channel.exit_status_ready():
+                    return bytes(out), bytes(err)
+                time.sleep(_POLL_SECONDS)
 
     def run_argv(self, argv: list, *, sudo: bool = False,
                  timeout: Optional[int] = None) -> CommandResult:
@@ -361,29 +401,15 @@ class RemoteHost:
         command = " ".join(shlex.quote(str(a)) for a in argv)
         return self.run(command, sudo=sudo, timeout=timeout)
 
-    @staticmethod
-    def _drain(stream) -> bytes:
-        """Read a paramiko file stream to EOF in chunks.
-
-        ``read()`` already loops to EOF, but doing it in bounded chunks keeps a
-        very large oscap report (tens of MB) from forcing one giant allocation,
-        and any per-read stall still surfaces as the channel's socket.timeout.
-        """
-        chunks = []
-        while True:
-            chunk = stream.read(65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
-
     def get_file(self, remote_path: str, local_path: str,
                  timeout: Optional[int] = 300):
         """Pull a remote file to ``local_path`` via SFTP.
 
         Creates the local parent directory, always closes the SFTP channel (even
         on error), and raises a clear :class:`RemoteError` if the remote file is
-        missing or otherwise unreadable.
+        missing, unreadable, or larger than MAX_EVIDENCE_BYTES. The size is
+        counted on the bytes received, not taken from the target's stat(), and
+        a failed pull leaves no partial file behind.
 
         A ``timeout`` is enforced on the SFTP channel: without it a stalled
         transfer from a slow/hostile host would block the worker thread (and thus
@@ -404,7 +430,35 @@ class RemoteHost:
                 f"could not open SFTP channel to {self.ip}: {exc}"
             ) from exc
         try:
-            sftp.get(remote_path, local_path)
+            self._copy_capped(sftp, remote_path, local_path)
+        except BaseException:
+            try:
+                os.remove(local_path)
+            except OSError:
+                pass
+            raise
+        finally:
+            try:
+                sftp.close()
+            except Exception:  # pragma: no cover - best effort
+                pass
+
+    def _copy_capped(self, sftp, remote_path: str, local_path: str) -> None:
+        # Not sftp.get(): it prefetches as many bytes as the target's stat()
+        # claims, so a lying size queues unbounded reads.
+        try:
+            received = 0
+            with sftp.open(remote_path, "rb") as src, open(local_path, "wb") as dst:
+                while True:
+                    chunk = src.read(32768)
+                    if not chunk:
+                        return
+                    received += len(chunk)
+                    if received > MAX_EVIDENCE_BYTES:
+                        raise RemoteError(
+                            f"{remote_path} on {self.ip} is larger than "
+                            f"{MAX_EVIDENCE_BYTES} bytes; refusing to pull it")
+                    dst.write(chunk)
         except FileNotFoundError as exc:
             raise RemoteError(
                 f"remote file not found on {self.ip}: {remote_path}"
@@ -420,8 +474,3 @@ class RemoteHost:
             raise RemoteError(
                 f"could not retrieve {remote_path} from {self.ip}: {exc}"
             ) from exc
-        finally:
-            try:
-                sftp.close()
-            except Exception:  # pragma: no cover - best effort
-                pass
