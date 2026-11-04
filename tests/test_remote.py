@@ -260,6 +260,92 @@ def test_run_returns_output_and_exit_code_under_the_limits():
     assert result == CommandResult(0, "ok\nok\nok\n", "")
 
 
+class _ExecServer(paramiko.ServerInterface):
+    """Accepts any user with no auth and answers each exec by running
+    ``respond(channel)`` on a thread, the way sshd runs a command."""
+
+    def __init__(self, respond):
+        self.respond = respond
+
+    def get_allowed_auths(self, username):
+        return "none"
+
+    def check_auth_none(self, username):
+        return paramiko.AUTH_SUCCESSFUL
+
+    def check_channel_request(self, kind, chanid):
+        return paramiko.OPEN_SUCCEEDED
+
+    def check_channel_exec_request(self, channel, command):
+        import threading
+        threading.Thread(target=self.respond, args=(channel,), daemon=True).start()
+        return True
+
+
+class _TransportClient:
+    """exec_command the way paramiko.SSHClient does it, on a bare Transport."""
+
+    def __init__(self, transport):
+        self.t = transport
+
+    def exec_command(self, command, timeout=None):
+        chan = self.t.open_session()
+        chan.settimeout(timeout)
+        chan.exec_command(command)
+        return (chan.makefile_stdin("wb"), chan.makefile("r"),
+                chan.makefile_stderr("r"))
+
+
+def _run_on_real_channel(server_key, respond, timeout=30):
+    client_sock, server_sock = socket.socketpair()
+    server_t = paramiko.Transport(server_sock)
+    server_t.add_server_key(server_key)
+    import threading
+    server_t.start_server(event=threading.Event(), server=_ExecServer(respond))
+    client_t = paramiko.Transport(client_sock)
+    try:
+        client_t.start_client(timeout=10)
+        client_t.auth_none("ubuntu")
+        group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+        rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+        rh._client = _TransportClient(client_t)
+        return rh.run("oscap xccdf eval", timeout=timeout)
+    finally:
+        client_t.close()
+        server_t.close()
+
+
+def test_run_reads_all_output_before_the_exit_status_on_a_real_channel(server_key):
+    out = b"o" * (3 << 20)
+    err = b"e" * (200 << 10)
+
+    def respond(ch):
+        for i in range(0, len(out), 1 << 20):
+            ch.sendall(out[i:i + (1 << 20)])
+            ch.sendall_stderr(err[:len(err) // 3])
+        ch.sendall_stderr(err[: len(err) - 3 * (len(err) // 3)])
+        ch.send_exit_status(3)
+        ch.close()
+
+    result = _run_on_real_channel(server_key, respond)
+    assert result.exit_code == 3
+    assert result.stdout.encode() == out
+    assert len(result.stderr) == len(err)
+
+
+def test_run_stops_a_real_flood_at_the_cap(server_key):
+    def respond(ch):
+        block = b"x" * (1 << 20)
+        try:
+            while True:
+                ch.sendall(block)
+        except Exception:
+            pass
+
+    with pytest.raises(RemoteError, match="output"):
+        _run_on_real_channel(server_key, respond)
+
+
 # --------------------------------------------------------------------------- #
 # Evidence size cap during SFTP (ELI-929). The target's stat() can lie, so the
 # cap is enforced on the bytes actually received.
