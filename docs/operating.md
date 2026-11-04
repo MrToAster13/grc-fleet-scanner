@@ -166,7 +166,7 @@ scope:
                              #   Refused if wider than /16 (blast-radius guard).
   exclude: [10.0.10.1]       # IPs/ranges to skip; re-enforced before SSH, not just nmap
   nmap_timing: "-T3"         # cautious default; only -T0..-T5 accepted
-  nmap_extra_args: []        # flags only: no bare targets, no scope/output-altering flags
+  nmap_extra_args: []        # allowlist: discovery, port, timing, verbosity flags (-Pn, -p22, --open, ...)
   ssh_concurrency: 10        # bounded parallel SSH/scan workers (1..100)
   host_timeout_seconds: 600  # per-host scan timeout, 1..86400 seconds
 

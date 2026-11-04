@@ -206,6 +206,13 @@ def cmd_run(args) -> int:
     # Re-enforce exclusions before any SSH (defense in depth): nmap already gets
     # --exclude, but the golden rule is too important to rely on a single layer --
     # an excluded IP must never be connected to even if discovery returns it.
+    # The same rule for the scope itself: a host nmap returns from outside
+    # scope.cidrs was never authorized, so it never reaches classify or SSH.
+    kept = [h for h in hosts if ip_in_networks(h.ip, cfg.scope.cidrs)]
+    if len(kept) != len(hosts):
+        log.warning("dropped %d discovered host(s) outside scope.cidrs "
+                    "before any SSH", len(hosts) - len(kept))
+    hosts = kept
     if cfg.scope.exclude:
         kept = [h for h in hosts if not ip_in_networks(h.ip, cfg.scope.exclude)]
         if len(kept) != len(hosts):

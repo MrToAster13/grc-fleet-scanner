@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -244,12 +245,34 @@ _MIN_IPV4_PREFIX = 16
 _MIN_IPV6_PREFIX = 112
 _MAX_SSH_CONCURRENCY = 100
 
-# nmap extra-args we refuse: they add targets, redirect output, or run scripts --
-# all of which can broaden the blast radius or defeat the configured scope/exclude.
-_FORBIDDEN_NMAP_ARGS = {
-    "-iL", "--excludefile", "--exclude", "-oA", "-oN", "-oG", "-oX", "-oS",
-    "--script", "--interactive", "--resume", "--datadir",
-}
+# nmap extra-args are allowlisted, not denylisted. A denylist cannot keep up with
+# nmap's parser: it accepts unambiguous long-option prefixes (--excludefil=),
+# short options with an attached value (-oNfile, -iLfile), and flags that add
+# targets or run NSE scripts under other names (-iR, -sC, -A). Every pattern
+# below must match the whole token. Anything else is refused, which keeps extra
+# args to host discovery, ports, timing and output verbosity. Debug (-d) and
+# --stats-every stay out on purpose: they print to stdout, where the tool reads
+# nmap's XML (-oX -).
+_DURATION = r"[0-9]+(?:\.[0-9]+)?(?:ms|s|m|h)?"
+_ALLOWED_NMAP_ARG_PATTERNS = tuple(re.compile(p) for p in (
+    r"-Pn", r"-sn", r"-sP", r"-P[EPMR]", r"-P[SAUYO][0-9,\-]*",
+    r"--disable-arp-ping", r"-6",
+    r"-p[0-9TUS:,\-]+", r"--exclude-ports=[0-9TUS:,\-]+", r"-F", r"-r", r"--open",
+    r"--top-ports=[0-9]+", r"--port-ratio=[0-9.]+",
+    r"-T[0-5]", r"-s[STUV]", r"-n", r"-R", r"-v{1,3}", r"--reason",
+    r"-O", r"--osscan-(?:limit|guess)", r"--max-os-tries=[0-9]+",
+    r"--version-(?:light|all)", r"--version-intensity=[0-9]",
+    r"--(?:min|max)-(?:rate|hostgroup|parallelism)=[0-9.]+",
+    r"--max-retries=[0-9]+",
+    r"--(?:min|max|initial)-rtt-timeout=" + _DURATION,
+    r"--(?:max-)?scan-delay=" + _DURATION,
+    r"--host-timeout=" + _DURATION,
+    r"--defeat-rst-ratelimit",
+))
+
+
+def _nmap_arg_allowed(arg: str) -> bool:
+    return any(p.fullmatch(arg) for p in _ALLOWED_NMAP_ARG_PATTERNS)
 
 
 _EMPTY_SCOPE_MESSAGE = (
@@ -335,10 +358,13 @@ def _validate_nmap_extra_args(args) -> list:
                 f"nmap_extra_args may only contain flags, not bare targets (got "
                 f"{a!r}); targets come from scope.cidrs."
             )
-        if a.split("=", 1)[0] in _FORBIDDEN_NMAP_ARGS:
+        if not _nmap_arg_allowed(a):
             raise ConfigError(
-                f"nmap_extra_args: {a!r} is not allowed -- it could add targets, "
-                f"redirect output, or defeat the configured scope/exclusions."
+                f"nmap_extra_args: {a!r} is not allowed. Extra args are limited to "
+                f"host discovery, port, timing and verbosity flags (for example "
+                f"-Pn, -p22,2222, --open, --top-ports=100), so they cannot add "
+                f"targets, write files, run scripts or defeat scope.exclude. Give "
+                f"a flag's value with '=' or attached, not as a separate item."
             )
         out.append(a)
     return out
