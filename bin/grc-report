@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # grc-report: open the latest run's HTML report. Looks under the output_dir of
-# ./config.yaml (or -c <file>), else ./grc-output; -o <dir> overrides both
-# (ELI-717). Opens in a browser when there's a display;
+# ./config.yaml (or -c <file>), else ./grc-output; -o <dir> overrides both.
+# Opens in a browser when there's a display;
 # prints the path when headless (e.g. over SSH) so you can copy it out.
 here="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 . "$here/_grc-common.sh"   # only for grc_die; no venv/env needed to read a report

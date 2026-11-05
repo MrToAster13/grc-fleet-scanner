@@ -5,7 +5,7 @@
 # repo lives (in ~/.config/grc/env) so the launchers can find the code and build
 # their virtualenv on first use. Links, not copies: a `git pull` that changes a
 # launcher or the sourced helper takes effect at once, with no reinstall
-# (ELI-716). Re-runnable: running it again replaces old copies with links and
+# Re-runnable: running it again replaces old copies with links and
 # does not append the PATH export line a second time. Re-run it after a pull
 # that adds a new command, or after moving the repo. After this, run
 # `grc-setup` to build the venv + install nmap.
@@ -60,7 +60,7 @@ done
 echo "grc install: installed ${#commands[@]} commands to $DEST:"
 printf '  %s\n' "${commands[@]}"
 
-# Remove launchers for commands cut in a later release (ELI-142: --deep). A
+# Remove launchers for commands cut in a later release (--deep). A
 # re-run of install.sh on an existing install would otherwise leave a stale
 # grc-deep behind forever, since it's no longer in ./bin to overwrite it.
 removed_commands=(grc-deep)

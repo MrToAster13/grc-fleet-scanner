@@ -24,7 +24,7 @@ from .models import HostRecord, HostStatus, RunRecord
 WEAK_PASS_RATE = 75.0
 STRONG_PASS_RATE = 90.0
 
-# Fleet-level coverage gates on the executive posture (ELI-166). The share is
+# Fleet-level coverage gates on the executive posture. The share is
 # scanned hosts over scan candidates (every host except NON_UBUNTU inventory).
 # Below MIN_COVERAGE_FOR_POSTURE the posture is "incomplete": the pass rate
 # describes less than half the in-scope fleet, mirroring the per-host 50% hard

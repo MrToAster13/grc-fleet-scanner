@@ -135,11 +135,11 @@ def test_scan_host_issues_no_remediation_command(tmp_path):
 # --- report ----------------------------------------------------------------- #
 
 def _report(tmp_path, failed_rules):
-    host = fabricate_scanned_host(ip="10.0.10.21")
+    host = fabricate_scanned_host(ip="192.0.2.21")
     host.scan.failed_rules = failed_rules
     from grc_auditor.models import RunRecord
     run = RunRecord(run_id="20260627T000000Z", started_at="2026-06-27T00:00:00+00:00",
-                    finished_at="2026-06-27T00:00:00+00:00", scope=["10.0.10.0/24"],
+                    finished_at="2026-06-27T00:00:00+00:00", scope=["192.0.2.0/24"],
                     config_hash="h", hosts=[host])
     store = Store(str(tmp_path))
     try:
@@ -194,11 +194,11 @@ def test_deeply_nested_fix_parses_instead_of_failing_the_scan(tmp_path):
 
 def _two_host_report(tmp_path, first, second):
     from grc_auditor.models import RunRecord
-    a = fabricate_scanned_host(ip="10.0.10.21")
-    b = fabricate_scanned_host(ip="10.0.10.22", hostname="web02.lab")
+    a = fabricate_scanned_host(ip="192.0.2.21")
+    b = fabricate_scanned_host(ip="192.0.2.22", hostname="web02.lab")
     a.scan.failed_rules, b.scan.failed_rules = [first], [second]
     run = RunRecord(run_id="20260627T000000Z", started_at="2026-06-27T00:00:00+00:00",
-                    finished_at="2026-06-27T00:00:00+00:00", scope=["10.0.10.0/24"],
+                    finished_at="2026-06-27T00:00:00+00:00", scope=["192.0.2.0/24"],
                     config_hash="h", hosts=[a, b])
     store = Store(str(tmp_path))
     try:

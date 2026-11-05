@@ -276,7 +276,7 @@ scan_sudoers() {
 # addresses, CIDRs or sshd wildcards, comma-separated. A quote or a space would
 # end the option early and let the value add options of its own.
 validate_from() {
-    [ -n "$1" ] || die "--from needs the run host's address (for example --from 10.0.10.5)."
+    [ -n "$1" ] || die "--from needs the run host's address (for example --from 192.0.2.5)."
     case "$1" in
         *[!A-Za-z0-9.:/*?,!_-]*) die "--from '$1' has characters an authorized_keys from= option cannot hold. Use hosts, IPs or CIDRs separated by commas." ;;
     esac

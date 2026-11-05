@@ -287,7 +287,7 @@ def _parse_network(c, where: str):
     if not isinstance(c, str):
         raise ConfigError(
             f"Invalid CIDR in {where}: {c!r} (must be a string such as "
-            f"10.0.0.0/24)")
+            f"192.0.2.0/24)")
     try:
         return ipaddress.ip_network(c, strict=False)
     except ValueError as exc:
@@ -420,10 +420,10 @@ def _parse_credential_group(doc, index: int) -> CredentialGroup:
         name = _as_str(name, f"credential_groups[{index}].name")
     where = f"credential_group '{name}'"
     if "bastion" in doc:
-        # Bastion support was cut (ELI-142). An old config with a bastion:
+        # Bastion support was cut. An old config with a bastion:
         # block used to jump through it; silently ignoring the key now would
         # dial these hosts directly instead, and they'd just show up as
-        # unreachable with no clue why (ELI-341). Fail loudly and point at
+        # unreachable with no clue why. Fail loudly and point at
         # the supported workaround instead.
         raise ConfigError(
             f"{where}: 'bastion' is no longer supported. Set up a local SSH "

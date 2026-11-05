@@ -13,7 +13,7 @@ def _make_run(run_id, started_at, hosts, scope=None):
         run_id=run_id,
         started_at=started_at,
         finished_at=started_at,
-        scope=scope or ["10.0.10.0/24"],
+        scope=scope or ["192.0.2.0/24"],
         config_hash="deadbeefcafef00d",
         hosts=hosts,
     )
@@ -24,7 +24,7 @@ def test_save_and_load_round_trip_including_findings(tmp_path):
     try:
         scanned = fabricate_scanned_host()
         non_ubuntu = HostRecord(
-            ip="10.0.10.30", hostname="db01.lab",
+            ip="192.0.2.30", hostname="db01.lab",
             status=HostStatus.NON_UBUNTU, detail="Debian, not Ubuntu",
         )
         run = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00",
@@ -35,19 +35,19 @@ def test_save_and_load_round_trip_including_findings(tmp_path):
         assert loaded is not None
         assert loaded.run_id == run.run_id
         assert loaded.started_at == run.started_at
-        assert loaded.scope == ["10.0.10.0/24"]
+        assert loaded.scope == ["192.0.2.0/24"]
         assert loaded.config_hash == "deadbeefcafef00d"
 
         by_ip = {h.ip: h for h in loaded.hosts}
-        assert set(by_ip) == {"10.0.10.21", "10.0.10.30"}
+        assert set(by_ip) == {"192.0.2.21", "192.0.2.30"}
 
         # non-Ubuntu host: no scan persisted
-        db = by_ip["10.0.10.30"]
+        db = by_ip["192.0.2.30"]
         assert db.status is HostStatus.NON_UBUNTU
         assert db.scan is None
 
         # scanned host: scan + findings round-trip
-        web = by_ip["10.0.10.21"]
+        web = by_ip["192.0.2.21"]
         assert web.status is HostStatus.SCANNED
         assert web.scan is not None
         assert web.scan.passed == 180
@@ -99,7 +99,7 @@ def test_run_without_dry_run_marker_still_loads(tmp_path):
     try:
         dry = _make_run(
             "20260601T000000Z", "2026-06-01T00:00:00+00:00",
-            [HostRecord(ip="10.0.10.21", status=HostStatus.DISCOVERED)],
+            [HostRecord(ip="192.0.2.21", status=HostStatus.DISCOVERED)],
         )
         store.save_run(dry)
 
@@ -124,7 +124,7 @@ def test_list_runs_ordering_newest_first(tmp_path):
         ids = [r["run_id"] for r in runs]
         assert ids == ["20260627T000000Z", "20260615T000000Z", "20260601T000000Z"]
         # scope is stored as JSON; surfaced as the raw string by list_runs
-        assert "10.0.10.0/24" in runs[0]["scope"]
+        assert "192.0.2.0/24" in runs[0]["scope"]
     finally:
         store.close()
 
@@ -168,12 +168,12 @@ def test_incremental_persistence_leaves_a_visible_unfinished_run(tmp_path):
         run = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [])
         run.finished_at = None
         store.begin_run(run)
-        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
+        store.save_host(run.run_id, fabricate_scanned_host(ip="192.0.2.21"))
 
         loaded = store.load_run("20260627T000000Z")
         assert loaded is not None
         assert loaded.finished_at is None           # visibly incomplete
-        assert [h.ip for h in loaded.hosts] == ["10.0.10.21"]
+        assert [h.ip for h in loaded.hosts] == ["192.0.2.21"]
 
         store.finish_run("20260627T000000Z", "2026-06-27T00:05:00+00:00")
         assert store.load_run("20260627T000000Z").finished_at == \
@@ -193,16 +193,16 @@ def test_begin_run_is_idempotent_and_clears_prior_hosts(tmp_path):
         run = _make_run("20260627T000000Z", "2026-06-27T00:00:00+00:00", [])
         run.finished_at = None
         store.begin_run(run)
-        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
+        store.save_host(run.run_id, fabricate_scanned_host(ip="192.0.2.21"))
 
         # resume: begin again for the same id, re-persist the same host
         store.begin_run(run)
-        store.save_host(run.run_id, fabricate_scanned_host(ip="10.0.10.21"))
+        store.save_host(run.run_id, fabricate_scanned_host(ip="192.0.2.21"))
         store.finish_run(run.run_id, "2026-06-27T00:05:00+00:00")
 
         loaded = store.load_run("20260627T000000Z")
         # exactly ONE host row survives -- the first pass was cleared, not appended
-        assert [h.ip for h in loaded.hosts] == ["10.0.10.21"]
+        assert [h.ip for h in loaded.hosts] == ["192.0.2.21"]
         # and exactly its 2 findings exist table-wide -- the first pass's findings
         # were deleted, not left orphaned/doubled (would be 4 without the clear)
         total_findings = store._conn.execute(

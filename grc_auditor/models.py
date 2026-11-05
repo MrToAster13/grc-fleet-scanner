@@ -241,7 +241,7 @@ class RunRecord:
     scope: list[str] = field(default_factory=list)   # the CIDRs scanned
     config_hash: Optional[str] = None
     hosts: list[HostRecord] = field(default_factory=list)
-    # Explicit dry-run marker (ELI-341). None means "unknown / not recorded"
+    # Explicit dry-run marker. None means "unknown / not recorded"
     # (e.g. a run loaded from before this field existed); history.is_dry_run
     # infers it structurally in that case. True/False means the caller told us directly,
     # which matters for a dry run with zero candidate hosts: it leaves no

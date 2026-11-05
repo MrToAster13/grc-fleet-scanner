@@ -2,7 +2,7 @@
 
 The rationale behind GRC Fleet Auditor: what it is, the decisions that shaped it, and
 what is deliberately out of scope. For day-to-day use see [operating.md](operating.md);
-for build history see [../CHANGELOG.md](../CHANGELOG.md).
+for what changed see [../CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
@@ -119,7 +119,7 @@ Edges:
   candidate is scanned (any fleet under 10 candidates needs all of them). This is
   deliberate: a single unassessed host in a 4-host fleet is a quarter of the estate.
 
-These are proposed values (ELI-166), pending Elijah's confirmation. They live as
+These values live as
 `MIN_COVERAGE_FOR_POSTURE` and `STRONG_COVERAGE_THRESHOLD` in `grc_auditor/posture.py`,
 next to the pass-rate cutoffs `WEAK_PASS_RATE` (75%) and `STRONG_PASS_RATE` (90%), and
 are not operator-tunable, for the same reason the per-host floor is not: a config knob
@@ -201,7 +201,7 @@ schema) are stable seams that let the modules evolve independently.
 
 - Long-running daemon / live web service.
 - Auto-remediation (OpenSCAP can generate fixes; assessment-only for v1). The
-  report does show remediation guidance (ELI-930): the SSG rationale and fix
+  report does show remediation guidance: the SSG rationale and fix
   text (shell, else Ansible) read from the Benchmark in each host's results.xml.
   `findings.csv` carries it for every failed rule on every host. The HTML shows
   it in a collapsed block labeled "from SSG, not applied by this tool" for the
@@ -232,7 +232,7 @@ dry run and a full run of the identical config hash identically), so
 `config_hash` matching alone cannot tell them apart. A dry run performs no
 scan and carries no compliance evidence; comparing against it, or charting it
 on the trend line, would either silently skip a real comparable baseline or
-report on a run that never assessed anything. Since ELI-341 each run row
+report on a run that never assessed anything. Each run row now
 carries an explicit `runs.dry_run` marker, and that marker decides whenever
 it is set. A dry run that found zero candidates leaves no host rows, so only
 the marker can identify it. Rows written before the marker existed

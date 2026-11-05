@@ -61,16 +61,16 @@ def test_parses_up_hosts_ip_hostname_ports_banners(sample_nmap_xml):
     assert len(hosts) == 2
 
     by_ip = {h.ip: h for h in hosts}
-    assert set(by_ip) == {"10.0.10.21", "10.0.10.30"}
+    assert set(by_ip) == {"192.0.2.21", "192.0.2.30"}
 
-    web = by_ip["10.0.10.21"]
+    web = by_ip["192.0.2.21"]
     assert web.hostname == "web01.lab"
     assert web.open_ports == [22, 80]            # sorted
     # banner is "product version extrainfo" joined, keyed by "port/proto"
     assert web.banners["22/tcp"] == "OpenSSH 8.9p1 Ubuntu-3ubuntu0.6 Ubuntu Linux"
     assert web.banners["80/tcp"] == "nginx 1.18.0"
 
-    deb = by_ip["10.0.10.30"]
+    deb = by_ip["192.0.2.30"]
     assert deb.hostname is None                  # no <hostnames> element
     assert deb.open_ports == [22]
     assert deb.banners["22/tcp"] == "OpenSSH 9.2p1 Debian"
@@ -81,11 +81,11 @@ def test_down_host_is_skipped():
     <nmaprun>
       <host>
         <status state="down"/>
-        <address addr="10.0.10.99" addrtype="ipv4"/>
+        <address addr="192.0.2.99" addrtype="ipv4"/>
       </host>
       <host>
         <status state="up"/>
-        <address addr="10.0.10.21" addrtype="ipv4"/>
+        <address addr="192.0.2.21" addrtype="ipv4"/>
         <ports>
           <port protocol="tcp" portid="22">
             <state state="open"/>
@@ -96,7 +96,7 @@ def test_down_host_is_skipped():
     </nmaprun>
     """
     hosts = parse_nmap_xml(xml)
-    assert [h.ip for h in hosts] == ["10.0.10.21"]
+    assert [h.ip for h in hosts] == ["192.0.2.21"]
 
 
 def test_host_with_missing_service_fields():
@@ -106,7 +106,7 @@ def test_host_with_missing_service_fields():
     <nmaprun>
       <host>
         <status state="up"/>
-        <address addr="10.0.10.50" addrtype="ipv4"/>
+        <address addr="192.0.2.50" addrtype="ipv4"/>
         <ports>
           <port protocol="tcp" portid="22">
             <state state="open"/>
@@ -126,7 +126,7 @@ def test_host_with_missing_service_fields():
     hosts = parse_nmap_xml(xml)
     assert len(hosts) == 1
     h = hosts[0]
-    assert h.ip == "10.0.10.50"
+    assert h.ip == "192.0.2.50"
     assert h.hostname is None
     # closed port excluded; only the two open ports remain.
     assert h.open_ports == [22, 443]
@@ -141,7 +141,7 @@ def test_os_match_populates_os_guess():
     <nmaprun>
       <host>
         <status state="up"/>
-        <address addr="10.0.10.60" addrtype="ipv4"/>
+        <address addr="192.0.2.60" addrtype="ipv4"/>
         <os><osmatch name="Linux 5.X" accuracy="95"/></os>
       </host>
     </nmaprun>

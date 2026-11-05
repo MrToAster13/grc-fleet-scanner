@@ -70,7 +70,7 @@ class _FakeKey:
 # fake exec_command stream drive it offline.
 # --------------------------------------------------------------------------- #
 def test_connect_timeout_is_classified_as_connection_failed():
-    err = _classify_connect_error(socket.timeout("timed out"), "10.0.10.21")
+    err = _classify_connect_error(socket.timeout("timed out"), "192.0.2.21")
 
     assert isinstance(err, ConnectionFailed)
     assert isinstance(err, RemoteError)
@@ -105,7 +105,7 @@ def test_connect_timeout_raises_connection_failed_and_tears_down_client(monkeypa
     monkeypatch.setattr(remote_mod.paramiko, "SSHClient", lambda: fake_client)
 
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
 
     with pytest.raises(ConnectionFailed):
         rh.connect()
@@ -209,7 +209,7 @@ class _ChannelClient:
 
 def _host_on(channel):
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
     rh._client = _ChannelClient(channel)
     return rh
 
@@ -311,7 +311,7 @@ def _run_on_real_channel(server_key, respond, timeout=30):
         client_t.start_client(timeout=10)
         client_t.auth_none("ubuntu")
         group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-        rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+        rh = RemoteHost("192.0.2.21", group, known_hosts=None)
         rh._client = _TransportClient(client_t)
         return rh.run("oscap xccdf eval", timeout=timeout)
     finally:
@@ -380,7 +380,7 @@ class _SilentStartClient:
 
 def _silent_start_host():
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
     rh._client = _SilentStartClient()
     return rh
 
@@ -427,7 +427,7 @@ def test_get_file_deadline_is_total_not_per_read(tmp_path):
             closed.set()
 
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
     rh._client = _Client(sftp)
     local = tmp_path / "results.xml"
     started = real_time.monotonic()
@@ -516,7 +516,7 @@ class _SFTPClient:
 
 def _host_with_sftp(sftp):
     group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
-    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh = RemoteHost("192.0.2.21", group, known_hosts=None)
     rh._client = _SFTPClient(sftp)
     return rh
 
@@ -550,7 +550,7 @@ def test_scan_parser_cap_is_the_evidence_cap():
 # Host-key pinning (ELI-929). A real paramiko server runs in-process over a
 # socketpair, so the host-key check is paramiko's own, not a mock of it.
 # --------------------------------------------------------------------------- #
-TARGET = "10.0.10.21"
+TARGET = "192.0.2.21"
 
 
 @pytest.fixture(scope="module")
@@ -617,7 +617,7 @@ def test_configured_known_hosts_rejects_a_key_only_in_the_user_file(
         tmp_path, home, monkeypatch, server_key):
     (home / ".ssh" / "known_hosts").write_text(_known_hosts_line(TARGET, server_key))
     pinned = tmp_path / "fleet_known_hosts"
-    pinned.write_text(_known_hosts_line("10.0.10.99", paramiko.RSAKey.generate(1024)))
+    pinned.write_text(_known_hosts_line("192.0.2.99", paramiko.RSAKey.generate(1024)))
 
     err = _connect_to_in_process_server(monkeypatch, server_key, str(pinned))
     assert isinstance(err, UnknownHostKey), err

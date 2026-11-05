@@ -137,7 +137,7 @@ mkdir -p "$cfgd/cwd" "$cfgd/audits/runs/20260101T000000Z-aaaaaa" "$cfgd/etc"
 want_cfg="$cfgd/audits/runs/20260101T000000Z-aaaaaa/report.html"
 cat > "$cfgd/etc/config.yaml" <<EOF
 scope:
-  cidrs: ["10.0.10.0/24"]
+  cidrs: ["192.0.2.0/24"]
 output_dir: "$cfgd/audits"   # history.db + per-run reports
 EOF
 
@@ -161,7 +161,7 @@ check "ELI-717: -o wins over the config's output_dir" \
 # the same way grc-run does.
 mkdir -p "$cfgd/rel/out/runs/20260101T000000Z-aaaaaa"
 : > "$cfgd/rel/out/runs/20260101T000000Z-aaaaaa/report.html"
-printf "scope:\n  cidrs: ['10.0.10.0/24']\noutput_dir: './out'\n" > "$cfgd/rel/config.yaml"
+printf "scope:\n  cidrs: ['192.0.2.0/24']\noutput_dir: './out'\n" > "$cfgd/rel/config.yaml"
 run_grc_report_in "$cfgd/rel"
 check "ELI-717: a single-quoted relative output_dir resolves from the CWD" \
     $([ "$rc" -eq 0 ] && [ "$so_out" = "./out/runs/20260101T000000Z-aaaaaa/report.html" ] && echo yes || echo no) \
@@ -170,7 +170,7 @@ check "ELI-717: a single-quoted relative output_dir resolves from the CWD" \
 # A config with no output_dir falls back to ./grc-output.
 mkdir -p "$cfgd/noout/grc-output/runs/20260101T000000Z-aaaaaa"
 : > "$cfgd/noout/grc-output/runs/20260101T000000Z-aaaaaa/report.html"
-printf 'scope:\n  cidrs: ["10.0.10.0/24"]\n' > "$cfgd/noout/config.yaml"
+printf 'scope:\n  cidrs: ["192.0.2.0/24"]\n' > "$cfgd/noout/config.yaml"
 run_grc_report_in "$cfgd/noout"
 check "ELI-717: a config without output_dir falls back to ./grc-output" \
     $([ "$rc" -eq 0 ] && [ "$so_out" = "./grc-output/runs/20260101T000000Z-aaaaaa/report.html" ] && echo yes || echo no) \

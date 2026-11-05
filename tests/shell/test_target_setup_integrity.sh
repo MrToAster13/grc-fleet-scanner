@@ -203,16 +203,16 @@ fi
 out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
     source "$1"
     authorized_key_line "$2" "$3"
-' _ "$SCRIPT" "10.0.10.5" "$KEY" 2>/dev/null)"
+' _ "$SCRIPT" "192.0.2.5" "$KEY" 2>/dev/null)"
 status=$?
 check "authorized_key_line prefixes from= and restrict" 0 "$status" "$out" \
-    "from=\"10.0.10.5\",restrict $KEY"
+    "from=\"192.0.2.5\",restrict $KEY"
 
 # 15. a --from value that could break out of the quoted option dies.
 out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
     source "$1"
     validate_from "$2"
-' _ "$SCRIPT" '10.0.10.5",command="sh' 2>&1)"
+' _ "$SCRIPT" '192.0.2.5",command="sh' 2>&1)"
 status=$?
 check "validate_from rejects a quote" 1 "$status" "$out" "cannot hold"
 
@@ -227,7 +227,7 @@ check "validate_from rejects an empty value" 1 "$status" "$out" "needs the run h
 # 17. a host list and a CIDR pass.
 out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
     source "$1"
-    validate_from "10.0.10.5,10.0.20.0/24,runhost.lab"
+    validate_from "192.0.2.5,198.51.100.0/24,runhost.lab"
 ' _ "$SCRIPT" 2>&1)"
 status=$?
 check "validate_from accepts hosts and a CIDR" 0 "$status" "$out"
@@ -246,10 +246,10 @@ printf '%s\n%s\n' "$KEY" 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyO
     > "$work/authorized_keys"
 out="$(GRC_TARGET_SETUP_TEST=1 bash -c '
     source "$1"
-    upsert_key_line "$2" "$(authorized_key_line 10.0.10.5 "$2")" < "$3"
+    upsert_key_line "$2" "$(authorized_key_line 192.0.2.5 "$2")" < "$3"
 ' _ "$SCRIPT" "$KEY" "$work/authorized_keys" 2>/dev/null)"
 status=$?
-want="$(printf '%s\n%s' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyOtherKeyOtherKeyOtherKey other@host' "from=\"10.0.10.5\",restrict $KEY")"
+want="$(printf '%s\n%s' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyOtherKeyOtherKeyOtherKey other@host' "from=\"192.0.2.5\",restrict $KEY")"
 if [ "$status" -eq 0 ] && [ "$out" = "$want" ]; then
     echo "PASS: upsert_key_line replaces the old line for the same key and keeps others"
     pass=$((pass + 1))

@@ -233,11 +233,11 @@ def test_discover_proceeds_after_successful_install(monkeypatch, config_factory)
     monkeypatch.setattr(discovery.deps, "ensure_nmap", lambda **kw: True)
     sentinel = parse_nmap_xml(
         '<nmaprun><host><status state="up"/>'
-        '<address addr="10.0.10.7" addrtype="ipv4"/></host></nmaprun>'
+        '<address addr="192.0.2.7" addrtype="ipv4"/></host></nmaprun>'
     )
     monkeypatch.setattr(discovery, "_run_nmap", lambda scope, want_os, cidrs: sentinel)
     hosts = discovery.discover(config_factory().scope)
-    assert [h.ip for h in hosts] == ["10.0.10.7"]
+    assert [h.ip for h in hosts] == ["192.0.2.7"]
 
 
 def test_parse_never_triggers_install(monkeypatch, sample_nmap_xml):

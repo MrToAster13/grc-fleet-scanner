@@ -139,16 +139,16 @@ def _run(hosts):
 
 def test_exit_code_is_zero_scanned_code_when_nothing_scanned():
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        HostRecord(ip="10.0.10.11", status=HostStatus.UNREACHABLE),
+        HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS),
+        HostRecord(ip="192.0.2.11", status=HostStatus.UNREACHABLE),
     ]
     assert _exit_code_for_run(_run(hosts)) == 3
 
 
 def test_exit_code_is_zero_when_at_least_one_host_scanned():
     hosts = [
-        HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS),
-        fabricate_scanned_host(ip="10.0.10.11"),
+        HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS),
+        fabricate_scanned_host(ip="192.0.2.11"),
     ]
     assert _exit_code_for_run(_run(hosts)) == 0
 
@@ -157,7 +157,7 @@ def test_exit_code_does_not_collide_with_config_scaffold_or_discovery_codes():
     # ELI-143: "scaffold written" (EXIT_CONFIG_SCAFFOLDED) and a real
     # ConfigError (EXIT_CONFIG_ERROR) now have distinct codes; discovery
     # failure returns 1. The zero-scanned signal must not reuse any of them.
-    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
+    hosts = [HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS)]
     rc = _exit_code_for_run(_run(hosts))
     assert rc not in (0, 1, cli_mod.EXIT_CONFIG_ERROR, cli_mod.EXIT_CONFIG_SCAFFOLDED)
 
@@ -169,14 +169,14 @@ def test_config_scaffolded_and_config_error_codes_are_distinct():
 
 
 def test_print_summary_warns_loudly_when_zero_scanned(capsys):
-    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.NO_CREDENTIALS)]
+    hosts = [HostRecord(ip="192.0.2.10", status=HostStatus.NO_CREDENTIALS)]
     _print_summary(_run(hosts), {"html": "r.html", "json": "r.json"})
     out = capsys.readouterr().out
     assert "ZERO HOSTS SCANNED" in out
 
 
 def test_print_summary_is_quiet_when_hosts_scanned(capsys):
-    hosts = [fabricate_scanned_host(ip="10.0.10.11")]
+    hosts = [fabricate_scanned_host(ip="192.0.2.11")]
     _print_summary(_run(hosts), {"html": "r.html", "json": "r.json"})
     out = capsys.readouterr().out
     assert "ZERO HOSTS SCANNED" not in out
@@ -185,7 +185,7 @@ def test_print_summary_is_quiet_when_hosts_scanned(capsys):
 def test_exit_code_and_summary_read_the_dry_run_marker_on_the_run(capsys):
     # The helpers take no separate dry_run flag: posture.zero_scanned reads
     # run.dry_run, which cmd_run sets when it builds the RunRecord.
-    hosts = [HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED)]
+    hosts = [HostRecord(ip="192.0.2.10", status=HostStatus.DISCOVERED)]
     run = _run(hosts)
     run.dry_run = True
     assert _exit_code_for_run(run) == 0
@@ -203,12 +203,12 @@ def test_cmd_run_dry_run_never_alarms_even_when_the_only_host_would_gate(
     cfg_path = tmp_path / "config.yaml"
     _scaffold_config(str(cfg_path))
     doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["scope"]["cidrs"] = ["192.0.2.0/29"]
     doc["output_dir"] = str(tmp_path / "out")
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def fake_discover(scope, want_os=False):
-        return [HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED)]
+        return [HostRecord(ip="192.0.2.10", status=HostStatus.DISCOVERED)]
 
     monkeypatch.setattr(discovery, "discover", fake_discover)
     monkeypatch.setattr(cli_mod.classify_mod, "classify", lambda hosts, cfg: None)
@@ -241,12 +241,12 @@ def test_cmd_run_real_run_that_scans_nothing_alarms_on_all_three_surfaces(
     cfg_path = tmp_path / "config.yaml"
     _scaffold_config(str(cfg_path))
     doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["scope"]["cidrs"] = ["192.0.2.0/29"]
     doc["output_dir"] = str(tmp_path / "out")
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def fake_discover(scope, want_os=False):
-        return [HostRecord(ip="10.0.10.10", status=HostStatus.DISCOVERED)]
+        return [HostRecord(ip="192.0.2.10", status=HostStatus.DISCOVERED)]
 
     def fake_assess(host, cfg, run_id, artifacts_root):
         host.status = HostStatus.UNREACHABLE
@@ -297,7 +297,7 @@ def test_history_scope_column_lines_up_with_a_25_char_timestamp(tmp_path, capsys
     store = Store(str(tmp_path))
     store.save_run(RunRecord(
         run_id="20260629T161000Z-ab12cd", started_at=started,
-        finished_at=started, scope=["10.0.10.0/24"],
+        finished_at=started, scope=["192.0.2.0/24"],
         config_hash="deadbeefcafef00d", hosts=[], dry_run=False,
     ))
     store.close()
@@ -305,7 +305,7 @@ def test_history_scope_column_lines_up_with_a_25_char_timestamp(tmp_path, capsys
     assert cli_mod.cmd_history(SimpleNamespace(output=str(tmp_path))) == 0
     header, row = capsys.readouterr().out.splitlines()[:2]
     assert header.index("SCOPE") == 53, header
-    assert row.index("10.0.10.0/24") == 53, row
+    assert row.index("192.0.2.0/24") == 53, row
 
 
 # --------------------------------------------------------------------------- #
@@ -369,12 +369,12 @@ def _one_host_run(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     _scaffold_config(str(cfg_path))
     doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["scope"]["cidrs"] = ["192.0.2.0/29"]
     doc["output_dir"] = str(tmp_path / "out")
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def fake_discover(scope, want_os=False):
-        return [HostRecord(ip="10.0.10.2", status=HostStatus.DISCOVERED)]
+        return [HostRecord(ip="192.0.2.2", status=HostStatus.DISCOVERED)]
 
     monkeypatch.setattr(discovery, "discover", fake_discover)
     monkeypatch.setattr(cli_mod.classify_mod, "classify", lambda hosts, cfg: None)

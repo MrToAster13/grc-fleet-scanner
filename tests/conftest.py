@@ -62,12 +62,12 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
 # nmap -oX sample reused verbatim from smoketest.py: one Ubuntu SSH+HTTP host
-# (10.0.10.21) and one Debian SSH host (10.0.10.30).
+# (192.0.2.21) and one Debian SSH host (192.0.2.30).
 SAMPLE_NMAP_XML = """<?xml version="1.0"?>
 <nmaprun>
   <host>
     <status state="up"/>
-    <address addr="10.0.10.21" addrtype="ipv4"/>
+    <address addr="192.0.2.21" addrtype="ipv4"/>
     <hostnames><hostname name="web01.lab"/></hostnames>
     <ports>
       <port protocol="tcp" portid="22">
@@ -82,7 +82,7 @@ SAMPLE_NMAP_XML = """<?xml version="1.0"?>
   </host>
   <host>
     <status state="up"/>
-    <address addr="10.0.10.30" addrtype="ipv4"/>
+    <address addr="192.0.2.30" addrtype="ipv4"/>
     <ports>
       <port protocol="tcp" portid="22">
         <state state="open"/>
@@ -113,10 +113,10 @@ def make_config(cidrs=None, groups=None, output_dir="./grc-output",
     """Build a minimal valid Config in code (mirrors smoketest.py).
 
     Defaults to the lab catch-all credential group from the smoketest so an
-    Ubuntu host in 10.0.10.0/24 matches a group.
+    Ubuntu host in 192.0.2.0/24 matches a group.
     """
     if cidrs is None:
-        cidrs = ["10.0.10.0/24"]
+        cidrs = ["192.0.2.0/24"]
     if groups is None:
         groups = [CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])]
     return Config(
@@ -132,7 +132,7 @@ def config_factory():
     return make_config
 
 
-def fabricate_scanned_host(ip="10.0.10.21", hostname="web01.lab", score=90.0):
+def fabricate_scanned_host(ip="192.0.2.21", hostname="web01.lab", score=90.0):
     """A SCANNED HostRecord carrying a ScanResult + failed_rules.
 
     Mirrors smoketest.fabricate_scan so store/report round-trips exercise the
