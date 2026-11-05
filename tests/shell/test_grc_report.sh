@@ -70,6 +70,10 @@ want="$ac1/runs/20260101T000000Z-aaaaaa/report.html"
 check "AC1 headless: skips the newer run with no report and prints the older report path" \
     $([ "$rc" -eq 0 ] && [ "$so_out" = "$want" ] && echo yes || echo no) \
     "exit $rc, stdout '$so_out', wanted '$want'"
+# ELI-929: falling back to an older report is never silent.
+check "ELI-929: warns on stderr that the newest run has no report" \
+    $(printf '%s' "$se_out" | grep -qF "newest run $ac1/runs/20260102T000000Z-bbbbbb/ has no report.html" && echo yes || echo no) \
+    "stderr '$se_out'"
 
 # --- AC1 open branch: display set, stub opener receives the same path ------- #
 rm -f "$work/stubs/opened.log"
@@ -95,6 +99,8 @@ want_newest="$both/runs/20260102T000000Z-bbbbbb/report.html"
 check "AC1 guard: prefers the newest run when it has a report" \
     $([ "$rc" -eq 0 ] && [ "$so_out" = "$want_newest" ] && echo yes || echo no) \
     "exit $rc, stdout '$so_out', wanted '$want_newest'"
+check "ELI-929: no warning when the newest run has its report" \
+    $([ -z "$se_out" ] && echo yes || echo no) "stderr '$se_out'"
 
 # --- AC2 fixture: every run is missing its report.html ---------------------- #
 ac2="$work/ac2"

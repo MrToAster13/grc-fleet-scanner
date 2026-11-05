@@ -42,7 +42,7 @@ from .models import (
     HostRecord, RuleResult, ScanResult,
     UNDETERMINED_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
-from .remote import RemoteHostProtocol
+from .remote import MAX_EVIDENCE_BYTES, RemoteHostProtocol
 from .scap_xml import localname
 
 log = get_logger()
@@ -52,9 +52,9 @@ log = get_logger()
 _OSCAP_SUCCESS_CODES = (0, 2)
 
 # Guard parse_xccdf_results against a pathological/oversized results file. A real
-# Ubuntu CIS results.xml is a few MB; anything past this is almost certainly not
-# a results document we should be loading into memory.
-_MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
+# Ubuntu CIS results.xml is a few MB. get_file already refuses anything larger
+# during the pull; this re-checks the file on disk before parsing it.
+_MAX_RESULTS_BYTES = MAX_EVIDENCE_BYTES
 
 # Max gap (percentage points) between oscap's weighted <score> and a flat
 # pass-ratio before we warn of a likely mis-parse. Wide on purpose: CIS weighted

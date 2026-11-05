@@ -3,6 +3,7 @@ config scaffold-or-refuse behavior of `run` when no config file exists."""
 
 from __future__ import annotations
 
+import os
 import re
 from types import SimpleNamespace
 
@@ -361,3 +362,107 @@ def test_cmd_run_empty_scope_without_cidr_is_still_refused(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == cli_mod.EXIT_CONFIG_ERROR
     assert "scope.cidrs is empty" in err
+
+
+# --- ELI-929: a run is finished only once its report exists ---------------- #
+def _one_host_run(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.yaml"
+    _scaffold_config(str(cfg_path))
+    doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["output_dir"] = str(tmp_path / "out")
+    cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+
+    def fake_discover(scope, want_os=False):
+        return [HostRecord(ip="10.0.10.2", status=HostStatus.DISCOVERED)]
+
+    monkeypatch.setattr(discovery, "discover", fake_discover)
+    monkeypatch.setattr(cli_mod.classify_mod, "classify", lambda hosts, cfg: None)
+    return _run_args(cfg_path)
+
+
+def _recorded_runs(output_dir):
+    from grc_auditor.store import Store
+    store = Store.open_existing(str(output_dir))
+    try:
+        return store.list_runs()
+    finally:
+        store.close()
+
+
+def test_run_whose_report_fails_is_not_recorded_as_finished(tmp_path, monkeypatch):
+    args = _one_host_run(tmp_path, monkeypatch)
+
+    def broken_reports(*a, **kw):
+        raise RuntimeError("template exploded")
+
+    monkeypatch.setattr(cli_mod, "write_reports", broken_reports)
+    with pytest.raises(RuntimeError, match="template exploded"):
+        cmd_run(args)
+
+    runs = _recorded_runs(tmp_path / "out")
+    assert len(runs) == 1
+    assert runs[0]["finished_at"] is None
+
+
+def test_report_that_fails_partway_leaves_no_report_html(tmp_path, monkeypatch):
+    # write_reports writes report.html first. If a later step raises, a
+    # leftover report.html would let grc-report open this unfinished run as
+    # the newest one with no warning (review finding 4).
+    args = _one_host_run(tmp_path, monkeypatch)
+
+    def half_written(run, store, run_dir, **kw):
+        with open(os.path.join(run_dir, "report.html"), "w", encoding="utf-8") as fh:
+            fh.write("<html>partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli_mod, "write_reports", half_written)
+    with pytest.raises(OSError, match="disk full"):
+        cmd_run(args)
+
+    run_dirs = list((tmp_path / "out" / "runs").iterdir())
+    assert len(run_dirs) == 1
+    assert not (run_dirs[0] / "report.html").exists()
+    assert (run_dirs[0] / "effective-config.json").exists()
+
+
+def test_run_with_a_report_is_recorded_as_finished(tmp_path, monkeypatch):
+    cmd_run(_one_host_run(tmp_path, monkeypatch))
+
+    runs = _recorded_runs(tmp_path / "out")
+    assert len(runs) == 1
+    assert runs[0]["finished_at"] is not None
+
+
+# --- ELI-929: rmf output is private like run output ------------------------- #
+@pytest.fixture
+def umask_022():
+    old = os.umask(0o022)
+    yield
+    os.umask(old)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_rmf_output_is_created_private(tmp_path, umask_022):
+    from test_rmf import _ARF
+    arf = tmp_path / "arf.xml"
+    arf.write_text(_ARF, encoding="utf-8")
+    out = tmp_path / "control-rollup.csv"
+
+    assert cli_mod.main(["rmf", str(arf), "-o", str(out)]) == 0
+    assert out.stat().st_mode & 0o077 == 0, oct(out.stat().st_mode)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_rmf_output_that_already_exists_is_made_private(tmp_path, umask_022):
+    # umask applies only when a file is created; the default output name is
+    # reused across runs (review round 2).
+    from test_rmf import _ARF
+    arf = tmp_path / "arf.xml"
+    arf.write_text(_ARF, encoding="utf-8")
+    out = tmp_path / "control-rollup.csv"
+    out.write_text("old")
+    os.chmod(out, 0o644)
+
+    assert cli_mod.main(["rmf", str(arf), "-o", str(out)]) == 0
+    assert out.stat().st_mode & 0o077 == 0, oct(out.stat().st_mode)
