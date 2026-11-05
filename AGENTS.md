@@ -3,7 +3,7 @@
 Guidance for AI agents working in this repo. Writing style: load the `unslop` skill and follow it. No other style rules.
 
 ## Setup and checks
-- Install: `pip install -r requirements.txt`. The tool needs Python 3.10+; the test suite also runs on 3.8 (CI matrix: Python 3.8, 3.11, 3.13).
+- Install: `pip install -r requirements.txt` for the tool, `pip install -r requirements-dev.txt` to also get pytest. The tool needs Python 3.10+; the test suite also runs on 3.8 (CI matrix: Python 3.8, 3.11, 3.13).
 - Tests: `python -m pytest -q` (tests in `tests/`, config in `pyproject.toml`).
 - Shell harnesses: `bash tests/shell/run-all.sh` runs every `tests/shell/test_*.sh`.
 - CI runs both on every PR (`.github/workflows/tests.yml`). The pre-commit hook runs both on every commit once enabled with `git config core.hooksPath .githooks`. Run both before you push.

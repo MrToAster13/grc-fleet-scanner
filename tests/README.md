@@ -25,11 +25,12 @@ $env:PYTHONPATH = "<path-to>\grc-fleet-scanner"; python -m pytest <path-to>\grc-
 PYTHONPATH=/path/to/grc-fleet-scanner python -m pytest tests
 ```
 
-Install the test dependency first (it is in `requirements.txt` under
-`# --- test/dev ---`):
+Install the test dependencies first. `requirements-dev.txt` pulls in
+`requirements.txt` and adds pytest, so the run-host venv the launchers build
+from `requirements.txt` carries no test tools:
 
 ```bash
-python -m pip install pytest
+python -m pip install -r requirements-dev.txt
 ```
 
 ## Layout
@@ -50,11 +51,16 @@ python -m pip install pytest
 | `test_assess.py` | `assess.assess_host` through its `connect` factory with a `FakeRemoteHost` and the real detect and scan code, no monkeypatching: reach, detect, scan order; a failure at each step stops the later ones; one end-to-end case per terminal status (SCANNED, SCAN_ERROR, NON_UBUNTU, UNSUPPORTED_VERSION, SCANNER_ABSENT, UNREACHABLE, HOST_KEY_MISMATCH, NO_CREDENTIALS) with the recorded detail; a refused scan keeps its evidence attached; a cleanup that fails after the scan, chained as the real `RemoteHost` raises it or as a bare reset `OSError`, keeps the first failure's detail and the parsed scan |
 | `test_rmf.py` | `rmf.rollup_from_arf`, `_base_control`, `write_rollup_csv` against a synthetic ARF: control rollup and status (Implemented/Planned/Not Assessed), enhancement refs of the same base counted once, a duplicate rule-result never downgrades a fail or buries an error/notselected verdict, revision parsed from the reference href, malformed XML raises `RmfError` |
 | `test_store.py` | `store.Store`: save/load round-trip incl. findings and the `dry_run` marker, `list_runs` ordering, output layout |
+| `test_history_output_dir.py` | `history` reads runs from the configured `output_dir` (`-c FILE` or `./config.yaml`; `--output` overrides `-c`), creates nothing in an empty directory or when the configured dir is missing, and a missing explicit config is a config error |
 | `test_history.py` | `history.RunHistory` over a real `Store`: drift baseline (most recent earlier run, unfinished runs skipped, `config_hash` match, scope changed), dry-run exclusion by marker and by structural signature, trend point order and `n` limit, live current point, one pass rate formula (`models.pass_rate`) |
 | `test_report.py` | `report.compute_drift`, `top_failing_controls`, `write_reports` (artifacts on disk, HTML/JSON/CSV content, zero-scanned banner incl. a dry run) |
 | `test_posture.py` | `posture.zero_scanned` (gaps only, nothing discovered, one scanned, dry run, missing dry-run marker, all `non_ubuntu`), `scan_candidates`, `assessed_share` (no candidates, `discovered` counts as unassessed), `fleet_posture` ladder boundaries (pass rate exactly 75 and 90, share exactly 50 and 90, zero candidates, all `non_ubuntu`, nothing evaluable) with the exact headline strings |
 | `test_sample_report.py` | the committed `docs/sample/report.html` equals a fresh `smoketest.render_sample`, the README links it and labels the data fabricated, and the README screenshot exists |
 | `test_models.py` | `RunRecord.scanned_hosts`, `coverage_gaps`, `fleet_pass_rate` (the aggregates posture builds on) |
+| `test_remediation_guidance.py` | SSG rationale and fix text per failed rule: shell fix preferred over Ansible, variables as named placeholders, capped length, control bytes dropped, passed-rule guidance not kept, no remediation command ever sent to a host, findings CSV columns (formula-safe), long rationale kept whole, HTML guidance shown only when hosts agree, escaped and labeled as unapplied |
+| `test_target_setup_sudoers.py` | the sudoers drop-in `grc-target-setup` writes allows every sudo command the real scanner runs and nothing else; bad scan groups, scan users, `--ssg-dir` paths and datastream paths are refused, and the scan group and `--ssg-dir` checks run before the drop-in is written |
+| `test_public_tree.py` | the tracked tree names no Windows home directory, private example range, tracker id in operator docs or shipped code, or stale status text, and carries no handoffs |
+| `test_repo_hygiene.py` | the CLI's program name is `python -m grc_auditor`, every CI job runs on the same pinned runner, pytest lives in `requirements-dev.txt` and not in `requirements.txt`, and every `tests/test_*.py` has a row in this table |
 
 ## Fixtures
 

@@ -60,9 +60,10 @@ done
 echo "grc install: installed ${#commands[@]} commands to $DEST:"
 printf '  %s\n' "${commands[@]}"
 
-# Remove launchers for commands cut in a later release (--deep). A
-# re-run of install.sh on an existing install would otherwise leave a stale
-# grc-deep behind forever, since it's no longer in ./bin to overwrite it.
+# Remove launchers for commands cut in a later release (--deep). The
+# dangling-link sweep above cannot catch these: grc-deep was cut before
+# install.sh switched from copies to links, so an old install holds a plain
+# file, and a re-run would otherwise leave it behind forever.
 removed_commands=(grc-deep)
 for name in "${removed_commands[@]}"; do
     if [ -e "$DEST/$name" ]; then
