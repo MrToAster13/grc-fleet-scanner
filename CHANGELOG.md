@@ -6,6 +6,18 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Security
+- **Each audited host is treated as hostile.** A remote command's stdout and stderr are
+  capped at 16 MiB combined, and its timeout is now a total deadline, not an idle timer
+  per read, so a host that keeps sending output no longer holds a worker or fills memory.
+  An evidence file over 256 MiB is refused during the SFTP pull, counted on the bytes
+  received rather than the host's own stat, and a failed pull leaves no partial file.
+  When `known_hosts` is set, it is the only file trusted; a key that appears only in
+  `~/.ssh/known_hosts` is rejected. A run is stamped finished only after its report is
+  written, and `grc-report` warns when it skips a newer run that has no report.
+  `grc-rmf` output is private (umask `0o077`) like run output. `grc-target-setup`
+  refuses a `--scan-user` with a dot or a trailing `~`, which sudo would skip in
+  `/etc/sudoers.d`, and refuses an `--ssg-dir` or datastream that the scan user can
+  write (ELI-929).
 - **`nmap_extra_args` is an allowlist, and hosts outside the scope never reach SSH.**
   The old check refused a fixed list of flag names, so `-sC`, `-A`, `--script-args=`,
   `-iR100`, prefix forms such as `--excludefil=`, and attached values such as `-oNfile` or

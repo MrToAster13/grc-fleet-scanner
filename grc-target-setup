@@ -166,6 +166,54 @@ normalize_ssg_dir() {
     printf '%s' "$d"
 }
 
+# validate_scan_user NAME
+# The sudoers drop-in is /etc/sudoers.d/NAME, and sudo skips every file there
+# whose name contains a dot or ends in ~. Such a name would get a rule that
+# silently does nothing, so it is refused up front.
+validate_scan_user() {
+    case "$1" in
+        *.*|*~) die "--scan-user '$1' has a dot or ends in ~, and sudo ignores /etc/sudoers.d files named like that, so its rule would never apply. Pick a name like grc-scan." ;;
+    esac
+}
+
+# as_user USER CMD...
+# Runs CMD as USER, without a shell or a login.
+as_user() {
+    local user="$1"; shift
+    $SUDO runuser -u "$user" -- "$@"
+}
+
+# owner_of PATH
+# Prints the name of PATH's owner, or nothing when PATH does not exist.
+owner_of() {
+    stat -L -c %U -- "$1" 2>/dev/null || true
+}
+
+# require_root_only_ssg_dir USER DATASTREAM
+# The sudoers rule lets USER run oscap as root on DATASTREAM. If USER can write
+# DATASTREAM or any directory above it, or owns one (an owner can chmod it
+# writable at any time), it can swap the content root evaluates. Dies on any
+# such path. The walk covers the path as written and the path with every
+# symlink resolved, so a link into a directory USER owns is caught too. A
+# probe that USER can run a command at all comes first, so a broken as_user
+# cannot make every path look root-only.
+require_root_only_ssg_dir() {
+    local user="$1" ds="$2" p
+    as_user "$user" true || die "could not run a command as $user to check who can write $ds."
+    for p in "$ds" "$(readlink -m -- "$ds")"; do
+        while :; do
+            if as_user "$user" test -w "$p"; then
+                die "$user can write $p, so it could replace the datastream root scans with. Use an --ssg-dir only root can write."
+            fi
+            if [ "$(owner_of "$p")" = "$user" ]; then
+                die "$user owns $p, so it could make it writable and replace the datastream root scans with. Use an --ssg-dir only root owns."
+            fi
+            [ "$p" = / ] && break
+            p="$(dirname "$p")"
+        done
+    done
+}
+
 # scan_sudoers USER GROUP TRUE_BIN MKTEMP_BIN CHGRP_BIN CHMOD_BIN OSCAP_BIN RM_BIN DATASTREAM
 # Prints the sudoers drop-in for the scan account. It allows only the commands
 # grc-fleet-scanner runs under sudo, with their exact arguments:
@@ -275,7 +323,7 @@ fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --scan-user)   SCAN_USER="${2:?--scan-user needs a name}"; shift 2 ;;
+        --scan-user)   SCAN_USER="${2:?--scan-user needs a name}"; validate_scan_user "$SCAN_USER"; shift 2 ;;
         --pubkey)      PUBKEY="$(normalize_pubkey "${2:?--pubkey needs a key string}")"; validate_pubkey "$PUBKEY"; shift 2 ;;
         --pubkey-file) PUBKEY_FILE="${2:?--pubkey-file needs a path}"; shift 2 ;;
         --from)        FROM="${2:?--from needs the run host address}"; validate_from "$FROM"; shift 2 ;;
@@ -379,6 +427,7 @@ if [ -n "$SCAN_USER" ]; then
     CHMOD_BIN="$(type -P chmod)" || die "no chmod binary on PATH."
     SCAN_GROUP="$(id -gn "$SCAN_USER")" || die "could not read $SCAN_USER's primary group."
     require_private_group "$SCAN_USER" "$(getent group "$SCAN_GROUP" || true)" "$(getent passwd || true)"
+    require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR/$SSG_FILE"
     RM_BIN="$(type -P rm)"     || die "no rm binary on PATH."
     OSCAP_BIN="$(type -P oscap)" || die "oscap not on PATH."
     tmp_sudoers="$(mktemp)"

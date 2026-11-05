@@ -37,7 +37,7 @@ low_confidence_threshold: 90   # flag a host's score LOW CONFIDENCE when fewer t
                                # reaches out to the network mid-scan.
 # os_detect: false            # default false. nmap -O OS detection; feeds the classify Ubuntu
                                # hint, so it is part of config_hash. Also set by --os-detect.
-# known_hosts: "~/.ssh/known_hosts"          # omit to use system + user known_hosts
+# known_hosts: "~/.ssh/known_hosts"          # omit to use ~/.ssh/known_hosts; when set, only this file is trusted
 
 # ---------------------------------------------------------------------------
 # Credential groups: map host ranges to an SSH identity + privilege.

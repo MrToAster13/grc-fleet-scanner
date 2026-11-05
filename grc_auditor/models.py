@@ -87,6 +87,9 @@ class RuleResult:
     result: str                       # pass | fail | error | notapplicable | ...
     severity: Optional[str] = None    # low | medium | high | unknown
     title: Optional[str] = None
+    # SSG guidance from the benchmark, display only: the tool never applies it.
+    rationale: Optional[str] = None
+    fix_text: Optional[str] = None
 
 
 @dataclass

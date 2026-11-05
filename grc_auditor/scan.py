@@ -42,7 +42,7 @@ from .models import (
     HostRecord, RuleResult, ScanResult,
     UNDETERMINED_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
-from .remote import RemoteHostProtocol
+from .remote import MAX_EVIDENCE_BYTES, RemoteHostProtocol
 from .scap_xml import localname
 
 log = get_logger()
@@ -52,9 +52,9 @@ log = get_logger()
 _OSCAP_SUCCESS_CODES = (0, 2)
 
 # Guard parse_xccdf_results against a pathological/oversized results file. A real
-# Ubuntu CIS results.xml is a few MB; anything past this is almost certainly not
-# a results document we should be loading into memory.
-_MAX_RESULTS_BYTES = 256 * 1024 * 1024  # 256 MiB
+# Ubuntu CIS results.xml is a few MB. get_file already refuses anything larger
+# during the pull; this re-checks the file on disk before parsing it.
+_MAX_RESULTS_BYTES = MAX_EVIDENCE_BYTES
 
 # Max gap (percentage points) between oscap's weighted <score> and a flat
 # pass-ratio before we warn of a likely mis-parse. Wide on purpose: CIS weighted
@@ -82,6 +82,14 @@ _SAFE_GROUP = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._-]{0,31}\Z")
 # Cap on any single target-supplied string (rule id / title / severity) before it
 # enters the report model. A real CIS rule id/title is well under this.
 _MAX_FIELD_LEN = 1024
+
+# SSG fix text kept per failed rule. Of the 563 shell fixes in the v0.1.74
+# Ubuntu 22.04 datastream, 15 exceed this; the retained results.xml keeps them whole.
+_MAX_FIX_LEN = 16384
+_FIX_TRUNCATED = "\n[truncated; the full fix is in this host's retained results.xml]"
+# The longest SSG v0.1.74 Ubuntu 22.04 rationale is 1138 chars; 3 exceed 1024.
+_MAX_RATIONALE_LEN = 4096
+_FIX_SYSTEMS = ("urn:xccdf:fix:script:sh", "urn:xccdf:fix:script:ansible")
 
 
 def _clean_field(text: Optional[str], maxlen: int = _MAX_FIELD_LEN) -> Optional[str]:
@@ -377,11 +385,15 @@ def parse_xccdf_results(path: str) -> ScanResult:
         elif name == "version" and scan.benchmark_version is None:
             scan.benchmark_version = (el.text or "").strip() or None
 
-    # Attach human-readable titles to failed rules where the benchmark defines
-    # them. Skip the second full-tree walk entirely when there are no fails.
-    titles = _rule_titles(root) if failed_rules else {}
+    # Attach title, rationale and SSG fix text to failed rules where the
+    # benchmark defines them. The fix is display text for the analyst; nothing
+    # here or anywhere else runs it. Skip the second walk when there are no fails.
+    text = _rule_text(root, {fr.rule_id for fr in failed_rules}) if failed_rules else {}
     for fr in failed_rules:
-        fr.title = titles.get(fr.rule_id)
+        info = text.get(fr.rule_id, {})
+        fr.title = info.get("title")
+        fr.rationale = info.get("rationale")
+        fr.fix_text = info.get("fix_text")
     scan.failed_rules = failed_rules
 
     # Soft reconciliation: catch a gross mis-parse where oscap's own <score>
@@ -401,16 +413,61 @@ def parse_xccdf_results(path: str) -> ScanResult:
     return scan
 
 
-def _rule_titles(root: ET.Element) -> dict[str, str]:
-    titles: dict[str, str] = {}
+def _xml_text(el: ET.Element) -> str:
+    """All text under ``el``, with each XCCDF ``<sub idref>`` variable shown as
+    ``[value: idref]``: the value is set by the profile, not in the Rule."""
+    # An explicit stack, not recursion: a hostile file can nest thousands deep.
+    parts: list[str] = []
+    stack: list = [el]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            parts.append(node)
+            continue
+        if node is not el and localname(node.tag) == "sub":
+            parts.append("[value: %s]" % node.get("idref", ""))
+        else:
+            parts.append(node.text or "")
+            for child in reversed(node):
+                stack.append(child.tail or "")
+                stack.append(child)
+    return "".join(parts)
+
+
+def _clean_fix(text: str) -> Optional[str]:
+    """Like ``_clean_field`` but keeps newlines and tabs, since a fix is a script."""
+    text = "".join(ch for ch in text if ch.isprintable() or ch in "\n\t").strip()
+    if not text:
+        return None
+    if len(text) > _MAX_FIX_LEN:
+        text = text[:_MAX_FIX_LEN] + _FIX_TRUNCATED
+    return text
+
+
+def _rule_text(root: ET.Element, wanted: set) -> dict[str, dict]:
+    """``{rule_id: {"title", "rationale", "fix_text"}}`` for the Rules in
+    ``wanted``. The fix is SSG's shell fix, else its Ansible fix, as display text."""
+    out: dict[str, dict] = {}
     for el in root.iter():
         if localname(el.tag) != "Rule":
             continue
         rid = _clean_field(el.get("id"))
-        if not rid:
+        if rid not in wanted:
             continue
+        info: dict = {"title": None, "rationale": None, "fix_text": None}
+        fixes: dict[str, str] = {}
         for child in el:
-            if localname(child.tag) == "title":
-                titles[rid] = _clean_field((child.text or "").strip()) or ""
+            name = localname(child.tag)
+            if name == "title" and info["title"] is None:
+                info["title"] = _clean_field((child.text or "").strip()) or ""
+            elif name == "rationale" and info["rationale"] is None:
+                info["rationale"] = _clean_field(" ".join(_xml_text(child).split()),
+                                                 _MAX_RATIONALE_LEN) or None
+            elif name == "fix":
+                fixes.setdefault(child.get("system", ""), _xml_text(child))
+        for system in _FIX_SYSTEMS:
+            if system in fixes:
+                info["fix_text"] = _clean_fix(fixes[system])
                 break
-    return titles
+        out[rid] = info
+    return out

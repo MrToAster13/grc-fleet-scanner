@@ -215,7 +215,10 @@
 {% endif %}
 
 <h2>Top failing controls (fleet-wide)</h2>
-<p class="sub">Sorted by severity, then by number of hosts affected.</p>
+<p class="sub">Sorted by severity, then by number of hosts affected.
+{%- if top|selectattr("rationale")|list or top|selectattr("fix_text")|list or top|selectattr("guidance_varies")|list %}
+  This table shows only the top failing rules; findings.csv has guidance for every failed rule on every host.
+{%- endif %}</p>
 {% if top %}
 <table>
   <tr><th>Control</th><th>Severity</th><th>Hosts failing</th><th>Title</th></tr>
@@ -227,7 +230,15 @@
       {{ c.count }}
       {% if c.hosts %}<div class="hostlist">{% for ip in c.hosts %}<code>{{ ip }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
     </td>
-    <td>{{ c.title }}</td>
+    <td>{{ c.title }}
+      {%- if c.rationale or c.fix_text %}
+      <details style="margin-top:6px"><summary class="muted">Remediation guidance (from SSG, not applied by this tool; review before use)</summary>
+        {% if c.rationale %}<p>{{ c.rationale }}</p>{% endif %}
+        {% if c.fix_text %}<pre style="white-space:pre-wrap;max-height:24em;overflow:auto;font-size:12px">{{ c.fix_text }}</pre>{% endif %}
+      </details>
+      {%- elif c.guidance_varies %}
+      <div class="muted" style="margin-top:6px">Guidance differs between failing hosts; see findings.csv.</div>
+      {%- endif %}</td>
   </tr>
   {% endfor %}
 </table>

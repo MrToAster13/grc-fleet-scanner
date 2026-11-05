@@ -221,6 +221,16 @@ def _rule_stem(rule_id: str) -> str:
     return rid
 
 
+def _shared_guidance(variants: set) -> dict:
+    """One rule's guidance for the fleet-wide row, only when every failing host
+    reported the same text. Each host's results.xml supplies its own, so a
+    rooted host must not set the advice shown for the others."""
+    if len(variants) == 1:
+        (rationale, fix_text), = variants
+        return {"rationale": rationale, "fix_text": fix_text, "guidance_varies": False}
+    return {"rationale": "", "fix_text": "", "guidance_varies": True}
+
+
 def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
     """Fleet-wide failing controls, severity-weighted and host-linked.
 
@@ -231,10 +241,13 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
     Each item::
 
         {"rule_id", "count", "title", "severity", "severity_rank",
-         "hosts": [ip, ...], "stem"}
+         "hosts": [ip, ...], "stem", "rationale", "fix_text", "guidance_varies"}
+
+    ``rationale`` and ``fix_text`` are SSG guidance ("" when absent), for display only.
     """
     counter: Counter = Counter()
     titles: dict[str, str] = {}
+    guidance: dict[str, set] = {}
     severities: dict[str, str] = {}
     hosts_by_rule: dict[str, list] = {}
     for h in run.scanned_hosts():
@@ -242,6 +255,8 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
             counter[fr.rule_id] += 1
             if fr.title:
                 titles[fr.rule_id] = fr.title
+            guidance.setdefault(fr.rule_id, set()).add(
+                (fr.rationale or "", fr.fix_text or ""))
             # Keep the most severe label ever seen for this rule.
             if fr.severity and _sev_rank(fr.severity) >= _sev_rank(severities.get(fr.rule_id)):
                 severities[fr.rule_id] = fr.severity
@@ -260,6 +275,7 @@ def top_failing_controls(run: RunRecord, limit: int = 20) -> list[dict]:
             "severity": sev,
             "severity_rank": _sev_rank(sev),
             "hosts": sorted(hosts_by_rule.get(rid, [])),
+            **_shared_guidance(guidance[rid]),
         })
 
     # Sort: severity desc, then host-count desc, then rule id for stability.
@@ -556,11 +572,13 @@ def write_reports(run: RunRecord, store: Store, run_dir: str,
     findings_csv = os.path.join(run_dir, "findings.csv")
     with open(findings_csv, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["ip", "rule_id", "result", "severity", "title"])
+        w.writerow(["ip", "rule_id", "result", "severity", "title",
+                    "rationale", "fix_text"])
         for h in run.scanned_hosts():
             for fr in h.scan.failed_rules:
                 w.writerow([_csv_safe(h.ip), _csv_safe(fr.rule_id), fr.result,
-                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or "")])
+                            _csv_safe(fr.severity or ""), _csv_safe(fr.title or ""),
+                            _csv_safe(fr.rationale or ""), _csv_safe(fr.fix_text or "")])
 
     paths = {
         "html": html_path, "json": json_path,

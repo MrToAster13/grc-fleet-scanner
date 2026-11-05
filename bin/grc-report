@@ -56,9 +56,11 @@ fi
 
 # Run ids are sortable timestamps, so the lexically-last dir is the newest run.
 # A failed run leaves its dir behind without a report.html, so walk newest
-# first and take the first run that has one.
+# first and take the first run that has one, and say so when that is not the
+# newest run: an older report must never pass for the latest one.
 runs="$(ls -1d "$out"/runs/*/ 2>/dev/null | sort -r || true)"
 [ -n "$runs" ] || grc_die "no runs found under $out/runs -- run grc-run first (or pass -o <dir>)."
+newest="${runs%%$'\n'*}"
 report=""
 while IFS= read -r run; do
     if [ -f "${run}report.html" ]; then
@@ -67,6 +69,9 @@ while IFS= read -r run; do
     fi
 done <<< "$runs"
 [ -n "$report" ] || grc_die "no run under $out/runs has a report.html -- did a run finish?"
+if [ "$report" != "${newest}report.html" ]; then
+    echo "grc-report: warning: newest run $newest has no report.html (it failed or is still running); showing an older report." >&2
+fi
 
 # With a display, open in the first available browser; headless, print the path.
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
