@@ -183,13 +183,20 @@ as_user() {
     $SUDO runuser -u "$user" -- "$@"
 }
 
+# owner_of PATH
+# Prints the name of PATH's owner, or nothing when PATH does not exist.
+owner_of() {
+    stat -L -c %U -- "$1" 2>/dev/null || true
+}
+
 # require_root_only_ssg_dir USER DATASTREAM
 # The sudoers rule lets USER run oscap as root on DATASTREAM. If USER can write
-# DATASTREAM or any directory above it, it can swap the content root
-# evaluates. Dies on any such path. The walk covers the path as written and the
-# path with every symlink resolved, so a link into a directory USER owns is
-# caught too. A probe that USER can run a command at all comes first, so a
-# broken as_user cannot make every path look root-only.
+# DATASTREAM or any directory above it, or owns one (an owner can chmod it
+# writable at any time), it can swap the content root evaluates. Dies on any
+# such path. The walk covers the path as written and the path with every
+# symlink resolved, so a link into a directory USER owns is caught too. A
+# probe that USER can run a command at all comes first, so a broken as_user
+# cannot make every path look root-only.
 require_root_only_ssg_dir() {
     local user="$1" ds="$2" p
     as_user "$user" true || die "could not run a command as $user to check who can write $ds."
@@ -197,6 +204,9 @@ require_root_only_ssg_dir() {
         while :; do
             if as_user "$user" test -w "$p"; then
                 die "$user can write $p, so it could replace the datastream root scans with. Use an --ssg-dir only root can write."
+            fi
+            if [ "$(owner_of "$p")" = "$user" ]; then
+                die "$user owns $p, so it could make it writable and replace the datastream root scans with. Use an --ssg-dir only root owns."
             fi
             [ "$p" = / ] && break
             p="$(dirname "$p")"

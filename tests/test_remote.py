@@ -404,23 +404,36 @@ def test_get_file_deadline_covers_an_sftp_request_the_target_never_answers(tmp_p
     assert real_time.monotonic() - started < 5
 
 
-def test_get_file_deadline_is_total_not_per_read(tmp_path, monkeypatch):
-    # A target that answers every read just inside the channel timeout.
-    clock = _FakeClock()
-    monkeypatch.setattr(remote_mod, "time", clock, raising=False)
+def test_get_file_deadline_is_total_not_per_read(tmp_path):
+    # paramiko's read(n) loops one SFTP READ at a time until it has n bytes,
+    # so a target that answers each READ with one byte just inside the
+    # channel timeout holds a single read() call for hours (review round 2).
+    # Here that read blocks until the connection is closed.
+    import threading
+    import time as real_time
+
+    closed = threading.Event()
     sftp = _FakeSFTP(size=1000)
-    serve = sftp._serve
 
-    def slow_serve(n):
-        clock.now += 1.0
-        return serve(1)
+    def trickle(n):
+        if not closed.wait(10):
+            raise AssertionError("never woken")
+        raise EOFError()
 
-    sftp._serve = slow_serve
+    sftp._serve = trickle
+
+    class _Client(_SFTPClient):
+        def close(self):
+            closed.set()
+
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh._client = _Client(sftp)
     local = tmp_path / "results.xml"
+    started = real_time.monotonic()
     with pytest.raises(RemoteError, match="timed out"):
-        _host_with_sftp(sftp).get_file("/var/lib/grc_audit.Ab3xZ9/results.xml",
-                                       str(local), timeout=5)
-    assert sftp.served < 20
+        rh.get_file("/var/lib/grc_audit.Ab3xZ9/results.xml", str(local), timeout=0.3)
+    assert real_time.monotonic() - started < 5
     assert not local.exists()
 
 

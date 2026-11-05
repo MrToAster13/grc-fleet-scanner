@@ -409,21 +409,25 @@ SSG = "/opt/ssg"
 SSG_DS = "/opt/ssg/ssg-ubuntu2204-ds.xml"
 
 
-def _require_root_only_ssg(writable, user_runs=True, ds=SSG_DS) -> subprocess.CompletedProcess:
-    """Runs require_root_only_ssg_dir with as_user stubbed: as grc-scan, `test
-    -w P` succeeds only for P in ``writable``, and ``true`` succeeds only when
-    ``user_runs``."""
+def _require_root_only_ssg(writable, user_runs=True, ds=SSG_DS,
+                           owned=()) -> subprocess.CompletedProcess:
+    """Runs require_root_only_ssg_dir with as_user and owner_of stubbed: as
+    grc-scan, `test -w P` succeeds only for P in ``writable``, ``true``
+    succeeds only when ``user_runs``, and grc-scan owns only ``owned``
+    (everything else is root's)."""
     stub = (
         'as_user() { [ "$1" = grc-scan ] || return 99; shift; '
         'case "$1" in true) [ "$RUNS" = 1 ]; return ;; esac; '
         '[ "$1 $2" = "test -w" ] || return 98; '
         'case " $W " in *" $3 "*) return 0 ;; esac; return 1; }; '
+        'owner_of() { case " $O " in *" $1 "*) echo grc-scan ;; *) echo root ;; esac; }; '
     )
     return subprocess.run(
         [BASH, "-c", 'source "$1"; ' + stub + 'require_root_only_ssg_dir grc-scan "$2"',
          "_", SCRIPT, ds],
         env={**os.environ, "GRC_TARGET_SETUP_TEST": "1",
-             "W": " ".join(writable), "RUNS": "1" if user_runs else "0"},
+             "W": " ".join(writable), "RUNS": "1" if user_runs else "0",
+             "O": " ".join(owned)},
         capture_output=True, text=True,
     )
 
@@ -455,6 +459,15 @@ def test_ssg_path_behind_a_symlink_into_a_writable_dir_is_refused(tmp_path, link
     res = _require_root_only_ssg([str(home)], ds=ds)
     assert res.returncode == 1
     assert f"can write {home}" in res.stderr, res.stderr
+
+
+@pytest.mark.parametrize("owned", [[SSG], [SSG_DS], ["/opt"]])
+def test_ssg_path_the_scan_user_owns_is_refused_even_when_read_only(owned):
+    # review round 2: an owner can chmod u+w at any time, so a 0555 dir or a
+    # 0444 datastream it owns is as good as writable.
+    res = _require_root_only_ssg([], owned=owned)
+    assert res.returncode == 1
+    assert f"grc-scan owns {owned[0]}" in res.stderr, res.stderr
 
 
 def test_root_only_ssg_path_is_accepted():

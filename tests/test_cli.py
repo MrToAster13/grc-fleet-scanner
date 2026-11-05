@@ -451,3 +451,18 @@ def test_rmf_output_is_created_private(tmp_path, umask_022):
 
     assert cli_mod.main(["rmf", str(arf), "-o", str(out)]) == 0
     assert out.stat().st_mode & 0o077 == 0, oct(out.stat().st_mode)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_rmf_output_that_already_exists_is_made_private(tmp_path, umask_022):
+    # umask applies only when a file is created; the default output name is
+    # reused across runs (review round 2).
+    from test_rmf import _ARF
+    arf = tmp_path / "arf.xml"
+    arf.write_text(_ARF, encoding="utf-8")
+    out = tmp_path / "control-rollup.csv"
+    out.write_text("old")
+    os.chmod(out, 0o644)
+
+    assert cli_mod.main(["rmf", str(arf), "-o", str(out)]) == 0
+    assert out.stat().st_mode & 0o077 == 0, oct(out.stat().st_mode)

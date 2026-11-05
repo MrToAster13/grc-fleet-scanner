@@ -21,6 +21,7 @@ Honesty, stated in the output (never hidden):
 from __future__ import annotations
 
 import csv
+import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -258,6 +259,9 @@ def summarize_revisions(rows: list[ControlRow]) -> str:
 
 def write_rollup_csv(rows: list[ControlRow], out_path: str) -> None:
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
+        # umask covers only a new file; a rollup from an earlier run keeps
+        # its old mode, so tighten it before any row is written.
+        os.chmod(out_path, 0o600)
         w = csv.writer(fh)
         w.writerow(["control", "family", "nist_800_53_rev", "rules_mapped",
                     "pass", "fail", "not_applicable", "unverified",

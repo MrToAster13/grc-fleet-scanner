@@ -444,9 +444,11 @@ class RemoteHost:
         counted on the bytes received, not taken from the target's stat(), and
         a failed pull leaves no partial file behind.
 
-        ``timeout`` is a total deadline for the pull, opening the SFTP session
-        included, so a slow or silent host cannot hold the worker thread (and
-        thus the run). It surfaces as a :class:`RemoteError`.
+        ``timeout`` is a total deadline for the whole pull, opening the SFTP
+        session included. paramiko's own waits (the subsystem request, each
+        read, which loops one SFTP READ at a time) can outlast any channel
+        timeout, so the pull runs under :meth:`_bounded`, which closes the
+        connection at the deadline. It surfaces as a :class:`RemoteError`.
         """
         if self._client is None:
             raise RemoteError("not connected")
@@ -454,9 +456,20 @@ class RemoteHost:
         if parent:
             os.makedirs(parent, exist_ok=True)
         client = self._client
-        deadline = None if timeout is None else time.monotonic() + timeout
         try:
-            sftp = self._bounded(timeout, "opening SFTP", client.open_sftp)
+            self._bounded(timeout, f"pulling {remote_path}",
+                          lambda: self._pull(client, remote_path, local_path, timeout))
+        except BaseException:
+            try:
+                os.remove(local_path)
+            except OSError:
+                pass
+            raise
+
+    def _pull(self, client, remote_path: str, local_path: str,
+              timeout: Optional[int]) -> None:
+        try:
+            sftp = client.open_sftp()
             if timeout is not None:
                 sftp.get_channel().settimeout(timeout)
         except paramiko.SSHException as exc:
@@ -464,31 +477,20 @@ class RemoteHost:
                 f"could not open SFTP channel to {self.ip}: {exc}"
             ) from exc
         try:
-            self._copy_capped(sftp, remote_path, local_path, timeout, deadline)
-        except BaseException:
-            try:
-                os.remove(local_path)
-            except OSError:
-                pass
-            raise
+            self._copy_capped(sftp, remote_path, local_path)
         finally:
             try:
                 sftp.close()
             except Exception:  # pragma: no cover - best effort
                 pass
 
-    def _copy_capped(self, sftp, remote_path: str, local_path: str,
-                     timeout: Optional[int], deadline: Optional[float]) -> None:
+    def _copy_capped(self, sftp, remote_path: str, local_path: str) -> None:
         # Not sftp.get(): it prefetches as many bytes as the target's stat()
         # claims, so a lying size queues unbounded reads.
         try:
             received = 0
             with sftp.open(remote_path, "rb") as src, open(local_path, "wb") as dst:
                 while True:
-                    if deadline is not None and time.monotonic() >= deadline:
-                        raise RemoteError(
-                            f"pulling {remote_path} from {self.ip} timed out "
-                            f"after {timeout}s")
                     chunk = src.read(32768)
                     if not chunk:
                         return
