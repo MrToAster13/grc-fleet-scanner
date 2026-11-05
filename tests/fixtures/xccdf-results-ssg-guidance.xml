@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Rule content copied verbatim from ComplianceAsCode release v0.1.74,
+  scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml. That content is
+  BSD-3-Clause, Copyright (c) 2012-2017, Red Hat, Inc.; see the LICENSE file at
+  https://github.com/ComplianceAsCode/content. Kept per Rule: title,
+  description, rationale, and the sh and Ansible fix elements. check, reference
+  and platform children are dropped to keep the file small. The TestResult is
+  synthetic: 3 fail (two with a fix, one without), 1 pass.
+  dconf_gnome_screensaver_idle_delay's sh fix embeds an <xccdf:sub idref> variable.
+-->
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" xmlns:html="http://www.w3.org/1999/xhtml" id="xccdf_org.ssgproject.content_benchmark_UBUNTU2204"><version>0.1.74</version><Rule selected="false" id="xccdf_org.ssgproject.content_rule_prefer_64bit_os" severity="medium"><title>Prefer to use a 64-bit Operating System when supported</title>
+<description>Prefer installation of 64-bit operating systems when the CPU supports it.</description>
+<rationale>Use of a 64-bit operating system offers a few advantages, like a larger address space range for
+Address Space Layout Randomization (ASLR) and systematic presence of No eXecute and Execute Disable (NX/XD) protection bits.</rationale>
+</Rule><Rule selected="false" id="xccdf_org.ssgproject.content_rule_encrypt_partitions" severity="high"><title>Encrypt Partitions</title>
+<description>Ubuntu 22.04 natively supports partition encryption through the
+Linux Unified Key Setup-on-disk-format (LUKS) technology. The easiest way to
+encrypt a partition is during installation time.
+<html:br />
+        <html:br />
+For manual installations, select the <html:code>Encrypt</html:code> checkbox during
+partition creation to encrypt the partition. When this
+option is selected the system will prompt for a passphrase to use in
+decrypting the partition. The passphrase will subsequently need to be entered manually
+every time the system boots.
+
+<html:br />
+        <html:br />
+Detailed information on encrypting partitions using LUKS or LUKS ciphers can be found on
+the Ubuntu 22.04 Documentation web site:<html:br />
+        <html:a href="https://help.ubuntu.com/community/Full_Disk_Encryption_Howto_2019">https://help.ubuntu.com/community/Full_Disk_Encryption_Howto_2019</html:a>
+.</description>
+<rationale>The risk of a system's physical compromise, particularly mobile systems such as
+laptops, places its data at risk of compromise.  Encrypting this data mitigates
+the risk of its loss if the system is lost.</rationale>
+</Rule><Rule selected="false" id="xccdf_org.ssgproject.content_rule_dconf_gnome_screensaver_idle_delay" severity="medium"><title>Set GNOME3 Screensaver Inactivity Timeout</title>
+<description>The idle time-out value for inactivity in the GNOME3 desktop is configured via the <html:code>idle-delay</html:code>
+setting must be set under an appropriate configuration file(s) in the <html:code>/etc/dconf/db/local.d</html:code> directory
+and locked in <html:code>/etc/dconf/db/local.d/locks</html:code> directory to prevent user modification.
+<html:br />
+         <html:br />
+For example, to configure the system for a 15 minute delay, add the following to
+<html:code>/etc/dconf/db/local.d/00-security-settings</html:code>:
+<html:pre>[org/gnome/desktop/session]
+idle-delay=uint32 900</html:pre>
+        </description>
+<rationale>A session time-out lock is a temporary action taken when a user stops work and moves away from
+the immediate physical vicinity of the information system but does not logout because of the
+temporary nature of the absence. Rather than relying on the user to manually lock their operating
+system session prior to vacating the vicinity, GNOME3 can be configured to identify when
+a user's session has idled and take action to initiate a session lock.</rationale>
+<fix system="urn:xccdf:fix:script:sh" id="dconf_gnome_screensaver_idle_delay"># Remediation is applicable only in certain platforms
+if dpkg-query --show --showformat='${db:Status-Status}\n' 'gdm3' 2&gt;/dev/null | grep -q installed &amp;&amp; { [ ! -f /.dockerenv ] &amp;&amp; [ ! -f /run/.containerenv ]; }; then
+
+mkdir -p /etc/dconf/profile
+dconf_profile_path=/etc/dconf/profile/user
+
+[[ -s "${dconf_profile_path}" ]] || echo &gt; "${dconf_profile_path}"
+
+if ! grep -Pzq "(?s)^\s*user-db:user.*\n\s*system-db:local" "${dconf_profile_path}"; then
+    sed -i --follow-symlinks "1s/^/user-db:user\nsystem-db:local\n/" "${dconf_profile_path}"
+fi
+
+# Make sure the corresponding directories exist
+mkdir -p /etc/dconf/db/local.d
+
+# Make sure permissions allow regular users to read dconf settings.
+# Also define the umask to avoid `dconf update` changing permissions.
+chmod -R u=rwX,go=rX /etc/dconf/profile
+(umask 0022 &amp;&amp; dconf update)
+mkdir -p /etc/dconf/profile
+dconf_profile_path=/etc/dconf/profile/gdm
+
+[[ -s "${dconf_profile_path}" ]] || echo &gt; "${dconf_profile_path}"
+
+if ! grep -Pzq "(?s)^\s*user-db:user.*\n\s*system-db:gdm" "${dconf_profile_path}"; then
+    sed -i --follow-symlinks "1s/^/user-db:user\nsystem-db:gdm\n/" "${dconf_profile_path}"
+fi
+
+# Make sure the corresponding directories exist
+mkdir -p /etc/dconf/db/gdm.d
+
+# Make sure permissions allow regular users to read dconf settings.
+# Also define the umask to avoid `dconf update` changing permissions.
+chmod -R u=rwX,go=rX /etc/dconf/profile
+(umask 0022 &amp;&amp; dconf update)
+
+
+inactivity_timeout_value='<sub idref="xccdf_org.ssgproject.content_value_inactivity_timeout_value" use="legacy" />'
+
+
+# Check for setting in any of the DConf db directories
+# If files contain ibus or distro, ignore them.
+# The assignment assumes that individual filenames don't contain :
+readarray -t SETTINGSFILES &lt; &lt;(grep -r "\\[org/gnome/desktop/session\\]" "/etc/dconf/db/" \
+                                | grep -v 'distro\|ibus\|local.d' | cut -d":" -f1)
+DCONFFILE="/etc/dconf/db/local.d/00-security-settings"
+DBDIR="/etc/dconf/db/local.d"
+
+mkdir -p "${DBDIR}"
+
+# Comment out the configurations in databases different from the target one
+if [ "${#SETTINGSFILES[@]}" -ne 0 ]
+then
+    if grep -q "^\\s*idle-delay\\s*=" "${SETTINGSFILES[@]}"
+    then
+        
+        sed -Ei "s/(^\s*)idle-delay(\s*=)/#\1idle-delay\2/g" "${SETTINGSFILES[@]}"
+    fi
+fi
+
+[ ! -z "${DCONFFILE}" ] &amp;&amp; echo "" &gt;&gt; "${DCONFFILE}"
+if ! grep -q "\\[org/gnome/desktop/session\\]" "${DCONFFILE}"
+then
+    printf '%s\n' "[org/gnome/desktop/session]" &gt;&gt; ${DCONFFILE}
+fi
+
+escaped_value="$(sed -e 's/\\/\\\\/g' &lt;&lt;&lt; "uint32 ${inactivity_timeout_value}")"
+if grep -q "^\\s*idle-delay\\s*=" "${DCONFFILE}"
+then
+        sed -i "s/\\s*idle-delay\\s*=\\s*.*/idle-delay=${escaped_value}/g" "${DCONFFILE}"
+    else
+        sed -i "\\|\\[org/gnome/desktop/session\\]|a\\idle-delay=${escaped_value}" "${DCONFFILE}"
+fi
+# Make sure permissions allow regular users to read dconf settings.
+# Also define the umask to avoid `dconf update` changing permissions.
+chmod -R u=rwX,go=rX /etc/dconf/db
+(umask 0022 &amp;&amp; dconf update)
+
+else
+    &gt;&amp;2 echo 'Remediation is not applicable, nothing was done'
+fi
+</fix>
+</Rule><Rule selected="false" id="xccdf_org.ssgproject.content_rule_sshd_disable_root_login" severity="medium"><title>Disable SSH Root Login</title>
+<description>The root user should never be allowed to login to a
+system directly over a network.
+To disable root login via SSH, add or correct the following line in
+
+
+<html:code>/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf</html:code>:
+
+<html:pre>PermitRootLogin no</html:pre>
+       </description>
+<rationale>Even though the communications channel may be encrypted, an additional layer of
+security is gained by extending the policy of not logging directly on as root.
+In addition, logging in with a user-specific account provides individual
+accountability of actions performed on the system and also helps to minimize
+direct attack attempts on root's password.</rationale>
+<fix system="urn:xccdf:fix:script:ansible" id="sshd_disable_root_login" complexity="low" disruption="low" reboot="false" strategy="restrict">- name: Disable SSH Root Login
+  block:
+
+  - name: Deduplicate values from /etc/ssh/sshd_config
+    lineinfile:
+      path: /etc/ssh/sshd_config
+      create: false
+      regexp: (?i)^\s*{{ "PermitRootLogin"| regex_escape }}\s+
+      state: absent
+
+  - name: Check if /etc/ssh/sshd_config.d exists
+    stat:
+      path: /etc/ssh/sshd_config.d
+    register: _etc_ssh_sshd_config_d_exists
+
+  - name: Check if the parameter PermitRootLogin is present in /etc/ssh/sshd_config.d
+    find:
+      paths: /etc/ssh/sshd_config.d
+      recurse: 'yes'
+      follow: 'no'
+      contains: (?i)^\s*{{ "PermitRootLogin"| regex_escape }}\s+
+    register: _etc_ssh_sshd_config_d_has_parameter
+    when: _etc_ssh_sshd_config_d_exists.stat.isdir is defined and _etc_ssh_sshd_config_d_exists.stat.isdir
+
+  - name: Remove parameter from files in /etc/ssh/sshd_config.d
+    lineinfile:
+      path: '{{ item.path }}'
+      create: false
+      regexp: (?i)^\s*{{ "PermitRootLogin"| regex_escape }}\s+
+      state: absent
+    with_items: '{{ _etc_ssh_sshd_config_d_has_parameter.files }}'
+    when: _etc_ssh_sshd_config_d_has_parameter.matched
+
+  - name: Insert correct line to /etc/ssh/sshd_config.d/00-complianceascode-hardening.conf
+    lineinfile:
+      path: /etc/ssh/sshd_config.d/00-complianceascode-hardening.conf
+      create: true
+      regexp: (?i)^\s*{{ "PermitRootLogin"| regex_escape }}\s+
+      line: PermitRootLogin no
+      state: present
+      insertbefore: BOF
+      validate: /usr/sbin/sshd -t -f %s
+  when: ansible_virtualization_type not in ["docker", "lxc", "openvz", "podman", "container"]
+  tags:
+  - CJIS-5.5.6
+  - NIST-800-171-3.1.1
+  - NIST-800-171-3.1.5
+  - NIST-800-53-AC-17(a)
+  - NIST-800-53-AC-6(2)
+  - NIST-800-53-CM-6(a)
+  - NIST-800-53-CM-7(a)
+  - NIST-800-53-CM-7(b)
+  - NIST-800-53-IA-2
+  - NIST-800-53-IA-2(5)
+  - PCI-DSS-Req-2.2.4
+  - PCI-DSSv4-2.2.6
+  - low_complexity
+  - low_disruption
+  - medium_severity
+  - no_reboot_needed
+  - restrict_strategy
+  - sshd_disable_root_login
+</fix>
+<fix system="urn:xccdf:fix:script:sh" id="sshd_disable_root_login" complexity="low" disruption="low" reboot="false" strategy="restrict"># Remediation is applicable only in certain platforms
+if [ ! -f /.dockerenv ] &amp;&amp; [ ! -f /run/.containerenv ]; then
+
+mkdir -p /etc/ssh/sshd_config.d
+touch /etc/ssh/sshd_config.d/00-complianceascode-hardening.conf
+
+LC_ALL=C sed -i "/^\s*PermitRootLogin\s\+/Id" "/etc/ssh/sshd_config"
+LC_ALL=C sed -i "/^\s*PermitRootLogin\s\+/Id" "/etc/ssh/sshd_config.d"/*.conf
+if [ -e "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf" ] ; then
+    
+    LC_ALL=C sed -i "/^\s*PermitRootLogin\s\+/Id" "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf"
+else
+    touch "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf"
+fi
+# make sure file has newline at the end
+sed -i -e '$a\' "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf"
+
+cp "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf" "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf.bak"
+# Insert at the beginning of the file
+printf '%s\n' "PermitRootLogin no" &gt; "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf"
+cat "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf.bak" &gt;&gt; "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf"
+# Clean up after ourselves.
+rm "/etc/ssh/sshd_config.d/00-complianceascode-hardening.conf.bak"
+
+else
+    &gt;&amp;2 echo 'Remediation is not applicable, nothing was done'
+fi
+</fix>
+</Rule><TestResult id="xccdf_org.ssgproject.content_testresult_cis_level1_server"><rule-result idref="xccdf_org.ssgproject.content_rule_sshd_disable_root_login" severity="high"><result>fail</result></rule-result><rule-result idref="xccdf_org.ssgproject.content_rule_dconf_gnome_screensaver_idle_delay" severity="medium"><result>fail</result></rule-result><rule-result idref="xccdf_org.ssgproject.content_rule_encrypt_partitions" severity="high"><result>fail</result></rule-result><rule-result idref="xccdf_org.ssgproject.content_rule_prefer_64bit_os" severity="medium"><result>pass</result></rule-result><score>25.0</score></TestResult></Benchmark>
