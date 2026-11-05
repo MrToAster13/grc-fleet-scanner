@@ -201,7 +201,7 @@ schema) are stable seams that let the modules evolve independently.
 
 - Long-running daemon / live web service.
 - Auto-remediation (OpenSCAP can generate fixes; assessment-only for v1). The
-  report does show remediation guidance (ELI-930): the SSG rationale and fix
+  report does show remediation guidance: the SSG rationale and fix
   text (shell, else Ansible) read from the Benchmark in each host's results.xml.
   `findings.csv` carries it for every failed rule on every host. The HTML shows
   it in a collapsed block labeled "from SSG, not applied by this tool" for the

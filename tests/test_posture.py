@@ -81,7 +81,7 @@ def test_zero_scanned_false_when_at_least_one_host_scanned():
 def test_zero_scanned_false_when_one_scanned_and_forty_are_gaps():
     # One good host out of forty-one must never alarm: the predicate is about
     # *nothing* being scanned, not about a low scan rate.
-    gaps = [HostRecord(ip=f"10.0.10.{i}", status=HostStatus.UNREACHABLE)
+    gaps = [HostRecord(ip=f"192.0.2.{i}", status=HostStatus.UNREACHABLE)
             for i in range(40)]
     hosts = [fabricate_scanned_host(ip="192.0.2.99")] + gaps
     assert posture.zero_scanned(_run(hosts)) is False

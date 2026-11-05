@@ -8,7 +8,7 @@ Acceptance criteria map:
   AC4 -> test_examples_docs_and_tests_avoid_the_old_private_range,
          test_example_config_scope_is_a_documentation_range
   AC5 -> test_readme_documentation_table_lists_only_product_docs
-  review -> test_operator_docs_carry_no_tracker_ids
+  review -> test_operator_docs_and_shipped_code_carry_no_tracker_ids
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Built from parts so this file never matches its own searches.
 WINDOWS_HOME = re.compile(r"[A-Za-z]:(?:\\{1,2}|/)" + "Users" + r"(?:\\{1,2}|/)",
                           re.IGNORECASE)
-OLD_RANGE = re.compile(r"\b10\.0\.(?:1|2)" + r"0\.\d")
+OLD_RANGE = re.compile(r"(?<![\d.])10\.0\.(?:1|2)" + r"0\.")
 DOC_RANGES = [ipaddress.ip_network(n)
               for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")]
 
@@ -60,7 +60,7 @@ def test_no_public_doc_says_grc3_is_blocked_or_local_only():
         if not rel.endswith(".md"):
             continue
         flat = " ".join(_text(rel).split()).lower()
-        if re.search(r"grc-3[^.|]*(?:blocked|local only)", flat):
+        if re.search(r"grc-3[^.|]*(?:blocked|local[\s-]+only)", flat):
             hits.append(rel)
     assert hits == []
 
@@ -102,7 +102,8 @@ def _readme_doc_links():
 def test_readme_documentation_table_lists_only_product_docs():
     links = _readme_doc_links()
     assert "docs/operating.md" in links and "docs/design.md" in links
-    process = [l for l in links if "handoffs" in l or l == "AGENTS.md"]
+    process = [l for l in links if "handoffs" in l.lower()
+               or os.path.basename(l.rstrip("/")).lower() == "agents.md"]
     assert process == []
 
 
@@ -110,10 +111,13 @@ def test_handoffs_are_not_in_the_tree():
     assert not [rel for rel in _tracked_files() if rel.startswith("docs/handoffs/")]
 
 
-def test_operator_docs_carry_no_tracker_ids():
+def test_operator_docs_and_shipped_code_carry_no_tracker_ids():
+    shipped = [rel for rel in _tracked_files()
+               if rel.startswith(("grc_auditor/", "bin/"))
+               or rel in ("install.sh", "grc-target-setup")]
     hits = []
-    for rel in ("README.md", "CONTEXT.md", "docs/operating.md", "docs/design.md",
-                "docs/validation.md", "config.example.yaml"):
+    for rel in ["README.md", "CONTEXT.md", "docs/operating.md", "docs/design.md",
+                "docs/validation.md", "config.example.yaml"] + shipped:
         for n, line in enumerate(_text(rel).splitlines(), 1):
             if re.search(r"\bELI-\d+", line):
                 hits.append(f"{rel}:{n}")

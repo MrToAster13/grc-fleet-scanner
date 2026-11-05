@@ -369,12 +369,12 @@ def _one_host_run(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     _scaffold_config(str(cfg_path))
     doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    doc["scope"]["cidrs"] = ["10.0.10.0/29"]
+    doc["scope"]["cidrs"] = ["192.0.2.0/29"]
     doc["output_dir"] = str(tmp_path / "out")
     cfg_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def fake_discover(scope, want_os=False):
-        return [HostRecord(ip="10.0.10.2", status=HostStatus.DISCOVERED)]
+        return [HostRecord(ip="192.0.2.2", status=HostStatus.DISCOVERED)]
 
     monkeypatch.setattr(discovery, "discover", fake_discover)
     monkeypatch.setattr(cli_mod.classify_mod, "classify", lambda hosts, cfg: None)
