@@ -183,21 +183,22 @@ as_user() {
     $SUDO runuser -u "$user" -- "$@"
 }
 
-# require_root_only_ssg_dir USER DIR DATASTREAM
-# The sudoers rule lets USER run oscap as root on DATASTREAM in DIR. If USER
-# can write DATASTREAM, DIR, or any parent of DIR, it can swap the content root
-# evaluates. Dies on any such path. A probe that USER can run a command at all
-# comes first, so a broken as_user cannot make every path look root-only.
+# require_root_only_ssg_dir USER DATASTREAM
+# The sudoers rule lets USER run oscap as root on DATASTREAM. If USER can write
+# DATASTREAM or any directory above it, it can swap the content root
+# evaluates. Dies on any such path. The walk covers the path as written and the
+# path with every symlink resolved, so a link into a directory USER owns is
+# caught too. A probe that USER can run a command at all comes first, so a
+# broken as_user cannot make every path look root-only.
 require_root_only_ssg_dir() {
-    local user="$1" dir="$2" ds="$3" p
-    as_user "$user" true || die "could not run a command as $user to check who can write $dir."
-    for p in "$ds" "$dir"; do
+    local user="$1" ds="$2" p
+    as_user "$user" true || die "could not run a command as $user to check who can write $ds."
+    for p in "$ds" "$(readlink -m -- "$ds")"; do
         while :; do
             if as_user "$user" test -w "$p"; then
                 die "$user can write $p, so it could replace the datastream root scans with. Use an --ssg-dir only root can write."
             fi
             [ "$p" = / ] && break
-            [ "$p" = "$ds" ] && break
             p="$(dirname "$p")"
         done
     done
@@ -416,7 +417,7 @@ if [ -n "$SCAN_USER" ]; then
     CHMOD_BIN="$(type -P chmod)" || die "no chmod binary on PATH."
     SCAN_GROUP="$(id -gn "$SCAN_USER")" || die "could not read $SCAN_USER's primary group."
     require_private_group "$SCAN_USER" "$(getent group "$SCAN_GROUP" || true)" "$(getent passwd || true)"
-    require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR" "$SSG_DIR/$SSG_FILE"
+    require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR/$SSG_FILE"
     RM_BIN="$(type -P rm)"     || die "no rm binary on PATH."
     OSCAP_BIN="$(type -P oscap)" || die "oscap not on PATH."
     tmp_sudoers="$(mktemp)"

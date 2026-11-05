@@ -61,6 +61,7 @@ from __future__ import annotations
 import os
 import shlex
 import socket
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional, Protocol, runtime_checkable
@@ -319,10 +320,12 @@ class RemoteHost:
             raise RemoteError("not connected")
         full = f"sudo -n {command}" if sudo else command
         log.debug("remote[%s]: %s", self.ip, full)
+        client = self._client
+        deadline = None if timeout is None else time.monotonic() + timeout
         try:
-            stdin, stdout, stderr = self._client.exec_command(
-                full, timeout=timeout
-            )
+            stdin, stdout, stderr = self._bounded(
+                timeout, f"starting {command!r}",
+                lambda: client.exec_command(full, timeout=timeout))
         except paramiko.SSHException as exc:
             raise RemoteError(
                 f"command on {self.ip} failed to start: {exc}"
@@ -337,7 +340,7 @@ class RemoteHost:
 
         channel = stdout.channel
         try:
-            out_bytes, err_bytes = self._collect(channel, command, timeout)
+            out_bytes, err_bytes = self._collect(channel, command, timeout, deadline)
             code = channel.recv_exit_status()
         except (RemoteError, socket.timeout) as exc:
             try:
@@ -354,7 +357,8 @@ class RemoteHost:
         err = err_bytes.decode("utf-8", errors="replace")
         return CommandResult(code, out, err)
 
-    def _collect(self, channel, command: str, timeout: Optional[int]):
+    def _collect(self, channel, command: str, timeout: Optional[int],
+                 deadline: Optional[float]):
         """Read stdout and stderr until the command exits.
 
         Both streams are read in one loop, because they share the channel's
@@ -362,7 +366,6 @@ class RemoteHost:
         a stdout read. Only bytes paramiko already holds are read, so no call
         blocks, and the cap and the deadline are checked on every pass.
         """
-        deadline = None if timeout is None else time.monotonic() + timeout
         out, err = bytearray(), bytearray()
         while True:
             if deadline is not None and time.monotonic() >= deadline:
@@ -381,11 +384,41 @@ class RemoteHost:
                     f"{MAX_COMMAND_OUTPUT_BYTES} bytes of output; refusing the "
                     f"rest: {command}")
             if not got:
-                # paramiko queues data ahead of the exit status, so once the
-                # status is in and both buffers are empty, all output is read.
-                if channel.exit_status_ready():
+                # sshd can send the exit status before it has drained the
+                # command's output, so the output is complete only at EOF.
+                if channel.exit_status_ready() and (
+                        channel.eof_received or channel.closed):
                     return bytes(out), bytes(err)
                 time.sleep(_POLL_SECONDS)
+
+    def _bounded(self, timeout: Optional[float], what: str, start):
+        """Call ``start()``, a paramiko request that waits with no timeout for
+        the target's reply (an exec or a subsystem request). If it outlives
+        ``timeout``, close the connection, which wakes the wait, and raise
+        :class:`RemoteError`. Later calls on this host then fail fast."""
+        if timeout is None:
+            return start()
+        expired = threading.Event()
+
+        def expire():
+            expired.set()
+            self.close()
+
+        timer = threading.Timer(timeout, expire)
+        timer.daemon = True
+        timer.start()
+        try:
+            result = start()
+        except Exception as exc:
+            if expired.is_set():
+                raise RemoteError(
+                    f"{what} on {self.ip} timed out after {timeout}s") from exc
+            raise
+        finally:
+            timer.cancel()
+        if expired.is_set():
+            raise RemoteError(f"{what} on {self.ip} timed out after {timeout}s")
+        return result
 
     def run_argv(self, argv: list, *, sudo: bool = False,
                  timeout: Optional[int] = None) -> CommandResult:
@@ -411,18 +444,19 @@ class RemoteHost:
         counted on the bytes received, not taken from the target's stat(), and
         a failed pull leaves no partial file behind.
 
-        A ``timeout`` is enforced on the SFTP channel: without it a stalled
-        transfer from a slow/hostile host would block the worker thread (and thus
-        the run) indefinitely, since a thread pool cannot interrupt a blocked
-        C-level read. A timeout surfaces as a :class:`RemoteError` instead.
+        ``timeout`` is a total deadline for the pull, opening the SFTP session
+        included, so a slow or silent host cannot hold the worker thread (and
+        thus the run). It surfaces as a :class:`RemoteError`.
         """
         if self._client is None:
             raise RemoteError("not connected")
         parent = os.path.dirname(local_path)
         if parent:
             os.makedirs(parent, exist_ok=True)
+        client = self._client
+        deadline = None if timeout is None else time.monotonic() + timeout
         try:
-            sftp = self._client.open_sftp()
+            sftp = self._bounded(timeout, "opening SFTP", client.open_sftp)
             if timeout is not None:
                 sftp.get_channel().settimeout(timeout)
         except paramiko.SSHException as exc:
@@ -430,7 +464,7 @@ class RemoteHost:
                 f"could not open SFTP channel to {self.ip}: {exc}"
             ) from exc
         try:
-            self._copy_capped(sftp, remote_path, local_path)
+            self._copy_capped(sftp, remote_path, local_path, timeout, deadline)
         except BaseException:
             try:
                 os.remove(local_path)
@@ -443,13 +477,18 @@ class RemoteHost:
             except Exception:  # pragma: no cover - best effort
                 pass
 
-    def _copy_capped(self, sftp, remote_path: str, local_path: str) -> None:
+    def _copy_capped(self, sftp, remote_path: str, local_path: str,
+                     timeout: Optional[int], deadline: Optional[float]) -> None:
         # Not sftp.get(): it prefetches as many bytes as the target's stat()
         # claims, so a lying size queues unbounded reads.
         try:
             received = 0
             with sftp.open(remote_path, "rb") as src, open(local_path, "wb") as dst:
                 while True:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise RemoteError(
+                            f"pulling {remote_path} from {self.ip} timed out "
+                            f"after {timeout}s")
                     chunk = src.read(32768)
                     if not chunk:
                         return

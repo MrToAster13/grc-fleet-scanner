@@ -409,7 +409,7 @@ SSG = "/opt/ssg"
 SSG_DS = "/opt/ssg/ssg-ubuntu2204-ds.xml"
 
 
-def _require_root_only_ssg(writable, user_runs=True) -> subprocess.CompletedProcess:
+def _require_root_only_ssg(writable, user_runs=True, ds=SSG_DS) -> subprocess.CompletedProcess:
     """Runs require_root_only_ssg_dir with as_user stubbed: as grc-scan, `test
     -w P` succeeds only for P in ``writable``, and ``true`` succeeds only when
     ``user_runs``."""
@@ -420,8 +420,8 @@ def _require_root_only_ssg(writable, user_runs=True) -> subprocess.CompletedProc
         'case " $W " in *" $3 "*) return 0 ;; esac; return 1; }; '
     )
     return subprocess.run(
-        [BASH, "-c", 'source "$1"; ' + stub + 'require_root_only_ssg_dir grc-scan "$2" "$3"',
-         "_", SCRIPT, SSG, SSG_DS],
+        [BASH, "-c", 'source "$1"; ' + stub + 'require_root_only_ssg_dir grc-scan "$2"',
+         "_", SCRIPT, ds],
         env={**os.environ, "GRC_TARGET_SETUP_TEST": "1",
              "W": " ".join(writable), "RUNS": "1" if user_runs else "0"},
         capture_output=True, text=True,
@@ -433,6 +433,28 @@ def test_ssg_path_the_scan_user_can_write_is_refused(writable):
     res = _require_root_only_ssg(writable)
     assert res.returncode == 1
     assert "can write" in res.stderr and writable[0] in res.stderr, res.stderr
+
+
+@pytest.mark.parametrize("link", ["dir", "file"])
+def test_ssg_path_behind_a_symlink_into_a_writable_dir_is_refused(tmp_path, link):
+    # review finding 3: /opt/ssg -> /home/grc-scan/ssg. The walk has to
+    # check where the link points, not only the path as written.
+    home = tmp_path / "home" / "grc-scan"
+    real = home / "ssg"
+    real.mkdir(parents=True)
+    (real / "ssg-ubuntu2204-ds.xml").write_text("")
+    opt = tmp_path / "opt"
+    opt.mkdir()
+    if link == "dir":
+        (opt / "ssg").symlink_to(real)
+    else:
+        (opt / "ssg").mkdir()
+        (opt / "ssg" / "ssg-ubuntu2204-ds.xml").symlink_to(real / "ssg-ubuntu2204-ds.xml")
+    ds = str(opt / "ssg" / "ssg-ubuntu2204-ds.xml")
+
+    res = _require_root_only_ssg([str(home)], ds=ds)
+    assert res.returncode == 1
+    assert f"can write {home}" in res.stderr, res.stderr
 
 
 def test_root_only_ssg_path_is_accepted():
@@ -449,6 +471,6 @@ def test_ssg_check_fails_closed_when_it_cannot_run_as_the_scan_user():
 def test_setup_checks_the_ssg_dir_before_writing_sudoers():
     with open(SCRIPT, encoding="utf-8") as fh:
         text = fh.read()
-    check = text.find('require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR" "$SSG_DIR/$SSG_FILE"')
+    check = text.find('require_root_only_ssg_dir "$SCAN_USER" "$SSG_DIR/$SSG_FILE"')
     write = text.find('scan_sudoers "$SCAN_USER"')
     assert 0 < check < write

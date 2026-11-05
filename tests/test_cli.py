@@ -405,6 +405,27 @@ def test_run_whose_report_fails_is_not_recorded_as_finished(tmp_path, monkeypatc
     assert runs[0]["finished_at"] is None
 
 
+def test_report_that_fails_partway_leaves_no_report_html(tmp_path, monkeypatch):
+    # write_reports writes report.html first. If a later step raises, a
+    # leftover report.html would let grc-report open this unfinished run as
+    # the newest one with no warning (review finding 4).
+    args = _one_host_run(tmp_path, monkeypatch)
+
+    def half_written(run, store, run_dir, **kw):
+        with open(os.path.join(run_dir, "report.html"), "w", encoding="utf-8") as fh:
+            fh.write("<html>partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli_mod, "write_reports", half_written)
+    with pytest.raises(OSError, match="disk full"):
+        cmd_run(args)
+
+    run_dirs = list((tmp_path / "out" / "runs").iterdir())
+    assert len(run_dirs) == 1
+    assert not (run_dirs[0] / "report.html").exists()
+    assert (run_dirs[0] / "effective-config.json").exists()
+
+
 def test_run_with_a_report_is_recorded_as_finished(tmp_path, monkeypatch):
     cmd_run(_one_host_run(tmp_path, monkeypatch))
 

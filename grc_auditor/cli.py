@@ -256,8 +256,17 @@ def cmd_run(args) -> int:
         # report. Drift and trend skip the current run's row, so they don't
         # need the stamp.
         run.finished_at = _utcnow()
-        paths = write_reports(run, store, run_dir,
-                              low_confidence_threshold=cfg.low_confidence_threshold)
+        try:
+            paths = write_reports(run, store, run_dir,
+                                  low_confidence_threshold=cfg.low_confidence_threshold)
+        except BaseException:
+            # write_reports writes report.html first; left behind, it would
+            # pass this unfinished run off as the latest report in grc-report.
+            try:
+                os.remove(os.path.join(run_dir, "report.html"))
+            except OSError:
+                pass
+            raise
         store.finish_run(run.run_id, run.finished_at)
     finally:
         store.close()

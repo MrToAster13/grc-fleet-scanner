@@ -164,6 +164,10 @@ class _ScriptedChannel:
     def exit_status_ready(self):
         return self.exits and self.left <= 0
 
+    @property
+    def eof_received(self):
+        return self.exits and self.left <= 0
+
     def recv_exit_status(self):
         return 0
 
@@ -331,6 +335,93 @@ def test_run_reads_all_output_before_the_exit_status_on_a_real_channel(server_ke
     assert result.exit_code == 3
     assert result.stdout.encode() == out
     assert len(result.stderr) == len(err)
+
+
+def test_run_reads_output_that_arrives_after_the_exit_status(server_key):
+    # sshd sends exit-status when the child exits and may still be draining
+    # the child's pipe, so output can follow the status (review finding 1).
+    import time as real_time
+
+    def respond(ch):
+        ch.send_exit_status(0)
+        real_time.sleep(0.3)
+        ch.sendall(b"VERSION_ID=22.04\n")
+        ch.shutdown_write()
+        ch.close()
+
+    result = _run_on_real_channel(server_key, respond)
+    assert result.stdout == "VERSION_ID=22.04\n"
+    assert result.exit_code == 0
+
+
+class _SilentStartClient:
+    """A target that accepts the session but never answers the exec or sftp
+    request: the call blocks until the connection is closed, as paramiko's
+    unbounded _wait_for_event does (review finding 2)."""
+
+    def __init__(self):
+        import threading
+        self.closed = threading.Event()
+
+    def _wait(self):
+        if not self.closed.wait(10):
+            raise AssertionError("never woken")
+        raise paramiko.SSHException("Channel closed.")
+
+    def exec_command(self, command, timeout=None):
+        self._wait()
+
+    def open_sftp(self):
+        self._wait()
+
+    def close(self):
+        self.closed.set()
+
+
+def _silent_start_host():
+    group = CredentialGroup(name="lab", ssh_user="ubuntu", targets=["default"])
+    rh = RemoteHost("10.0.10.21", group, known_hosts=None)
+    rh._client = _SilentStartClient()
+    return rh
+
+
+def test_run_deadline_covers_an_exec_request_the_target_never_answers():
+    import time as real_time
+    rh = _silent_start_host()
+    started = real_time.monotonic()
+    with pytest.raises(RemoteError, match="timed out"):
+        rh.run("true", timeout=0.3)
+    assert real_time.monotonic() - started < 5
+
+
+def test_get_file_deadline_covers_an_sftp_request_the_target_never_answers(tmp_path):
+    import time as real_time
+    rh = _silent_start_host()
+    started = real_time.monotonic()
+    with pytest.raises(RemoteError, match="timed out"):
+        rh.get_file("/var/lib/grc_audit.Ab3xZ9/results.xml",
+                    str(tmp_path / "results.xml"), timeout=0.3)
+    assert real_time.monotonic() - started < 5
+
+
+def test_get_file_deadline_is_total_not_per_read(tmp_path, monkeypatch):
+    # A target that answers every read just inside the channel timeout.
+    clock = _FakeClock()
+    monkeypatch.setattr(remote_mod, "time", clock, raising=False)
+    sftp = _FakeSFTP(size=1000)
+    serve = sftp._serve
+
+    def slow_serve(n):
+        clock.now += 1.0
+        return serve(1)
+
+    sftp._serve = slow_serve
+    local = tmp_path / "results.xml"
+    with pytest.raises(RemoteError, match="timed out"):
+        _host_with_sftp(sftp).get_file("/var/lib/grc_audit.Ab3xZ9/results.xml",
+                                       str(local), timeout=5)
+    assert sftp.served < 20
+    assert not local.exists()
 
 
 def test_run_stops_a_real_flood_at_the_cap(server_key):
