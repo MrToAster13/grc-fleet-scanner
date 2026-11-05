@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Test harness only; the run-host venv installs requirements.txt alone.
+pytest>=7.0

@@ -404,7 +404,7 @@ def cmd_rmf(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="grc-audit",
+        prog="python -m grc_auditor",
         description="Discover network hosts and audit Ubuntu hosts against the "
                     "CIS Benchmark via OpenSCAP.",
     )

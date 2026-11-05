@@ -104,7 +104,7 @@ grc-demo            # renders a sample report you can open in a browser
 sudo apt update && sudo apt install -y git python3 python3-venv python3-pip nmap
 git clone https://github.com/MrToAster13/grc-fleet-scanner.git && cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # requirements.txt plus pytest
 python -m pytest        # expect: all passed, 0 failed
 python smoketest.py     # renders a sample report you can open in a browser
 ```
@@ -176,9 +176,11 @@ Released under the [MIT License](LICENSE).
 Issues and PRs welcome. Run `python -m pytest` and `bash tests/shell/run-all.sh` before submitting; keep the
 offline `python smoketest.py` working.
 
-A pre-commit hook runs the suite for you and blocks a commit if it fails. Enable it once
-per clone:
+A pre-commit hook runs the suite for you and blocks a commit if it fails. It prefers the
+repo's `.venv`, which the launchers build from `requirements.txt` alone, so install pytest
+into it first and then enable the hook once per clone:
 
 ```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
 git config core.hooksPath .githooks
 ```
