@@ -31,7 +31,7 @@ host-key auth) that trip up the happy path.
 ```bash
 cd grc-fleet-scanner
 python3 -m venv .venv && source .venv/bin/activate   # REQUIRED
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # requirements.txt plus pytest for the check below
 ```
 
 > **Why the venv is mandatory:** modern Debian/Kali/Ubuntu mark the system Python
