@@ -54,6 +54,7 @@ python -m pip install pytest
 | `test_report.py` | `report.compute_drift`, `top_failing_controls`, `write_reports` (artifacts on disk, HTML/JSON/CSV content, zero-scanned banner incl. a dry run) |
 | `test_posture.py` | `posture.zero_scanned` (gaps only, nothing discovered, one scanned, dry run, missing dry-run marker, all `non_ubuntu`), `scan_candidates`, `assessed_share` (no candidates, `discovered` counts as unassessed), `fleet_posture` ladder boundaries (pass rate exactly 75 and 90, share exactly 50 and 90, zero candidates, all `non_ubuntu`, nothing evaluable) with the exact headline strings |
 | `test_sample_report.py` | the committed `docs/sample/report.html` equals a fresh `smoketest.render_sample`, the README links it and labels the data fabricated, and the README screenshot exists |
+| `test_public_tree.py` | the public tree carries no private data: no tracked text file names a Windows home directory or the old private example range, no file outside `TRACKER_ID_EXCLUSIONS` carries a tracker id and each exclusion still matches a file, no doc carries stale grc-3 status text, the example config scopes a documentation range, the README lists only product docs; scratch-repo cases prove a file with a NUL byte is skipped and a cp1252 file is searched |
 | `test_models.py` | `RunRecord.scanned_hosts`, `coverage_gaps`, `fleet_pass_rate` (the aggregates posture builds on) |
 
 ## Fixtures
