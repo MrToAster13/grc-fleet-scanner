@@ -23,23 +23,13 @@ from __future__ import annotations
 import csv
 import os
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .models import (
-    OUT_OF_SCOPE_VERDICTS, UNDETERMINED_VERDICTS, VERDICT_FAIL,
-    VERDICT_NOT_APPLICABLE, VERDICT_PASS,
+    OUT_OF_SCOPE_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
-from .scap_xml import localname
-
-try:
-    from defusedxml.ElementTree import parse as _safe_xml_parse
-    from defusedxml.common import DefusedXmlException
-except ImportError as exc:  # pragma: no cover - dependency guard
-    raise SystemExit(
-        "defusedxml is required. Install dependencies: pip install -r requirements.txt"
-    ) from exc
+from .scap_xml import ScapXmlError, clean_field, read_results
 
 
 class RmfError(Exception):
@@ -50,28 +40,6 @@ class RmfError(Exception):
 # We roll up to the base control (family + number); the enhancement is dropped
 # because the SSP row set is usually managed at the control level.
 _CONTROL_RE = re.compile(r"^\s*([A-Z]{2})-(\d+)")
-
-# When a merged / multi-TestResult ARF repeats an idref, keep the most decision-
-# critical verdict instead of last-write-wins. Rank high-to-low: a fail, then an
-# undetermined verdict (error/notchecked/unknown -- incomplete coverage must not
-# read as a pass), then pass, then not-applicable, then an out-of-scope marker.
-# This holds the never-false-pass line in BOTH directions: a later pass can't bury
-# an earlier fail or error, and an out-of-scope marker can't bury a real verdict.
-# The verdict vocabulary is imported from models so scan.py and rmf.py can't drift.
-_RESULT_RANK = {
-    VERDICT_FAIL: 5,
-    **{v: 4 for v in UNDETERMINED_VERDICTS},
-    VERDICT_PASS: 3,
-    VERDICT_NOT_APPLICABLE: 2,
-    **{v: 1 for v in OUT_OF_SCOPE_VERDICTS},
-}
-
-
-def _result_rank(result: str) -> int:
-    # An unrecognized verdict ranks as undetermined so a novel marker is treated
-    # conservatively and is never overwritten by a pass.
-    return _RESULT_RANK.get(result, 4)
-
 
 def _base_control(text: str) -> Optional[str]:
     m = _CONTROL_RE.match(text or "")
@@ -162,50 +130,28 @@ def _detect_revision(href: str) -> Optional[str]:
 
 
 def _parse_one(path: str):
-    """Return (rule_id -> {control refs}, rule_id -> result, detected revision)."""
+    """Return (rule_id -> {control refs}, rule_id -> result, detected revision).
+
+    ``scap_xml.read_results`` reads the file, so a repeated idref already
+    resolves to its most decision-critical verdict and the size cap applies."""
     try:
-        root = _safe_xml_parse(path).getroot()
-    except (DefusedXmlException, ET.ParseError, OSError) as exc:
+        evidence = read_results(path)
+    except ScapXmlError as exc:
         raise RmfError(f"cannot parse ARF {path}: {exc}") from exc
+    if evidence.empty:
+        raise RmfError(f"cannot parse ARF {path}: empty file")
 
     rule_controls: dict[str, set] = {}
-    rule_results: dict[str, str] = {}
     revision: Optional[str] = None
-
-    for el in root.iter():
-        name = localname(el.tag)
-        if name == "Rule":
-            rid = el.get("id")
-            if not rid:
+    for rid, info in evidence.rules.items():
+        for text, href in info.references:
+            if "800-53" not in href:
                 continue
-            for child in el:
-                if localname(child.tag) != "reference":
-                    continue
-                href = child.get("href") or ""
-                if "800-53" not in href:
-                    continue
-                text = (child.text or "").strip()
-                if _base_control(text) is None:
-                    continue  # e.g. the "nist" publisher reference -- not a control
-                rule_controls.setdefault(rid, set()).add(text)
-                revision = revision or _detect_revision(href)
-        elif name == "rule-result":
-            idref = el.get("idref")
-            if not idref:
-                continue
-            for child in el:
-                if localname(child.tag) == "result":
-                    outcome = (child.text or "").strip().lower()
-                    # A merged / multi-TestResult ARF can repeat an idref. Keep the
-                    # most decision-critical verdict (see _RESULT_RANK) rather than
-                    # last-write-wins, so a later pass can't bury an earlier fail or
-                    # error (a false pass in SSP evidence) and an out-of-scope marker
-                    # can't bury a real verdict.
-                    prev = rule_results.get(idref)
-                    if prev is None or _result_rank(outcome) > _result_rank(prev):
-                        rule_results[idref] = outcome
-                    break
-
+            if _base_control(text) is None:
+                continue  # e.g. the "nist" publisher reference -- not a control
+            rule_controls.setdefault(rid, set()).add(text)
+            revision = revision or _detect_revision(href)
+    rule_results = {rid: o.verdict for rid, o in evidence.outcomes.items()}
     return rule_controls, rule_results, revision
 
 
@@ -242,7 +188,7 @@ def rollup_from_arf(paths) -> list[ControlRow]:
                     # attempted but reached no verdict -- the never-false-pass danger
                     # signal. Must NOT read as "Implemented"; distinct from not-applicable.
                     row.unverified += 1
-                row.rules.add(rid)
+                row.rules.add(clean_field(rid))
                 if rev:
                     row.revisions.add(rev)
     return sorted(rows.values(), key=lambda r: (r.family, _control_num(r.control)))

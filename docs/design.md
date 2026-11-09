@@ -186,7 +186,8 @@ warning and exit code `3`, so the report and the CLI read one set of fleet postu
 | `classify.py` | Ubuntu hint + credential-group matching |
 | `remote.py` | SSH, host-key verification, sudo, SFTP; a clear failure taxonomy |
 | `detect.py` | Ubuntu version + oscap/SSG presence + profile resolution |
-| `scan.py` | remote `oscap` eval + evidence retrieval + XCCDF result parse + reconciliation |
+| `scan.py` | remote `oscap` eval + evidence retrieval + mapping the read results onto a `ScanResult` + reconciliation |
+| `scap_xml.py` | the one reader of SCAP evidence for `scan.py` and `rmf.py`: safe parse, size cap, cleaned target-supplied fields, one rule outcome per repeated rule |
 | `assess.py` | per-host reach, detect and scan; the only writer of a host's verdict after triage, including the `scan_verdict` chokepoint (see [ADR 0002](adr/0002-one-writer-per-host-verdict.md)) |
 | `store.py` | **Contract:** SQLite schema + immutable run persistence (forward-safe migration) |
 | `history.py` | comparable-run rules (finished, not a dry run, same `config_hash`) for the drift baseline and the trend line, over the store's raw run summaries (see [ADR 0001](adr/0001-comparable-run-history.md)) |

@@ -6,6 +6,12 @@ release, everything lives under **Unreleased**.
 ## [Unreleased]
 
 ### Security
+- **A repeated rule counts once in a host's scan, and the RMF rollup gets the size cap.**
+  `scap_xml.read_results` is now the one reader of SCAP evidence for both `scan.py` and
+  `rmf.py`. The scan used to count every copy of a repeated `rule-result`, so a target
+  could pad its pass count; it now keeps one rule outcome per rule at the most
+  decision-critical verdict, as the RMF rollup already did. `grc-rmf` now refuses an ARF
+  over 256 MiB and cleans rule ids the same way the scan does (ELI-1083).
 - **Each audited host is treated as hostile.** A remote command's stdout and stderr are
   capped at 16 MiB combined, and its timeout is now a total deadline, not an idle timer
   per read, so a host that keeps sending output no longer holds a worker or fills memory.
