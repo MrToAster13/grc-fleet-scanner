@@ -22,19 +22,7 @@ from __future__ import annotations
 import os
 import posixpath
 import re
-import xml.etree.ElementTree as ET
 from typing import Optional
-
-try:
-    # Parse target-supplied XML with entity/DTD/external-reference defenses on.
-    # results.xml is written by the (possibly hostile) target, so the stdlib
-    # parser's billion-laughs exposure is a real DoS vector on the run host.
-    from defusedxml.ElementTree import parse as _safe_xml_parse
-    from defusedxml.common import DefusedXmlException
-except ImportError as exc:  # pragma: no cover - dependency guard
-    raise SystemExit(
-        "defusedxml is required. Install dependencies: pip install -r requirements.txt"
-    ) from exc
 
 from .detect import ScanPlan
 from .logging_setup import get_logger
@@ -42,19 +30,17 @@ from .models import (
     HostRecord, RuleResult, ScanResult,
     UNDETERMINED_VERDICTS, VERDICT_FAIL, VERDICT_NOT_APPLICABLE, VERDICT_PASS,
 )
-from .remote import MAX_EVIDENCE_BYTES, RemoteHostProtocol
-from .scap_xml import localname
+from .remote import RemoteHostProtocol
+# The parse cap is scap_xml's, which equals the evidence cap get_file enforces
+# during the pull; it is re-checked on disk before parsing.
+from .scap_xml import MAX_RESULTS_BYTES as _MAX_RESULTS_BYTES  # noqa: F401
+from .scap_xml import ScapXmlError, read_results
 
 log = get_logger()
 
 # Exit codes that mean "the evaluation ran and produced results" (0 = all pass,
 # 2 = some rules failed). Both are successful scans for our purposes.
 _OSCAP_SUCCESS_CODES = (0, 2)
-
-# Guard parse_xccdf_results against a pathological/oversized results file. A real
-# Ubuntu CIS results.xml is a few MB. get_file already refuses anything larger
-# during the pull; this re-checks the file on disk before parsing it.
-_MAX_RESULTS_BYTES = MAX_EVIDENCE_BYTES
 
 # Max gap (percentage points) between oscap's weighted <score> and a flat
 # pass-ratio before we warn of a likely mis-parse. Wide on purpose: CIS weighted
@@ -77,32 +63,6 @@ _SAFE_REMOTE_DIR = re.compile(r"^/var/lib/grc_audit\.[A-Za-z0-9]{6}$")
 # A group name safe to pass to a root chgrp, matching what grc-target-setup
 # accepts for the sudoers rule. \Z, not $, so a trailing newline is refused.
 _SAFE_GROUP = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9._-]{0,31}\Z")
-
-
-# Cap on any single target-supplied string (rule id / title / severity) before it
-# enters the report model. A real CIS rule id/title is well under this.
-_MAX_FIELD_LEN = 1024
-
-# SSG fix text kept per failed rule. Of the 563 shell fixes in the v0.1.74
-# Ubuntu 22.04 datastream, 15 exceed this; the retained results.xml keeps them whole.
-_MAX_FIX_LEN = 16384
-_FIX_TRUNCATED = "\n[truncated; the full fix is in this host's retained results.xml]"
-# The longest SSG v0.1.74 Ubuntu 22.04 rationale is 1138 chars; 3 exceed 1024.
-_MAX_RATIONALE_LEN = 4096
-_FIX_SYSTEMS = ("urn:xccdf:fix:script:sh", "urn:xccdf:fix:script:ansible")
-
-
-def _clean_field(text: Optional[str], maxlen: int = _MAX_FIELD_LEN) -> Optional[str]:
-    """Bound a target-supplied string: drop control characters and cap length.
-
-    A hostile results.xml fully controls rule ids/titles. HTML-escaping and
-    CSV-safety happen at render time; this is defense in depth so such a string
-    cannot smuggle layout-breaking control bytes or bloat the report. ``None``
-    stays ``None``.
-    """
-    if text is None:
-        return None
-    return "".join(ch for ch in str(text) if ch.isprintable())[:maxlen]
 
 
 def _build_oscap_argv(plan: ScanPlan, r_results: str, r_arf: str,
@@ -280,121 +240,70 @@ def _get_file_best_effort(conn: RemoteHostProtocol, remote: str, local: str,
 
 
 def parse_xccdf_results(path: str) -> ScanResult:
-    """Parse an XCCDF results file into a ScanResult (counts, score, failures).
+    """Map one XCCDF results file onto a ScanResult (counts, score, failures).
 
-    Expected input shape (namespaces are stripped before matching, so any XCCDF
-    namespace/version works; matching is by element *local-name*):
+    ``scap_xml.read_results`` reads the file; see it for the accepted shape,
+    the size cap and how a repeated rule resolves to one rule outcome. Each rule
+    outcome lands in one bucket: ``pass``, ``fail``, ``notapplicable``,
+    ``notchecked``, ``error`` (with ``unknown``, ran but reached no verdict), or
+    ``other`` for anything else (``notselected`` / ``informational`` /
+    ``fixed``, i.e. out of scope), which is excluded from assessment
+    confidence. An empty ``<result/>`` carries no verdict and is skipped.
+    Failed rules carry the benchmark's title, rationale and SSG fix text where
+    it defines them; the fix is display text and nothing runs it.
 
-      * A ``<TestResult>`` element somewhere in the document containing the
-        per-rule outcomes. (We scan the whole tree, so a results-only file or a
-        full benchmark+results file both parse.)
-      * Each rule outcome is a ``<rule-result idref="..." severity="...">``
-        element whose direct child ``<result>`` carries the verdict text, one
-        of: ``pass`` | ``fail`` | ``error`` | ``notapplicable`` | ``notchecked``.
-        ``unknown`` (ran but reached no verdict) counts with ``error``; anything
-        else (``notselected`` / ``informational`` / ``fixed``, i.e. out of scope)
-        goes to ``other`` and is excluded from assessment confidence. The ``idref``
-        and ``severity`` attributes are optional (default to ``"unknown"``).
-      * An optional ``<score>`` element whose text is the XCCDF percentage
-        (0..100). The first one found wins; a missing/non-numeric score yields
-        ``score=None``.
-      * An optional ``<version>`` element supplies ``benchmark_version`` (first
-        non-empty one wins).
-      * Optional ``<Rule id="...">`` definitions, each with a child ``<title>``,
-        supply human-readable titles for failed rules. Absent titles are fine
-        (``RuleResult.title`` stays None).
-
-    Resilience: tolerates a missing ``<score>``, namespace variations, absent
-    titles, and an empty file (returns an all-zero ScanResult). An unreadable,
-    malformed, or oversized (> ~256 MiB) file raises ValueError so the caller
-    records a SCAN_ERROR rather than silently reporting zeros.
+    An empty file returns an all-zero ScanResult. An unreadable, malformed,
+    hostile or oversized file raises ValueError so the caller records a
+    SCAN_ERROR rather than silently reporting zeros.
     """
     try:
-        size = os.path.getsize(path)
-    except OSError as exc:
-        raise ValueError(f"results file not accessible: {path} ({exc})") from exc
+        evidence = read_results(path)
+    except ScapXmlError as exc:
+        raise ValueError(str(exc)) from exc
 
-    if size == 0:
+    scan = ScanResult(profile_id="", datastream="")
+    if evidence.empty:
         # An empty results file is degenerate but not corrupt; report zeros so
         # the caller can still distinguish it from a parse crash if it chooses.
         log.warning("parse: empty results file %s", path)
-        return ScanResult(profile_id="", datastream="")
-    if size > _MAX_RESULTS_BYTES:
-        raise ValueError(
-            f"results file too large to parse safely: {path} ({size} bytes)"
-        )
+        return scan
+    scan.score = evidence.score
+    scan.benchmark_version = evidence.benchmark_version
 
-    try:
-        tree = _safe_xml_parse(path)
-        root = tree.getroot()
-    except DefusedXmlException as exc:
-        raise ValueError(
-            f"hostile XCCDF results (entity/DTD/external-ref blocked): {path} ({exc})"
-        ) from exc
-    except ET.ParseError as exc:
-        raise ValueError(f"malformed XCCDF results: {path} ({exc})") from exc
-
-    scan = ScanResult(profile_id="", datastream="")
-    failed_rules: list[RuleResult] = []
-
-    for el in root.iter():
-        name = localname(el.tag)
-        if name == "rule-result":
-            result_el = None
-            for child in el:
-                if localname(child.tag) == "result":
-                    result_el = child
-                    break
-            if result_el is None or result_el.text is None:
-                continue
-            # Normalize case so the buckets match regardless of how the
-            # benchmark emits the verdict text (oscap uses lowercase; rmf.py
-            # lowercases too -- keep the two parsers in agreement).
-            outcome = result_el.text.strip().lower()
-            if outcome == VERDICT_PASS:
-                scan.passed += 1
-            elif outcome == VERDICT_FAIL:
-                scan.failed += 1
-                failed_rules.append(RuleResult(
-                    rule_id=_clean_field(el.get("idref")) or "unknown",
-                    result=outcome,
-                    severity=_clean_field(el.get("severity")) or "unknown",
-                ))
-            elif outcome in UNDETERMINED_VERDICTS:
-                # A selected check that OWED a verdict but produced none. 'error'
-                # and 'unknown' RAN but reached none (OVAL probe error, missing
-                # dependency); 'notchecked' was not evaluated. All lower
-                # assessment_confidence -- never-false-pass: an unanswered check is
-                # not a trustworthy one. They are NOT out-of-scope like
-                # 'notselected'/'informational' (which fall through to `other`,
-                # excluded from the confidence denominator). 'notchecked' keeps its
-                # own field; 'error'/'unknown' share the error probe-failure bucket.
-                if outcome == "notchecked":
-                    scan.not_checked += 1
-                else:
-                    scan.error += 1
-            elif outcome == VERDICT_NOT_APPLICABLE:
-                scan.not_applicable += 1
+    for rule_id, outcome in evidence.outcomes.items():
+        verdict = outcome.verdict
+        if verdict == "":
+            continue
+        if verdict == VERDICT_PASS:
+            scan.passed += 1
+        elif verdict == VERDICT_FAIL:
+            scan.failed += 1
+            info = evidence.rules.get(rule_id)
+            scan.failed_rules.append(RuleResult(
+                rule_id=outcome.rule_id,
+                result=verdict,
+                severity=outcome.severity,
+                title=info.title if info else None,
+                rationale=info.rationale if info else None,
+                fix_text=info.fix_text if info else None,
+            ))
+        elif verdict in UNDETERMINED_VERDICTS:
+            # A selected check that OWED a verdict but produced none. 'error'
+            # and 'unknown' RAN but reached none (OVAL probe error, missing
+            # dependency); 'notchecked' was not evaluated. All lower
+            # assessment_confidence -- never-false-pass: an unanswered check is
+            # not a trustworthy one. They are NOT out-of-scope like
+            # 'notselected'/'informational' (which fall through to `other`,
+            # excluded from the confidence denominator). 'notchecked' keeps its
+            # own field; 'error'/'unknown' share the error probe-failure bucket.
+            if verdict == "notchecked":
+                scan.not_checked += 1
             else:
-                scan.other += 1
-        elif name == "score" and scan.score is None:
-            try:
-                scan.score = float((el.text or "").strip())
-            except (TypeError, ValueError):
-                pass
-        elif name == "version" and scan.benchmark_version is None:
-            scan.benchmark_version = (el.text or "").strip() or None
-
-    # Attach title, rationale and SSG fix text to failed rules where the
-    # benchmark defines them. The fix is display text for the analyst; nothing
-    # here or anywhere else runs it. Skip the second walk when there are no fails.
-    text = _rule_text(root, {fr.rule_id for fr in failed_rules}) if failed_rules else {}
-    for fr in failed_rules:
-        info = text.get(fr.rule_id, {})
-        fr.title = info.get("title")
-        fr.rationale = info.get("rationale")
-        fr.fix_text = info.get("fix_text")
-    scan.failed_rules = failed_rules
+                scan.error += 1
+        elif verdict == VERDICT_NOT_APPLICABLE:
+            scan.not_applicable += 1
+        else:
+            scan.other += 1
 
     # Soft reconciliation: catch a gross mis-parse where oscap's own <score>
     # and our parsed pass/fail tell opposite stories. CIS uses a *weighted*
@@ -411,63 +320,3 @@ def parse_xccdf_results(path: str) -> ScanResult:
                 path, scan.score, scan.passed, scan.failed, implied,
             )
     return scan
-
-
-def _xml_text(el: ET.Element) -> str:
-    """All text under ``el``, with each XCCDF ``<sub idref>`` variable shown as
-    ``[value: idref]``: the value is set by the profile, not in the Rule."""
-    # An explicit stack, not recursion: a hostile file can nest thousands deep.
-    parts: list[str] = []
-    stack: list = [el]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, str):
-            parts.append(node)
-            continue
-        if node is not el and localname(node.tag) == "sub":
-            parts.append("[value: %s]" % node.get("idref", ""))
-        else:
-            parts.append(node.text or "")
-            for child in reversed(node):
-                stack.append(child.tail or "")
-                stack.append(child)
-    return "".join(parts)
-
-
-def _clean_fix(text: str) -> Optional[str]:
-    """Like ``_clean_field`` but keeps newlines and tabs, since a fix is a script."""
-    text = "".join(ch for ch in text if ch.isprintable() or ch in "\n\t").strip()
-    if not text:
-        return None
-    if len(text) > _MAX_FIX_LEN:
-        text = text[:_MAX_FIX_LEN] + _FIX_TRUNCATED
-    return text
-
-
-def _rule_text(root: ET.Element, wanted: set) -> dict[str, dict]:
-    """``{rule_id: {"title", "rationale", "fix_text"}}`` for the Rules in
-    ``wanted``. The fix is SSG's shell fix, else its Ansible fix, as display text."""
-    out: dict[str, dict] = {}
-    for el in root.iter():
-        if localname(el.tag) != "Rule":
-            continue
-        rid = _clean_field(el.get("id"))
-        if rid not in wanted:
-            continue
-        info: dict = {"title": None, "rationale": None, "fix_text": None}
-        fixes: dict[str, str] = {}
-        for child in el:
-            name = localname(child.tag)
-            if name == "title" and info["title"] is None:
-                info["title"] = _clean_field((child.text or "").strip()) or ""
-            elif name == "rationale" and info["rationale"] is None:
-                info["rationale"] = _clean_field(" ".join(_xml_text(child).split()),
-                                                 _MAX_RATIONALE_LEN) or None
-            elif name == "fix":
-                fixes.setdefault(child.get("system", ""), _xml_text(child))
-        for system in _FIX_SYSTEMS:
-            if system in fixes:
-                info["fix_text"] = _clean_fix(fixes[system])
-                break
-        out[rid] = info
-    return out

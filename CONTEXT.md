@@ -69,3 +69,13 @@ _Avoid_: Compliance status, grade
 **Zero-scanned run**:
 A run that is not a dry run, scanned no host, and either discovered nothing or had at least one scan candidate.
 _Avoid_: Empty run, failed run
+
+### Evidence
+
+**Scan evidence**:
+The SCAP results a scan leaves on disk for one host (the XCCDF results file and the ARF), read by both the posture counts and the RMF control rollup.
+_Avoid_: Report (a report is the run's rendered output), raw output
+
+**Rule outcome**:
+One rule's verdict in a host's scan evidence. When the evidence repeats a rule, its outcome is the most decision-critical verdict seen (fail, then undetermined, then pass, then not applicable, then out of scope), so a repeated pass can neither bury a fail nor count twice.
+_Avoid_: Rule result (the XML element name), check result
