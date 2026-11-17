@@ -20,6 +20,11 @@ records every action in an audit log, but it cannot grant you authority you don'
 `discover (nmap)` → `classify` → `SSH in` → `detect oscap/CIS content` →
 `run OpenSCAP CIS scan` → `persist` → `report (HTML + JSON/CSV + drift)`.
 
+Discovery runs `nmap <timing> -sV` over nmap's default ports, plus any
+`scope.nmap_extra_args`. `-sV` sends service version probes to every open port it finds,
+because classify reads the SSH banner to pick Ubuntu candidates. Cover that in the scope of
+your written authorization.
+
 Every host ends in an **honest coverage bucket**. Partial coverage is never dressed up as
 a clean result; see the status table in §6.
 
@@ -150,8 +155,8 @@ anything when there is no history yet.
 | Code | Meaning |
 |---|---|
 | `0` | Success: at least one host reached `scanned` (or this was a `--dry-run`). |
-| `1` | Discovery or RMF failure. |
-| `2` | Genuine config error: `config.yaml` exists but failed to load or validate (e.g. the authorization guard refused an empty scope). Something is actually wrong; fix the file and re-run. |
+| `1` | Discovery failure, or `rmf` could not parse an ARF file or found no 800-53 mappings in it. |
+| `2` | Genuine config error: `config.yaml` exists but failed to load or validate (e.g. the authorization guard refused an empty scope, or a key is misspelled). Something is actually wrong; fix the file and re-run. For `rmf`, a path that does not exist or holds no `arf.xml`. |
 | `3` | Zero-scanned: the run completed and wrote a report, but no host reached `scanned` -- every host landed in a coverage gap (`no_credentials`, `unreachable`, `scanner_absent`, etc.), or discovery found nothing. Not raised for `--dry-run` (which never scans by design) or for a fleet that is entirely `non_ubuntu` (never scan candidates in the first place). The console summary and the report's top banner explain which. |
 | `4` | Config scaffolded: no `config.yaml` existed, so `run` just wrote a starter one and stopped. Nothing ran and nothing is broken; edit `scope.cidrs` and re-run. Distinct from `2`: a caller/CI step can now tell "we created your config for you" apart from "your config is broken". |
 
@@ -195,8 +200,9 @@ credential_groups:           # first matching group (top-down) wins
 ```
 
 Every value is type-checked when the config loads. A wrong type, such as `cis_level: two`,
-a scalar where a list belongs, or a malformed CIDR in `targets`, stops `run` with exit `2`
-and a `config error:` line naming the key. Booleans must be unquoted `true` or `false`: a
+a scalar where a list belongs, a malformed CIDR in `targets`, or an `nmap_timing` outside
+`-T0`..`-T5`, stops `run` with exit `2` and a `config error:` line naming the key. A key the
+loader does not know, such as a misspelled `credentail_groups`, stops it the same way. Booleans must be unquoted `true` or `false`: a
 quoted `'false'` is refused, because it is a string and would otherwise read as true.
 
 **A host is missing from the report entirely.** nmap marks a host down when it does not
@@ -222,11 +228,22 @@ is where it is. Act on the gaps:
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release: upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |
 | `scan_error` | Scan errored, **or** completed with too little coverage to certify (below the hard floor) | Read the host's `oscap.stderr.txt` + `audit.log`; if "assessment incomplete", fix the scan account's sudo/privilege |
+| `discovered` | Shown as "Discovered, unprocessed". Only a `--dry-run` leaves a host here: it was found and classified as a candidate, and the dry run stopped before SSH. | Nothing; run without `--dry-run` to audit it |
 
 **Other report sections:** executive summary (posture + biggest risks), fleet trend
 (pass-rate sparkline over recent runs), severity breakdown, and top failing controls.
 For authoritative NIST 800-53 references, run the `rmf` command: it reads each rule's
 own reference embedded in the raw ARF evidence.
+
+```bash
+grc-rmf grc-output/runs/<run_id>                 # one run: searches it for every arf.xml
+grc-rmf -o rollup.csv grc-output/runs/<run_id>/192.0.2.10/arf.xml
+```
+
+`rmf` takes one or more `arf.xml` files or directories, and searches each directory for
+`arf.xml` files. It writes `control-rollup.csv` in the current directory unless `-o` names
+another file, and overwrites that file without asking. Paths from more than one run merge
+into one rollup, with a note on stderr, so pass a single run directory for a per-run view.
 
 **Assessment confidence (read this before trusting a score).** Each scanned host shows a
 confidence % = how much of the benchmark actually produced a verdict. A low-privilege scan
@@ -314,5 +331,5 @@ Run with `-v` for debug logging; the per-run `audit.log` has the full trace.
 ## 10. First time? 
 
 Don't point it at the fleet on day one. Run one Ubuntu VM through
-[validation.md](validation.md) end-to-end (including the six negative-path checks), then
+[validation.md](validation.md) end-to-end (including the seven negative-path checks in its §6), then
 widen `scope.cidrs` to the authorized range.

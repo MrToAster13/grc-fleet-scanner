@@ -85,7 +85,14 @@ LATEST=$(curl -fsSL https://api.github.com/repos/ComplianceAsCode/content/releas
          | grep -oP '"tag_name":\s*"\K[^"]+')
 curl -fsSL -o ssg.zip \
   "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/scap-security-guide-${LATEST#v}.zip"
-unzip -oq ssg.zip
+# Verify the archive against the sha512 file the release publishes, as grc-target-setup does.
+curl -fsSL -o ssg.zip.sha512 \
+  "https://github.com/ComplianceAsCode/content/releases/download/${LATEST}/scap-security-guide-${LATEST#v}.zip.sha512"
+if [ "$(awk '{print $1}' ssg.zip.sha512)" = "$(sha512sum ssg.zip | awk '{print $1}')" ]; then
+  unzip -oq ssg.zip
+else
+  echo "CHECKSUM MISMATCH: stop, do not install this archive"; rm -f ssg.zip
+fi
 sudo mkdir -p /usr/share/xml/scap/ssg/content
 sudo cp "$(find /tmp -name ssg-ubuntu2204-ds.xml | head -1)" /usr/share/xml/scap/ssg/content/
 
