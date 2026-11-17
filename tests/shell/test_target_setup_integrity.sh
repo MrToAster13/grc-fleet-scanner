@@ -260,6 +260,36 @@ else
     fail=$((fail + 1))
 fi
 
+# 20. ELI-1178: the verification step survives an oscap that prints many
+#     lines. Ubuntu 22.04's oscap 1.2.17 prints its whole capability list;
+#     `oscap --version | head -1` under pipefail killed it with SIGPIPE and the
+#     script exited 141 after installing everything.
+mkdir -p "$work/bin"
+cat > "$work/bin/oscap" <<'EOF'
+#!/usr/bin/env bash
+echo "OpenSCAP command line tool (oscap) 1.2.17"
+for i in $(seq 1 20000); do echo "capability line $i"; done
+EOF
+chmod +x "$work/bin/oscap"
+out="$(PATH="$work/bin:$PATH" GRC_TARGET_SETUP_TEST=1 bash -c '
+    set -euo pipefail
+    source "$1"
+    print_oscap_version
+' _ "$SCRIPT" 2>/dev/null)"
+status=$?
+check "print_oscap_version survives a long oscap --version under pipefail" 0 "$status" "$out" "oscap) 1.2.17"
+
+# 21. ELI-1178 review: the installer body must not pipe oscap --version into
+#     head, which is the pipe that exited 141. Test 20 covers the function;
+#     this covers the call site.
+if grep -nE 'oscap --version[^|]*\|[[:space:]]*head' "$SCRIPT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then
+    echo "FAIL: grc-target-setup still pipes oscap --version into head"
+    fail=$((fail + 1))
+else
+    echo "PASS: no oscap --version | head pipe left in grc-target-setup"
+    pass=$((pass + 1))
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

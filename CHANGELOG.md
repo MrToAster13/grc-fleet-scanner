@@ -45,6 +45,17 @@ release, everything lives under **Unreleased**.
   narrowed rule and a passphrase-protected, agent-held key (ELI-718).
 
 ### Fixed
+- **`grc-target-setup` no longer exits 141 on Ubuntu 22.04.** Its last step ran
+  `oscap --version | head -1` under `pipefail`. 22.04's oscap 1.2.17 prints a long capability
+  list, so `head` closed the pipe, oscap died with SIGPIPE, and the script stopped with exit
+  141 after it had installed everything, without printing "done". Found by the 2026-11-17 live
+  validation (ELI-1178).
+- **A named host whose sshd is down shows `unreachable`, not `non_ubuntu`.** The Ubuntu hint
+  comes from the SSH banner, so with sshd stopped classify filed the host as `non_ubuntu` and
+  the run exited 0 as if the host were out of scope. A host named by itself, as a bare IP or a
+  `/32`, in any credential group on port 22, with no open SSH port, is now `unreachable` and
+  counts as a coverage gap. A host whose nmap fingerprint shows a non-Linux OS, or that only
+  falls inside a wider range, keeps the old behavior. Found by the 2026-11-17 live validation (ELI-1178).
 - **A misspelled config key or a bad `nmap_timing` stops the run.** `load_config` used to
   ignore keys it did not read, so `credentail_groups:` loaded as zero credential groups and
   every Ubuntu host landed in `no_credentials`. It now refuses an unknown key at the top

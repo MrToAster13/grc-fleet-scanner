@@ -9,7 +9,9 @@ initial coverage status:
   * Ubuntu hint + credential group  -> stays DISCOVERED (proceeds to reach)
   * Ubuntu hint + no group          -> NO_CREDENTIALS
   * Ubuntu hint + group on port 22, port 22 not seen -> UNREACHABLE (other group ports go to reach)
-  * no Ubuntu hint                  -> NON_UBUNTU (inventory only)
+  * no Ubuntu hint, host named by itself (bare IP or /32) in a port-22 group,
+    port 22 not seen, no non-Linux fingerprint -> UNREACHABLE
+  * any other host with no Ubuntu hint -> NON_UBUNTU (inventory only)
 
 Optionally (gated on config, default off) unknown-Linux hosts can be promoted to
 Ubuntu *candidates* so they proceed to the authoritative SSH detect stage.
@@ -70,10 +72,14 @@ def _looks_ubuntu(host: HostRecord) -> bool:
 
 def _looks_linux(host: HostRecord) -> bool:
     """Best-effort 'this is some Linux' hint, excluding clear non-Linux OSes."""
-    blob = _host_blob(host)
-    if any(marker in blob for marker in _NON_LINUX_MARKERS):
+    if _looks_non_linux(host):
         return False
-    return any(marker in blob for marker in _LINUX_MARKERS)
+    return any(marker in _host_blob(host) for marker in _LINUX_MARKERS)
+
+
+def _looks_non_linux(host: HostRecord) -> bool:
+    blob = _host_blob(host)
+    return any(marker in blob for marker in _NON_LINUX_MARKERS)
 
 
 def _has_ssh(host: HostRecord) -> bool:
@@ -107,6 +113,18 @@ def classify(hosts: list[HostRecord], cfg: Config) -> list[HostRecord]:
         host.is_ubuntu = is_ubuntu
 
         if not host.is_ubuntu:
+            # The Ubuntu hint comes from the SSH banner, so a named host whose
+            # sshd is down has none. Report the gap instead of hiding it,
+            # unless the fingerprint shows a non-Linux OS.
+            named = next((g for g in cfg.credential_groups
+                          if g.names(host.ip) and g.ssh_port == 22), None)
+            if (named is not None and not _has_ssh(host)
+                    and not _looks_non_linux(host)):
+                host.credential_group = named.name
+                host.status = HostStatus.UNREACHABLE
+                host.detail = (f"named in credential group '{named.name}' but "
+                               f"no open SSH port (22) detected")
+                continue
             host.status = HostStatus.NON_UBUNTU
             host.detail = "no Ubuntu indicator in banners/OS fingerprint"
             continue

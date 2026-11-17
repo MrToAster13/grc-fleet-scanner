@@ -223,7 +223,7 @@ is where it is. Act on the gaps:
 | `scanned` | Audited against CIS | Review failing controls / score |
 | `non_ubuntu` | Alive, not Ubuntu | Out of scope for this tool; inventory only |
 | `no_credentials` | Ubuntu, no credential group matched its IP | Add/adjust a `credential_groups` entry |
-| `unreachable` | Expected reachable but SSH failed | Check network/sshd/firewall/key |
+| `unreachable` | Expected reachable but SSH failed, or a host named by itself in a credential group shows no open SSH port | Check network/sshd/firewall/key |
 | `scanner_absent` | `oscap`/SSG content missing on host | Provision oscap + SSG on the target: run `grc-target-setup` there (see `grc-provision`), or the manual steps in [validation.md](validation.md) §1.1 (`libopenscap8` + a datastream from a ComplianceAsCode release) |
 | `unsupported_version` | No SSG CIS profile for that Ubuntu release | EOL/odd release: upgrade or accept gap |
 | `host_key_mismatch` | **SSH host key ≠ pinned key** | **SECURITY: investigate** (MITM? re-provision?) before re-trusting |

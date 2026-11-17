@@ -14,11 +14,13 @@ audit-defensible.
 > don't have.
 
 > ℹ️ **Status:** functional and tested offline (pytest suite plus shell harnesses). The live
-> scan was last validated end-to-end on 2026-06-30, against a real cloud Ubuntu 22.04 host: the
-> happy path (a full CIS scan producing a real score) plus the negative-path honest-gap checks
-> (`scanner_absent`, `host_key_mismatch`, ...). The scan path has changed since then and has
-> not yet run against a live host, so run [docs/validation.md](docs/validation.md) against one
-> Ubuntu VM before relying on a fleet run.
+> scan was last validated end-to-end on 2026-11-17, against an Ubuntu 22.04 VM provisioned by
+> `grc-target-setup`: the happy path, with pass and fail totals matching OpenSCAP's own report,
+> plus the negative-path honest-gap checks (`no_credentials`, `unreachable`, `scanner_absent`,
+> `host_key_mismatch`, `non_ubuntu`, missing sudo) and drift across runs. See
+> [docs/design.md](docs/design.md) §11 for what that run did not cover. Run
+> [docs/validation.md](docs/validation.md) against one Ubuntu VM in any new environment before
+> relying on a fleet run.
 
 ## Sample report
 

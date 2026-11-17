@@ -270,11 +270,21 @@ Surfaced during development, intentionally not built yet:
 ## 11. Status & validation
 
 Offline behavior is covered by the pytest suite and the shell harnesses in `tests/shell/`.
-The live SSH→`oscap` scan leg was last validated end-to-end on 2026-06-30, against a real
-cloud Ubuntu 22.04 host: both the happy path (a full CIS scan producing a real score) and the
-negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, and the rest of
-[validation.md](validation.md) §6). The scan path has changed since then, including the
-exact-command sudoers rule `grc-target-setup` now writes, and that code has not yet run
-against a live host. Re-run
-[validation.md](validation.md) against a single VM in any new environment (including its
-negative-path checks) before trusting a fleet run.
+The live SSH→`oscap` scan leg was last validated end-to-end on 2026-11-17, against an Ubuntu
+22.04.5 VM with oscap 1.2.17 and SCAP Security Guide v0.1.82, provisioned by
+`grc-target-setup` with its exact-command sudoers rule. The VM was its own run host, which
+[validation.md](validation.md) allows for an Ubuntu run host. That run covered:
+
+- the happy path: the host ended `scanned`, and its 226 pass and 109 fail matched both
+  `results.xml` and OpenSCAP's own per-host report;
+- the negative paths in [validation.md](validation.md) §6: `no_credentials`,
+  `host_key_mismatch`, `scanner_absent` for a missing binary and for missing content, missing
+  sudo, which reports `scanner_absent` with the sudo reason, `unreachable` for a stopped
+  sshd, and `non_ubuntu` for a non-Ubuntu host whose OpenSSH banner has no Ubuntu marker;
+- drift: a second comparable run showed a fleet delta of 0.0 and `history` listed every run.
+
+It did not cover a separate run host, `unsupported_version`, or Ubuntu 20.04 and 24.04
+targets. An earlier run on 2026-06-30, against a cloud Ubuntu 22.04 host, covered the happy
+path and the negative paths of that day's code. Re-run [validation.md](validation.md) against
+a single VM in any new environment, including its negative-path checks, before trusting a
+fleet run.
