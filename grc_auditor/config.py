@@ -51,6 +51,22 @@ class CredentialGroup:
             return True
         return ip_in_networks(ip, tokens)
 
+    def names(self, ip: str) -> bool:
+        """True when a target is exactly this one address (a bare IP or a
+        /32 or /128): the operator listed the host itself, not a range."""
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        for t in self.targets:
+            try:
+                net = ipaddress.ip_network(str(t).strip(), strict=False)
+            except ValueError:
+                continue
+            if net.num_addresses == 1 and net.network_address == addr:
+                return True
+        return False
+
 
 @dataclass
 class ScanScope:

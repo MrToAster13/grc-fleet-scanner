@@ -221,3 +221,66 @@ def test_non_ubuntu_host_with_open_2222_stays_non_ubuntu():
 
     assert host.is_ubuntu is False
     assert host.status is HostStatus.NON_UBUNTU
+
+
+# ELI-1178: the Ubuntu hint comes from the SSH banner, so a host whose sshd is
+# down has no hint. A host the operator named exactly in a credential group is
+# an audit target, so a closed SSH port is a coverage gap (unreachable), not
+# "non_ubuntu, inventory only".
+def _dark_host(ip="192.0.2.40"):
+    return HostRecord(ip=ip, open_ports=[80], banners={"80/tcp": "nginx"})
+
+
+def _named_group_config(target, ssh_port=22):
+    return make_config(groups=[
+        CredentialGroup(name="named", ssh_user="u", targets=[target],
+                        ssh_port=ssh_port),
+    ])
+
+
+def test_named_host_with_ssh_closed_is_unreachable():
+    host = _dark_host()
+    classify([host], _named_group_config("192.0.2.40"))
+    assert host.status is HostStatus.UNREACHABLE
+    assert host.credential_group == "named"
+    assert "22" in host.detail
+
+
+def test_slash_32_named_host_with_ssh_closed_is_unreachable():
+    host = _dark_host()
+    classify([host], _named_group_config("192.0.2.40/32"))
+    assert host.status is HostStatus.UNREACHABLE
+
+
+def test_host_only_inside_a_group_range_with_ssh_closed_stays_non_ubuntu():
+    host = _dark_host()
+    classify([host], _named_group_config("192.0.2.0/24"))
+    assert host.status is HostStatus.NON_UBUNTU
+
+
+def test_named_host_with_non_ubuntu_ssh_banner_stays_non_ubuntu():
+    host = HostRecord(ip="192.0.2.40", open_ports=[22],
+                      banners={"22/tcp": "OpenSSH 9.2p1 Debian"})
+    classify([host], _named_group_config("192.0.2.40"))
+    assert host.status is HostStatus.NON_UBUNTU
+
+
+# ELI-1178 review finding 1: a wider group listed first must not hide the
+# group that names the host.
+def test_named_host_shadowed_by_earlier_range_group_is_unreachable():
+    cfg = make_config(groups=[
+        CredentialGroup(name="lan", ssh_user="u", targets=["192.0.2.0/24"]),
+        CredentialGroup(name="named", ssh_user="u", targets=["192.0.2.40"]),
+    ])
+    host = _dark_host()
+    classify([host], cfg)
+    assert host.status is HostStatus.UNREACHABLE
+    assert host.credential_group == "named"
+
+
+# ELI-1178 review finding 3: positive non-Linux evidence wins over the name.
+def test_named_host_with_windows_fingerprint_stays_non_ubuntu():
+    host = HostRecord(ip="192.0.2.40", open_ports=[3389, 445],
+                      os_guess="Microsoft Windows Server 2019")
+    classify([host], _named_group_config("192.0.2.40"))
+    assert host.status is HostStatus.NON_UBUNTU
