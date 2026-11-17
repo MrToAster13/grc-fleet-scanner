@@ -248,6 +248,7 @@ _MAX_SSH_CONCURRENCY = 100
 # Valid nmap timing templates. Anything else is refused at load, so a typo'd or
 # injected token (e.g. "-T9" or an unrelated flag) never reaches the binary.
 NMAP_TIMINGS = frozenset({"-T0", "-T1", "-T2", "-T3", "-T4", "-T5"})
+DEFAULT_NMAP_TIMING = "-T3"  # cautious default
 
 # Every key the loader reads, per level. Any other key is refused, so a typo
 # such as credentail_groups fails the load instead of loading as "no groups".
@@ -274,12 +275,16 @@ def _refuse_unknown_keys(doc: dict, known: frozenset, where: str) -> None:
             f"{', '.join(sorted(known))}")
 
 
-def _validate_nmap_timing(value) -> Optional[str]:
+def _validate_nmap_timing(value) -> str:
+    """Return the timing nmap will get, so provenance and the hash record it.
+    A blank value keeps meaning the default."""
     timing = _as_str(value, "scope.nmap_timing", optional=True)
-    if timing is not None and timing.strip() not in NMAP_TIMINGS:
+    if timing is None:
+        return DEFAULT_NMAP_TIMING
+    if timing.strip() not in NMAP_TIMINGS:
         raise ConfigError(
             f"scope.nmap_timing must be one of -T0..-T5 (got {value!r})")
-    return timing
+    return timing.strip()
 
 # nmap extra-args are allowlisted, not denylisted. A denylist cannot keep up with
 # nmap's parser: it accepts unambiguous long-option prefixes (--excludefil=),
@@ -516,7 +521,7 @@ def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
         cidrs=_validate_cidrs(scope_doc.get("cidrs"), "scope.cidrs",
                               allow_empty=allow_empty_scope),
         exclude=_validate_exclude(scope_doc.get("exclude"), "scope.exclude"),
-        nmap_timing=_validate_nmap_timing(scope_doc.get("nmap_timing", "-T3")),
+        nmap_timing=_validate_nmap_timing(scope_doc.get("nmap_timing")),
         nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args")),
         ssh_concurrency=_validate_concurrency(scope_doc.get("ssh_concurrency", 10)),
         host_timeout_seconds=_validate_host_timeout(

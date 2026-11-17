@@ -562,3 +562,17 @@ def test_invalid_nmap_timing_raises(tmp_path, value):
 def test_valid_nmap_timing_loads(tmp_path, value):
     text = f"scope:\n  cidrs: [192.0.2.0/24]\n  nmap_timing: '{value}'\n"
     assert load_config(_write_raw(tmp_path, text)).scope.nmap_timing == value
+
+
+# ELI-1146 review findings 1 and 2: the stored timing is the one nmap gets, so
+# effective-config.json and the config hash record what ran.
+@pytest.mark.parametrize("value, stored", [
+    ("''", "-T3"), ("", "-T3"), ("' -T4 '", "-T4"), ("'-T4'", "-T4"),
+], ids=["blank", "null", "padded", "plain"])
+def test_stored_nmap_timing_is_what_nmap_runs(tmp_path, value, stored):
+    text = f"scope:\n  cidrs: [192.0.2.0/24]\n  nmap_timing: {value}\n"
+    cfg = load_config(_write_raw(tmp_path, text))
+    assert cfg.scope.nmap_timing == stored
+    omitted = load_config(_write_raw(tmp_path, "scope:\n  cidrs: [192.0.2.0/24]\n"
+                                     f"  nmap_timing: '{stored}'\n"))
+    assert cfg.hash() == omitted.hash()

@@ -22,14 +22,13 @@ except ImportError as exc:  # pragma: no cover - dependency guard
     ) from exc
 
 from . import deps
+from .config import DEFAULT_NMAP_TIMING as _DEFAULT_TIMING
 from .config import NMAP_TIMINGS as _VALID_TIMING
 from .config import ScanScope
 from .logging_setup import get_logger
 from .models import HostRecord
 
 log = get_logger()
-
-_DEFAULT_TIMING = "-T3"  # SPEC: cautious default.
 
 # Default number of CIDR targets per nmap invocation. A single nmap process can
 # scan an arbitrary number of targets, but very large scopes (e.g. hundreds of

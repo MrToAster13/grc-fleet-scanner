@@ -51,8 +51,11 @@ release, everything lives under **Unreleased**.
   level, under `scope`, or in a credential group, with exit `2` and the key's name. A
   `scope.nmap_timing` outside `-T0`..`-T5` is refused the same way. It used to load, nmap
   ran with `-T3`, and `effective-config.json` recorded the value that was never used. A
-  blank `nmap_timing` still means `-T3`. Old configs that carry a removed key now fail to
-  load until the key is deleted (ELI-1146).
+  blank `nmap_timing` still means `-T3`, and the config now stores `-T3` for it, so
+  `effective-config.json` and the config hash record the timing nmap ran. A config with a
+  blank or padded `nmap_timing` gets a new hash once, so its next run does not compare drift
+  against older runs. Old configs that carry a removed key now fail to load until the key
+  is deleted (ELI-1146).
 - **Docs match the code.** `docs/operating.md` gives the exit codes `rmf` really returns,
   says what to pass to `rmf` and where its CSV lands, says discovery runs `nmap -sV`, and
   lists the `discovered` status a dry run leaves. The manual SCAP content steps in
