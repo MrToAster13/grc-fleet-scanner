@@ -311,6 +311,14 @@ upsert_key_line() {
     printf '%s\n' "$2"
 }
 
+# print_oscap_version
+# Prints the first line of `oscap --version`. sed reads the whole output, so
+# oscap never gets SIGPIPE: 22.04's oscap prints a long capability list, and
+# `| head -1` under pipefail ended the script with exit 141.
+print_oscap_version() {
+    oscap --version | sed -n 1p
+}
+
 # The shell test harness sources this file with GRC_TARGET_SETUP_TEST=1 to
 # reach verify_sha512sum()/validate_pubkey() above without running the
 # installer body below.
@@ -470,7 +478,7 @@ fi
 
 # --- verify ---------------------------------------------------------------- #
 echo "== verification =="
-oscap --version | head -1
+print_oscap_version
 ls -l "$SSG_DIR/$SSG_FILE"
 if [ -n "$SCAN_USER" ]; then
     id "$SCAN_USER"
