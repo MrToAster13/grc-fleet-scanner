@@ -1,9 +1,15 @@
 # Changelog
 
-All notable changes to GRC Fleet Auditor. This project is pre-1.0; until a tagged
-release, everything lives under **Unreleased**.
+All notable changes to GRC Fleet Auditor. This project is pre-1.0. Changes after the
+latest tag go under **Unreleased**.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-17
+
+First tagged release. The live scan was validated against an Ubuntu 22.04 VM on 2026-11-17;
+[docs/design.md](docs/design.md) §11 lists what that run covered. Everything below landed
+before this tag.
 
 ### Security
 - **A repeated rule counts once in a host's scan, and the RMF rollup gets the size cap.**
