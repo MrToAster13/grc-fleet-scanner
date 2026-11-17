@@ -302,7 +302,10 @@ Run a fresh audit after each change and check the host's status in `report.html`
 - [ ] **`no_credentials`**: remove the `credential_groups` entry (or change its `targets`
       so it doesn't match). Host should be `no_credentials`.
 - [ ] **`unreachable`**: stop sshd on the target (`sudo systemctl stop ssh`), re-run.
-      Host should be `unreachable` with a clear reason.
+      Host should be `unreachable` with a clear reason. This needs the host named by itself in
+      a credential group's `targets`, as a bare IP or a `/32` like the §4 config. A host that
+      only falls inside a wider range shows `non_ubuntu` instead, because with sshd down nmap
+      sees no SSH banner and so no Ubuntu indicator.
 - [ ] **`host_key_mismatch`**; corrupt the pinned key: `ssh-keygen -R <VM_IP>` then add a
       *wrong* key line for `<VM_IP>` to `~/.ssh/known_hosts`. Re-run. Host should be
       **`host_key_mismatch`** (security finding), not `unreachable`. Re-bootstrap (§2) to restore.
