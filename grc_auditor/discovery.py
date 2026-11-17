@@ -22,15 +22,13 @@ except ImportError as exc:  # pragma: no cover - dependency guard
     ) from exc
 
 from . import deps
+from .config import NMAP_TIMINGS as _VALID_TIMING
 from .config import ScanScope
 from .logging_setup import get_logger
 from .models import HostRecord
 
 log = get_logger()
 
-# Valid nmap timing templates. Anything else is rejected so a typo'd or
-# injected token (e.g. "-T9" or an unrelated flag) never reaches the binary.
-_VALID_TIMING = {"-T0", "-T1", "-T2", "-T3", "-T4", "-T5"}
 _DEFAULT_TIMING = "-T3"  # SPEC: cautious default.
 
 # Default number of CIDR targets per nmap invocation. A single nmap process can

@@ -325,7 +325,9 @@ def _run_args(cfg_path, cidr=None):
     "scope:\n  cidrs: [10.0.0.0/24]\ncis_level: two\n",
     "scope:\n  cidrs: [10.0.0.0/24]\ncredential_groups:\n  - lab\n",
     "scope:\n  cidrs: [10.0.0.0/24]\noutput_dir:\n",
-], ids=["scope_is_list", "cis_level_word", "group_is_string", "output_dir_null"])
+    "scope:\n  cidrs: [10.0.0.0/24]\ncredentail_groups: []\n",
+], ids=["scope_is_list", "cis_level_word", "group_is_string", "output_dir_null",
+        "unknown_key"])
 def test_cmd_run_config_typo_exits_2_without_traceback(tmp_path, capsys, text):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(text, encoding="utf-8")

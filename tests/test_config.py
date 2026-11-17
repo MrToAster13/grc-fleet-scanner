@@ -514,3 +514,51 @@ def test_blank_nmap_timing_still_loads_and_falls_back_to_t3(tmp_path):
 
     cfg = load_config(_write_raw(tmp_path, _EMPTY_OPTIONALS))
     assert build_nmap_args(cfg.scope, False)[1] == "-T3"
+
+
+# ELI-1146 AC1: an unknown key fails the load and names the key and its place,
+# so a typo such as credentail_groups cannot load as "no credential groups".
+@pytest.mark.parametrize("text, key, where", [
+    ("scope:\n  cidrs: [192.0.2.0/24]\n"
+     "credentail_groups:\n  - name: a\n    ssh_user: u\n",
+     "credentail_groups", "config"),
+    ("scope:\n  cidrs: [192.0.2.0/24]\n  bogus_key: 1\n",
+     "bogus_key", "scope"),
+    ("scope:\n  cidrs: [192.0.2.0/24]\n"
+     "credential_groups:\n  - name: a\n    ssh_user: u\n    ssh_prot: 2222\n",
+     "ssh_prot", "credential_group 'a'"),
+], ids=["top_level", "scope", "credential_group"])
+def test_unknown_key_raises_naming_key_and_place(tmp_path, text, key, where):
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert key in str(ei.value)
+    assert where in str(ei.value)
+
+
+def test_every_key_in_config_example_still_loads(tmp_path):
+    import pathlib
+    import re
+
+    example = pathlib.Path(__file__).resolve().parent.parent / "config.example.yaml"
+    # Uncomment the optional keys the example documents, so each one is loaded.
+    text = re.sub(r"^# ([a-z_]+:)", r"\1", example.read_text(encoding="utf-8"),
+                  flags=re.M)
+    text = text.replace("  cidrs:\n", "  cidrs:\n    - 192.0.2.0/24\n", 1)
+    cfg = load_config(_write_raw(tmp_path, text))
+    assert cfg.scope.cidrs[0] == "192.0.2.0/24"
+
+
+# ELI-1146 AC2: a timing value nmap would not get fails the load instead of
+# being swapped for -T3 at scan time while the provenance records the bad value.
+@pytest.mark.parametrize("value", ["--script=foo", "-T6", "T4", "fast"])
+def test_invalid_nmap_timing_raises(tmp_path, value):
+    text = f"scope:\n  cidrs: [192.0.2.0/24]\n  nmap_timing: '{value}'\n"
+    with pytest.raises(ConfigError) as ei:
+        load_config(_write_raw(tmp_path, text))
+    assert "nmap_timing" in str(ei.value)
+
+
+@pytest.mark.parametrize("value", ["-T0", "-T4", "-T5"])
+def test_valid_nmap_timing_loads(tmp_path, value):
+    text = f"scope:\n  cidrs: [192.0.2.0/24]\n  nmap_timing: '{value}'\n"
+    assert load_config(_write_raw(tmp_path, text)).scope.nmap_timing == value
