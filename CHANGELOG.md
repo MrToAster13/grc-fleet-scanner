@@ -45,6 +45,24 @@ release, everything lives under **Unreleased**.
   narrowed rule and a passphrase-protected, agent-held key (ELI-718).
 
 ### Fixed
+- **A misspelled config key or a bad `nmap_timing` stops the run.** `load_config` used to
+  ignore keys it did not read, so `credentail_groups:` loaded as zero credential groups and
+  every Ubuntu host landed in `no_credentials`. It now refuses an unknown key at the top
+  level, under `scope`, or in a credential group, with exit `2` and the key's name. A
+  `scope.nmap_timing` outside `-T0`..`-T5` is refused the same way. It used to load, nmap
+  ran with `-T3`, and `effective-config.json` recorded the value that was never used. A
+  blank `nmap_timing` still means `-T3`, and the config now stores `-T3` for it, so
+  `effective-config.json` and the config hash record the timing nmap ran. A config with a
+  blank or padded `nmap_timing` gets a new hash once, so its next run does not compare drift
+  against older runs. Old configs that carry a removed key now fail to load until the key
+  is deleted (ELI-1146).
+- **Docs match the code.** `docs/operating.md` gives the exit codes `rmf` really returns,
+  says what to pass to `rmf` and where its CSV lands, says discovery runs `nmap -sV`, and
+  lists the `discovered` status a dry run leaves. The manual SCAP content steps in
+  `docs/validation.md` verify the release's sha512 file before unzipping, as
+  `grc-target-setup` does. README and `docs/design.md` date the last live validation to
+  2026-06-30 and say the scan path has changed since. README says `pip install .` is not a
+  supported install (ELI-1146).
 - **`git pull` now updates installed launchers.** `install.sh` copied `bin/*` into
   `~/.local/bin`, so a pull updated the Python package but left the old launcher logic in
   place. It now symlinks them, replaces copies left by an older install, and removes links
@@ -66,6 +84,15 @@ release, everything lives under **Unreleased**.
   belongs in `scope.nmap_extra_args` (for example `["-p22,2222"]`) (ELI-640).
 
 ### Changed
+- **CI runs once per PR commit.** The push trigger fires only on `main`, so a PR commit runs
+  through `pull_request` alone, and a newer commit cancels the PR's in-progress run (ELI-1094).
+- **The public-tree guards search every tracked text file.** The private-range and
+  tracker-id checks in `tests/test_public_tree.py` used to search a path allowlist. They now
+  search every tracked text file, with an explicit exclusion table for tracker ids (ELI-1066).
+- **pytest moved to `requirements-dev.txt`.** The run host installs `requirements.txt`
+  alone. The CLI's program name is `python -m grc_auditor` on every Python version, the
+  shell-test job is pinned to `ubuntu-24.04`, and every test module has a row in
+  `tests/README.md` (ELI-1067).
 - **One entry point for the shell harnesses.** `tests/shell/run-all.sh` runs every
   `tests/shell/test_*.sh` and fails if any fails or none exist. CI, the pre-commit hook,
   AGENTS.md and tests/README.md all call it; before this, AGENTS.md and tests/README.md

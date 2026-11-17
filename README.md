@@ -13,11 +13,12 @@ audit-defensible.
 > without an explicit scope and logs every action, but it cannot grant you authority you
 > don't have.
 
-> ℹ️ **Status:** functional, tested offline (pytest suite plus shell harnesses), and validated end-to-end
-> against a real cloud Ubuntu 22.04 host: the happy path (a full CIS scan producing a real
-> score) plus the negative-path honest-gap checks (`scanner_absent`, `host_key_mismatch`, ...).
-> Re-run [docs/validation.md](docs/validation.md) in any new environment before relying on a
-> production fleet run.
+> ℹ️ **Status:** functional and tested offline (pytest suite plus shell harnesses). The live
+> scan was last validated end-to-end on 2026-06-30, against a real cloud Ubuntu 22.04 host: the
+> happy path (a full CIS scan producing a real score) plus the negative-path honest-gap checks
+> (`scanner_absent`, `host_key_mismatch`, ...). The scan path has changed since then and has
+> not yet run against a live host, so run [docs/validation.md](docs/validation.md) against one
+> Ubuntu VM before relying on a fleet run.
 
 ## Sample report
 
@@ -98,6 +99,10 @@ auto-installing it through your package manager (apt/dnf/pacman/zypper/brew) and
 grc-demo            # renders a sample report you can open in a browser
 ```
 
+`install.sh` and the manual steps below are the supported installs. `pip install .` is not:
+the repo ships no package metadata, so pip builds a package without the report template,
+the starter config or the `grc-*` commands.
+
 ### Manual install (from source, no launchers)
 
 ```bash
@@ -157,7 +162,8 @@ reference, scheduling, troubleshooting, and report interpretation are in the
 | [CONTEXT.md](CONTEXT.md) | Domain glossary: run, dry run, comparable run, baseline, scope changed, drift, trend point, triage, assessment, verdict, fleet pass rate |
 | [CHANGELOG.md](CHANGELOG.md) | What's changed |
 
-Development notes live outside this repo.
+Agent decision logs for some changes sit in `.factory/log/`, one file per ticket. They
+record how a change was made and are not needed to run the tool.
 
 ## Security & authorization
 

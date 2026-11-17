@@ -245,6 +245,47 @@ _MIN_IPV4_PREFIX = 16
 _MIN_IPV6_PREFIX = 112
 _MAX_SSH_CONCURRENCY = 100
 
+# Valid nmap timing templates. Anything else is refused at load, so a typo'd or
+# injected token (e.g. "-T9" or an unrelated flag) never reaches the binary.
+NMAP_TIMINGS = frozenset({"-T0", "-T1", "-T2", "-T3", "-T4", "-T5"})
+DEFAULT_NMAP_TIMING = "-T3"  # cautious default
+
+# Every key the loader reads, per level. Any other key is refused, so a typo
+# such as credentail_groups fails the load instead of loading as "no groups".
+_TOP_LEVEL_KEYS = frozenset({
+    "scope", "credential_groups", "output_dir", "known_hosts", "cis_level",
+    "ssg_dir", "low_confidence_threshold", "treat_unknown_linux_as_ubuntu",
+    "fetch_remote_resources", "os_detect",
+})
+_SCOPE_KEYS = frozenset({
+    "cidrs", "exclude", "nmap_timing", "nmap_extra_args", "ssh_concurrency",
+    "host_timeout_seconds",
+})
+_CREDENTIAL_GROUP_KEYS = frozenset({
+    "name", "ssh_user", "targets", "key_path", "use_agent", "ssh_port", "sudo",
+    "cis_level",
+})
+
+
+def _refuse_unknown_keys(doc: dict, known: frozenset, where: str) -> None:
+    unknown = sorted(str(k) for k in doc if k not in known)
+    if unknown:
+        raise ConfigError(
+            f"Unknown key '{unknown[0]}' in {where}. Known keys: "
+            f"{', '.join(sorted(known))}")
+
+
+def _validate_nmap_timing(value) -> str:
+    """Return the timing nmap will get, so provenance and the hash record it.
+    A blank value keeps meaning the default."""
+    timing = _as_str(value, "scope.nmap_timing", optional=True)
+    if timing is None:
+        return DEFAULT_NMAP_TIMING
+    if timing.strip() not in NMAP_TIMINGS:
+        raise ConfigError(
+            f"scope.nmap_timing must be one of -T0..-T5 (got {value!r})")
+    return timing.strip()
+
 # nmap extra-args are allowlisted, not denylisted. A denylist cannot keep up with
 # nmap's parser: it accepts unambiguous long-option prefixes (--excludefil=),
 # short options with an attached value (-oNfile, -iLfile), and flags that add
@@ -435,6 +476,7 @@ def _parse_credential_group(doc, index: int) -> CredentialGroup:
             f"port is not among them, list it in scope.nmap_extra_args (e.g. "
             f'["-p22,2222"]), or the host can show as non-Ubuntu.'
         )
+    _refuse_unknown_keys(doc, _CREDENTIAL_GROUP_KEYS, where)
     level = doc.get("cis_level")
     ssh_port = _as_int(doc.get("ssh_port", 22), f"{where}: ssh_port")
     if not 1 <= ssh_port <= 65535:
@@ -469,16 +511,17 @@ def load_config(path: str, *, allow_empty_scope: bool = False) -> Config:
 
     if not isinstance(doc, dict):
         raise ConfigError("Top-level config must be a mapping")
+    _refuse_unknown_keys(doc, _TOP_LEVEL_KEYS, "config")
 
     # `scope:` with every child commented out parses as None: treat it as an
     # empty scope, so it gets the authorization-guard refusal (or --cidr).
     scope_doc = _as_mapping(_require(doc, "scope", "config"), "scope")
+    _refuse_unknown_keys(scope_doc, _SCOPE_KEYS, "scope")
     scope = ScanScope(
         cidrs=_validate_cidrs(scope_doc.get("cidrs"), "scope.cidrs",
                               allow_empty=allow_empty_scope),
         exclude=_validate_exclude(scope_doc.get("exclude"), "scope.exclude"),
-        nmap_timing=_as_str(scope_doc.get("nmap_timing", "-T3"),
-                            "scope.nmap_timing", optional=True),
+        nmap_timing=_validate_nmap_timing(scope_doc.get("nmap_timing")),
         nmap_extra_args=_validate_nmap_extra_args(scope_doc.get("nmap_extra_args")),
         ssh_concurrency=_validate_concurrency(scope_doc.get("ssh_concurrency", 10)),
         host_timeout_seconds=_validate_host_timeout(
